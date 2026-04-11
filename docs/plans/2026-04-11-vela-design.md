@@ -83,7 +83,7 @@ Discovery uses the existing layered approach from the VISION: mDNS on LAN, expli
 - Model tier and context size
 - Available tools and specializations
 - Availability and capacity signal
-- **Execution mode** — whether the node accepts background work while in active use (identified as a gap in case study analysis)
+- **Execution mode** — one of three values: background-ok (accepts background work even during an active human session), background-when-idle (accepts background work only when no active session is running), or owner-only (only accepts work from the owner orchestrator, no sharing). The M4 Max is configured as background-when-idle by default. Servers are background-ok.
 
 ### Layer 3 — The Authorization Fabric
 
@@ -206,6 +206,8 @@ Every assertion is evaluable. The node knows exactly what passing looks like. Th
 
 When a node sends its `task.complete` event with an evidence bundle, Vela evaluates each assertion in the rubric against the provided evidence:
 
+Vela evaluates evidence independently using Gemma 4 — it does not simply accept node self-assessments. A node's task.assertion events are claims with attached evidence, not verdicts. For each assertion, Vela reads the evidence payload and reaches its own conclusion against the rubric criterion. The three-outcome decision below applies to Vela's independent evaluation, not the node's claim.
+
 - **All assertions pass** — task is complete. Output synthesis decides what to surface.
 - **Minor failure, easy correction** — Vela re-delegates with corrective context. The user profile's correction history informs this threshold. If the user previously said "just retry once" for this failure type, Vela does so silently.
 - **Ambiguous or hard failure** — Vela escalates to the user with enough context to make a decision. It never silently swallows a failure it cannot confidently repair.
@@ -286,7 +288,7 @@ This pattern generalizes. Any boundary that a family member wants enforced can b
 
 Hardware is shared. Priority rules determine who goes first:
 
-- **M4 Max** — Ken's tasks preempt family requests when he is actively using it. When idle, fair queue.
+- **M4 Max** — Ken's tasks jump to the front of the queue when he begins active use — but running jobs always complete before his task starts. No job is ever interrupted mid-execution. When Ken is not actively using the machine, the queue is fair.
 - **Servers** — fair queue for all authorized orchestrators
 - **All nodes** — running jobs are never interrupted; new requests queue behind whatever is executing
 
@@ -403,7 +405,7 @@ Ken directs agents on a single machine via voice from his phone, even when the m
 A server node sits headless, retrieves Ken's email, summarizes it, and hands the summary off to another node for further processing. The final result is delivered to Ken's Vela.
 
 **Flow:**
-1. Pipeline is either triggered by voice or runs on a schedule
+1. Pipeline is triggered by voice — the user asks Vela to run the email summary
 2. Server A retrieves email and produces structured summaries (rubric: JSON format, all messages processed)
 3. Summary is handed to Server B for additional processing — cross-referencing with calendar, flagging action items
 4. Each hop has its own rubric, produces its own evidence, and pushes A2UI events back to Ken's Vela
@@ -434,10 +436,10 @@ Jethro's Vela needs to access a data node that belongs to Ken — it has researc
 
 4. **Node-to-node delegation.** The current design has Vela orchestrating every hop in a multi-node pipeline. For latency-sensitive chains, direct node-to-node handoff (with Vela informed via A2UI) may be more efficient. This adds complexity to the authorization model — nodes would need to trust each other, not just orchestrators.
 
-5. **Scheduled and recurring tasks.** The design covers on-demand delegation triggered by voice. Recurring tasks (daily email summary, weekly report) need a scheduler component — likely on-device, with the job registry managing the cadence and the intent gate pre-compiling rubrics for known recurring patterns.
+5. **Scheduled and recurring tasks.** On-demand voice-triggered pipelines are in scope for this design (e.g., "run my email summary now"). Recurring/scheduled tasks (daily email summary at 7 AM, weekly report every Monday) are deferred — they need a scheduler component likely on-device, with the job registry managing the cadence and the intent gate pre-compiling rubrics for known recurring patterns. That scheduler is a future addition, not part of this initial design.
 
 6. **Conflict resolution for shared nodes.** The priority model handles contention (Ken preempts, servers use fair queue). But what happens when two family members' tasks conflict on a data level — e.g., both writing to the same storage location? The authorization model scopes capabilities but does not yet address data-level conflicts.
 
 7. **Middle son's boundary evolution.** The `creative-ai: blocked` policy is enforced at the node level. If middle son later wants partial relaxation (AI assists with audio mixing but not composition), the current policy tag is binary. A richer policy vocabulary may be needed — but should only be added when a real use case demands it.
 
-8. **Execution mode advertising.** Case study 1 identified that nodes need to advertise whether they accept background work during active human use. The exact semantics of execution modes (background-only, foreground-only, both, queue-when-busy) need to be specified in the capability manifest schema.
+8. ~~Execution mode advertising.~~ Resolved: three execution modes defined in the node capability manifest schema (background-ok, background-when-idle, owner-only). Semantic edge cases (e.g., owner-only nodes in multi-tenant family scenarios) may need refinement during implementation.
