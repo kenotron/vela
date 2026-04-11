@@ -1,12 +1,13 @@
 package com.vela.app.ai
 
 import com.google.common.truth.Truth.assertThat
+import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
 class FakeGemmaEngineTest {
 
     @Test
-    fun processTextReturnsNonEmptyResponse() {
+    fun processTextReturnsNonEmptyResponse() = runTest {
         val engine: GemmaEngine = FakeGemmaEngine()
         val response = engine.processText("hello")
         assertThat(response).isNotNull()
@@ -14,14 +15,14 @@ class FakeGemmaEngineTest {
     }
 
     @Test
-    fun processTextReturnsCannedGreeting() {
+    fun processTextReturnsCannedGreeting() = runTest {
         val engine: GemmaEngine = FakeGemmaEngine()
         val response = engine.processText("hello")
         assertThat(response).isEqualTo("Hello! I'm Vela, your on-device AI assistant. How can I help?")
     }
 
     @Test
-    fun processTextHandlesDifferentInputs() {
+    fun processTextHandlesDifferentInputs() = runTest {
         val engine: GemmaEngine = FakeGemmaEngine()
         val responseOne = engine.processText("What is the weather like?")
         val responseTwo = engine.processText("")

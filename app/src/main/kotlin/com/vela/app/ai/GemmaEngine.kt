@@ -1,5 +1,5 @@
 package com.vela.app.ai
 
 interface GemmaEngine {
-    fun processText(input: String): String
+    suspend fun processText(input: String): String
 }
