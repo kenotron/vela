@@ -27,7 +27,9 @@ class ConversationScreenTest {
 
     @Test
     fun tappingVoiceButtonTogglesState() {
-        val startButton = device.findObject(By.desc("Start voice input"))
+        val startButton = checkNotNull(device.findObject(By.desc("Start voice input"))) {
+            "Start voice input button not found in accessibility tree"
+        }
         startButton.click()
         device.waitForIdle(2000)
         AccessibilitySnapshot.assertHasContentDesc("Stop voice input")
@@ -35,11 +37,15 @@ class ConversationScreenTest {
 
     @Test
     fun fullConversationFlowShowsAssistantResponse() {
-        val startButton = device.findObject(By.desc("Start voice input"))
+        val startButton = checkNotNull(device.findObject(By.desc("Start voice input"))) {
+            "Start voice input button not found in accessibility tree"
+        }
         startButton.click()
         device.waitForIdle(2000)
         AccessibilitySnapshot.assertHasContentDesc("Stop voice input")
-        val stopButton = device.findObject(By.desc("Stop voice input"))
+        val stopButton = checkNotNull(device.findObject(By.desc("Stop voice input"))) {
+            "Stop voice input button not found in accessibility tree"
+        }
         stopButton.click()
         device.wait(
             Until.findObject(By.text("Hello! I'm Vela, your on-device AI assistant. How can I help?")),
