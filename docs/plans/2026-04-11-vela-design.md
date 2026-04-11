@@ -372,7 +372,7 @@ Digital artist and animal lover, currently saving for a Golden Retriever. Needs 
 - **Hardware:** Good CPUs, no high-end GPUs, ample storage
 - **Capabilities:** CPU-heavy tasks, Amplifier hosting, email pipelines, data processing, file storage, long-running background jobs
 - **Execution mode:** Always available. Fair queue for all authorized orchestrators. No human session to contend with.
-- **Future:** Can host OpenCL or similar compute services that an Amplifier node exposes as a capability. This is likely where "Della-style" always-on assistant services live — persistent pipelines that monitor, summarize, and prepare data without being asked.
+- **Future:** Can host OpenCL or similar compute services that an Amplifier node exposes as a capability. This is likely where Vela's always-on background services live — persistent pipelines that monitor, summarize, and prepare data without being asked.
 
 ### Node Capability Summary
 
