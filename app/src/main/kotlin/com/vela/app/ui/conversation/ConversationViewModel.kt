@@ -28,13 +28,16 @@ class ConversationViewModel(
             )
             _messages.value = _messages.value + userMessage
             _isProcessing.value = true
-            val response = gemmaEngine.processText(userMessage.content)
-            _isProcessing.value = false
-            val assistantMessage = Message(
-                role = MessageRole.ASSISTANT,
-                content = response,
-            )
-            _messages.value = _messages.value + assistantMessage
+            try {
+                val response = gemmaEngine.processText(userMessage.content)
+                val assistantMessage = Message(
+                    role = MessageRole.ASSISTANT,
+                    content = response,
+                )
+                _messages.value = _messages.value + assistantMessage
+            } finally {
+                _isProcessing.value = false
+            }
         }
     }
 }
