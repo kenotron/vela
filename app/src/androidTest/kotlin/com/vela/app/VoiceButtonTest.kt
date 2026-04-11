@@ -1,8 +1,10 @@
 package com.vela.app
 
+import android.Manifest
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import com.vela.app.util.AccessibilitySnapshot
@@ -13,7 +15,10 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class VoiceButtonTest {
 
-    @get:Rule
+    @get:Rule(order = 0)
+    val grantPermission: GrantPermissionRule = GrantPermissionRule.grant(Manifest.permission.RECORD_AUDIO)
+
+    @get:Rule(order = 1)
     val activityRule = ActivityScenarioRule(MainActivity::class.java)
 
     private val device: UiDevice
