@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base theme for the app. Material3 theming is applied via Compose MaterialTheme. -->
+    <style name="Theme.Vela" parent="android:Theme.Material.Light.NoActionBar">
+    </style>
+</resources>
