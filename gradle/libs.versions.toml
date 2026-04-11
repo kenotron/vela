@@ -4,6 +4,7 @@
     ksp = "2.0.0-1.0.21"
     composeBom = "2024.06.00"
     hilt = "2.51"
+    hiltNavigation = "1.2.0"
     room = "2.6.1"
     uiautomator = "2.3.0"
     junit = "4.13.2"
@@ -48,7 +49,7 @@
     # Hilt
     hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
     hilt-android-compiler = { group = "com.google.dagger", name = "hilt-android-compiler", version.ref = "hilt" }
-    hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version = "1.2.0" }
+    hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version.ref = "hiltNavigation" }
 
     # Coroutines
     kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -68,7 +69,6 @@
     android-library = { id = "com.android.library", version.ref = "agp" }
     kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
     kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
-    kotlin-kapt = { id = "org.jetbrains.kotlin.kapt", version.ref = "kotlin" }
     ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
     hilt-android = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
     room = { id = "androidx.room", version.ref = "room" }
