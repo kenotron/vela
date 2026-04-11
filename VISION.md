@@ -4,9 +4,20 @@
 
 ---
 
+## The Core Idea
+
+Your phone carries more raw intelligence than anything that existed a decade ago — but it's still treated as a dumb terminal for cloud services. Vela flips this. It runs a capable-enough local model (Gemma 4, ~2B–4B range) that gives it genuine reasoning ability, memory, and planning capacity right on the device. But Vela's real power isn't what it knows — it's what it can **command**.
+
+Distributed across your network are **Amplifier nodes**: purpose-built AI agents with specialized tools, heavier models, and deep capabilities. Vela knows they exist, knows what they can do, and knows how to put them to work. You talk to Vela. Vela orchestrates the army.
+
+**Vela is the general. The nodes are the battalions.**
+
+---
+
 ## The Problem It Solves
 
 Today, AI assistants are either:
+
 - **Too cloud-dependent** — useless on a plane, on a slow connection, or when the API is down
 - **Too monolithic** — one model trying to do everything, poorly
 - **Siloed** — each service is its own island; nothing orchestrates them
@@ -15,79 +26,128 @@ Vela solves this by separating **intelligence** (always local, always available)
 
 ---
 
+## Principles
+
+**1. Offline-first, not offline-only**
+Vela is fully functional without a network. Research, planning, memory — all available on the device. When nodes come online, capabilities expand seamlessly. The transition is invisible to you.
+
+**2. Capability is advertised, not assumed**
+Nodes tell Vela what they can do. Vela never hardcodes a node's capabilities. Discovery is the protocol; capability maps are maintained locally and refreshed when connectivity allows. Stale capability data degrades gracefully — Vela routes around unavailable nodes.
+
+**3. The phone does thinking. Nodes do doing.**
+Vela's on-device model is optimized for orchestration, not execution. It understands intent, plans multi-step workflows, decomposes tasks, selects the right nodes, and synthesizes results. Heavy compute, long-running tasks, tool-heavy operations — those belong on nodes.
+
+**4. Local data stays local**
+Your memory, your plans, your conversation history — none of it leaves the device unless you explicitly route it to a node. The node network is a resource pool, not a surveillance layer.
+
+**5. The network is your network**
+Nodes can be on your LAN, on a VPN, on a home server, in a cloud VM, or on a trusted remote machine. The topology doesn't matter. If Vela can reach it and the node advertises capabilities, it's in the fleet.
+
+---
+
 ## Architecture
 
-The Android app runs Gemma 4 in a small variant (~2B–4B parameters). This provides real reasoning ability, memory, and planning capacity entirely on-device. The on-device model is optimized for orchestration — decomposing intent, selecting nodes, routing tasks, synthesizing results. Heavy compute, long-running tasks, and tool-heavy operations belong on nodes.
-
-Distributed across the network are **Amplifier nodes** — purpose-built AI agent instances with:
-- Heavier models (GPT-4, Claude, Gemini, or larger local models)
-- Specialized tool sets (web search, bash, filesystem, APIs, home control)
-- Capability manifests that Vela discovers and caches
+```
+┌─────────────────────────────────────────────────────────┐
+│                  VELA (Android)                         │
+│                                                         │
+│  ┌──────────────┐   ┌──────────────┐  ┌─────────────┐  │
+│  │ Gemma 4 (2B) │   │ Local Memory │  │ Node Registry│  │
+│  │ Orchestrator │   │ + Vector DB  │  │ (Capability  │  │
+│  │ Planner      │   │              │  │  Map)        │  │
+│  └──────┬───────┘   └──────────────┘  └──────┬──────┘  │
+│         │                                     │         │
+│         └──────────── Routes tasks ───────────┘         │
+└─────────────────────────────┬───────────────────────────┘
+                              │  (WiFi / LTE / VPN)
+          ┌───────────────────┼────────────────────┐
+          ▼                   ▼                    ▼
+  ┌───────────────┐  ┌───────────────┐  ┌─────────────────┐
+  │ Amplifier Node│  │ Amplifier Node│  │ Amplifier Node  │
+  │               │  │               │  │                 │
+  │ "Researcher"  │  │ "Code Runner" │  │ "Home Hub"      │
+  │  GPT-4o       │  │  Claude 3.5   │  │  Gemini Flash   │
+  │  web tools    │  │  bash tools   │  │  Home Assistant │
+  │  search tools │  │  file tools   │  │  lighting / env │
+  └───────────────┘  └───────────────┘  └─────────────────┘
+```
 
 ---
 
 ## Node Capability Discovery
 
-Nodes publish a **capability manifest** containing:
-- **Identity**: node name, version, location hint
-- **Model**: LLM tier, context size, reasoning capability
-- **Tools**: available tools (web search, bash, filesystem, APIs, etc.)
-- **Specializations**: high-level tags (research, code, home-control, media, etc.)
+Nodes run an Amplifier instance that publishes a **capability manifest** — a structured advertisement of:
+
+- **Identity**: node name, version, location hint (local/remote)
+- **Model**: what LLM is running and roughly what it can do (reasoning tier, context size)
+- **Tools**: what tools are available (web search, bash, filesystem, APIs, etc.)
+- **Specializations**: high-level capability tags (research, code, home-control, media, etc.)
 - **Availability**: online/offline, latency hint, capacity signal
-- **Trust level**: what Vela is allowed to delegate to this node
+- **Trust level**: what Vela is allowed to ask it to do
 
 ### Discovery Layers
 
-- **LAN**: mDNS broadcast (`_amplifier._tcp.local`) — zero-config local discovery
-- **Trusted remote**: explicitly registered nodes with lightweight heartbeat
-- **Cloud**: Amplifier nodes that phone home to a registry endpoint
+Discovery uses a layered approach:
 
-Vela maintains a persistent capability map on-device. Offline nodes are marked stale but not deleted — Vela plans around them and queues tasks that execute when nodes return.
+- **LAN**: mDNS broadcast (`_amplifier._tcp.local`) for zero-config local discovery
+- **Trusted remote**: explicitly registered nodes with a lightweight heartbeat protocol
+- **Cloud**: Amplifier nodes in VMs/containers that phone home to a known registry endpoint
+
+Vela maintains a **persistent capability map** on-device. When a node goes offline, its capabilities are marked stale but not deleted — Vela can still plan for them and queue tasks that will execute when the node returns.
 
 ---
 
-## Offline-First Design
+## What Vela Can Do Offline
 
-When disconnected, Vela handles:
-- **Research** — RAG over a local knowledge index (seeded and maintained by Vela)
+When disconnected, Vela is a fully capable personal AI. The on-device Gemma model handles:
+
+- **Research** — RAG over a local knowledge index (you seed it; Vela maintains it)
 - **Planning** — Task decomposition, project planning, scheduling
-- **Memory** — Semantic memory via local vector store ("what did we decide about X?")
-- **Drafting** — Writing, thinking, exploring ideas
-- **Task queuing** — "Send this to the research node when back on WiFi" — executes automatically on reconnect
+- **Memory** — Semantic memory via a local vector store — *"what did we decide about X last month?"*
+- **Drafting** — Writing, thinking through problems, exploring ideas
+- **Task queuing** — *"Send this to the research node when I'm back on WiFi"* — tasks queue and execute automatically when connectivity returns
+
+When nodes come back online, queued tasks drain. Results sync. The experience is continuous.
 
 ---
 
 ## The Orchestration Role
 
-When a request is complex or requires real capability:
+This is Vela's identity. When a request is complex or requires real capability:
 
 1. Vela's local model **decomposes** the request into a workflow
-2. It **selects** nodes based on the capability map
+2. It **selects** nodes based on the capability map (who has the right tools? who's available?)
 3. It **spawns** Amplifier sessions on those nodes — delegating each piece
 4. It **monitors** session progress, handles failures, re-routes if a node drops
 5. It **synthesizes** results back into a coherent response
 
-This is the `delegate()` pattern from Amplifier, elevated to a cross-device, cross-network primitive. Vela is a meta-orchestrator: an orchestrator of orchestrators. Complex multi-node workflows run in the background — you ask, pocket your phone, and the answer is there when you look.
+This is exactly the `delegate()` pattern from Amplifier, elevated to a cross-device, cross-network primitive. Vela is a meta-orchestrator: **an orchestrator of orchestrators**.
+
+Complex multi-node workflows can run in the background. You ask Vela something, put your phone in your pocket, and the answer is waiting when you next look.
 
 ---
 
-## Node Ecosystem (Evolving)
+## The Node Ecosystem (Evolving)
+
+Nodes start simple and grow into whatever you need:
 
 | Node Type | What it does |
 |---|---|
 | **Research node** | Heavy web research, document analysis, RAG over large corpora |
-| **Code node** | Code execution, file operations, git, CI/CD |
-| **Home node** | Home Assistant integration, lighting, climate, presence |
-| **Media node** | Plex/Jellyfin control, transcoding, recommendations |
+| **Code node** | Code execution, file operations, git, CI/CD integration |
+| **Home node** | Home Assistant integration, lighting, climate, presence detection |
+| **Media node** | Plex/Jellyfin control, transcoding, content recommendations |
 | **Calendar/comms node** | M365, calendar intelligence, smart drafting |
 | **Archive node** | Long-term memory, vault management, document processing |
-| **Compute node** | GPU-accelerated tasks, image gen, fine-tuning |
+| **Compute node** | GPU-accelerated tasks, fine-tuning, image gen |
 
-Every node is an Amplifier instance with a purpose-built bundle. Adding a new capability type means deploying a new node — no changes to Vela required.
+Every node is just an Amplifier instance with a purpose-built bundle. Adding a new capability type means deploying a new node — no changes to Vela required.
 
 ---
 
 ## v1 Success Criteria
+
+A minimal but complete first version:
 
 - Android app ships with Gemma 4 integrated, runs fully offline
 - Local memory persists across sessions and is semantically searchable
@@ -101,8 +161,8 @@ Every node is an Amplifier instance with a purpose-built bundle. Adding a new ca
 
 ## The Long Game
 
-A personal computing mesh where every piece of infrastructure you own or trust is AI-accessible through one coherent interface that lives in your pocket.
+A personal computing mesh where **every piece of infrastructure you own or trust is AI-accessible** through one coherent interface that lives in your pocket.
 
-Home automation. Personal research assistant. Code runner. Media brain. Health tracker. The nodes define the capability. Vela defines the experience.
+Home automation. Personal research assistant. Code runner. Media brain. Health tracker. Financial analyzer. The nodes define the capability. Vela defines the experience.
 
 The phone is not the limit. It's the constant.
