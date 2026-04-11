@@ -1,90 +1,81 @@
 package com.vela.app.ui.conversation
 
-    import com.google.common.truth.Truth.assertThat
-    import com.vela.app.ai.FakeGemmaEngine
-    import com.vela.app.data.db.MessageDao
-    import com.vela.app.data.db.MessageEntity
-    import com.vela.app.data.repository.ConversationRepository
-    import com.vela.app.domain.model.Message
-    import com.vela.app.domain.model.MessageRole
-    import kotlinx.coroutines.Dispatchers
-    import kotlinx.coroutines.flow.Flow
-    import kotlinx.coroutines.flow.MutableStateFlow
-    import kotlinx.coroutines.test.StandardTestDispatcher
-    import kotlinx.coroutines.test.advanceTimeBy
-    import kotlinx.coroutines.test.advanceUntilIdle
-    import kotlinx.coroutines.test.resetMain
-    import kotlinx.coroutines.test.runTest
-    import kotlinx.coroutines.test.setMain
-    import org.junit.After
-    import org.junit.Before
-    import org.junit.Test
+import com.google.common.truth.Truth.assertThat
+import com.vela.app.ai.FakeGemmaEngine
+import com.vela.app.data.repository.ConversationRepository
+import com.vela.app.domain.model.Message
+import com.vela.app.domain.model.MessageRole
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.After
+import org.junit.Before
+import org.junit.Test
 
-    class FakeConversationRepository : ConversationRepository(FakeMessageDao()) {
-        private val _messages = MutableStateFlow<List<Message>>(emptyList())
+class FakeConversationRepository : ConversationRepository {
+    private val _messages = MutableStateFlow<List<Message>>(emptyList())
 
-        override fun getMessages(): Flow<List<Message>> = _messages
+    override fun getMessages(): Flow<List<Message>> = _messages
 
-        override suspend fun saveMessage(message: Message) {
-            _messages.value = _messages.value + message
-        }
+    override suspend fun saveMessage(message: Message) {
+        _messages.value = _messages.value + message
+    }
+}
+
+class ConversationViewModelTest {
+
+    private val testDispatcher = StandardTestDispatcher()
+
+    @Before
+    fun setUp() {
+        Dispatchers.setMain(testDispatcher)
     }
 
-    private class FakeMessageDao : MessageDao {
-        override fun getAllMessages(): Flow<List<MessageEntity>> = MutableStateFlow(emptyList())
-        override suspend fun insertMessage(message: MessageEntity) {}
-        override suspend fun deleteAll() {}
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
     }
 
-    class ConversationViewModelTest {
-
-        private val testDispatcher = StandardTestDispatcher()
-
-        @Before
-        fun setUp() {
-            Dispatchers.setMain(testDispatcher)
-        }
-
-        @After
-        fun tearDown() {
-            Dispatchers.resetMain()
-        }
-
-        @Test
-        fun initialMessagesListIsEmpty() {
-            val viewModel = ConversationViewModel(FakeGemmaEngine(), FakeConversationRepository())
-            assertThat(viewModel.messages.value).isEmpty()
-        }
-
-        @Test
-        fun onVoiceInputAddsUserMessage() = runTest(testDispatcher) {
-            val viewModel = ConversationViewModel(FakeGemmaEngine(), FakeConversationRepository())
-            viewModel.onVoiceInput("/tmp/test_audio.wav")
-            advanceUntilIdle()
-            assertThat(viewModel.messages.value).isNotEmpty()
-            assertThat(viewModel.messages.value.first().role).isEqualTo(MessageRole.USER)
-        }
-
-        @Test
-        fun onVoiceInputTriggersAssistantResponse() = runTest(testDispatcher) {
-            val viewModel = ConversationViewModel(FakeGemmaEngine(), FakeConversationRepository())
-            viewModel.onVoiceInput("/tmp/test_audio.wav")
-            advanceUntilIdle()
-            assertThat(viewModel.messages.value).hasSize(2)
-            assertThat(viewModel.messages.value[0].role).isEqualTo(MessageRole.USER)
-            assertThat(viewModel.messages.value[1].role).isEqualTo(MessageRole.ASSISTANT)
-            assertThat(viewModel.messages.value[1].content)
-                .isEqualTo("Hello! I'm Vela, your on-device AI assistant. How can I help?")
-        }
-
-        @Test
-        fun isProcessingIsTrueWhileGemmaRuns() = runTest(testDispatcher) {
-            val viewModel = ConversationViewModel(FakeGemmaEngine(), FakeConversationRepository())
-            viewModel.onVoiceInput("/tmp/test_audio.wav")
-            advanceTimeBy(50)
-            assertThat(viewModel.isProcessing.value).isTrue()
-            advanceUntilIdle()
-            assertThat(viewModel.isProcessing.value).isFalse()
-        }
+    @Test
+    fun initialMessagesListIsEmpty() {
+        val viewModel = ConversationViewModel(FakeGemmaEngine(), FakeConversationRepository())
+        assertThat(viewModel.messages.value).isEmpty()
     }
-    
+
+    @Test
+    fun onVoiceInputAddsUserMessage() = runTest(testDispatcher) {
+        val viewModel = ConversationViewModel(FakeGemmaEngine(), FakeConversationRepository())
+        viewModel.onVoiceInput("/tmp/test_audio.wav")
+        advanceUntilIdle()
+        assertThat(viewModel.messages.value).isNotEmpty()
+        assertThat(viewModel.messages.value.first().role).isEqualTo(MessageRole.USER)
+    }
+
+    @Test
+    fun onVoiceInputTriggersAssistantResponse() = runTest(testDispatcher) {
+        val viewModel = ConversationViewModel(FakeGemmaEngine(), FakeConversationRepository())
+        viewModel.onVoiceInput("/tmp/test_audio.wav")
+        advanceUntilIdle()
+        assertThat(viewModel.messages.value).hasSize(2)
+        assertThat(viewModel.messages.value[0].role).isEqualTo(MessageRole.USER)
+        assertThat(viewModel.messages.value[1].role).isEqualTo(MessageRole.ASSISTANT)
+        assertThat(viewModel.messages.value[1].content)
+            .isEqualTo("Hello! I'm Vela, your on-device AI assistant. How can I help?")
+    }
+
+    @Test
+    fun isProcessingIsTrueWhileGemmaRuns() = runTest(testDispatcher) {
+        val viewModel = ConversationViewModel(FakeGemmaEngine(), FakeConversationRepository())
+        viewModel.onVoiceInput("/tmp/test_audio.wav")
+        advanceTimeBy(50)
+        assertThat(viewModel.isProcessing.value).isTrue()
+        advanceUntilIdle()
+        assertThat(viewModel.isProcessing.value).isFalse()
+    }
+}

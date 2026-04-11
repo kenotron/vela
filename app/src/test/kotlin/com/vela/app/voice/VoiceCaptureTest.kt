@@ -37,12 +37,14 @@ class VoiceCaptureTest {
             audioRecordFactory = { FakeAudioRecord() },
         )
         voiceCapture.startCapture()
+        Thread.sleep(50) // Allow recording thread to write at least one audio buffer
         val filePath = voiceCapture.stopCapture()
         assertThat(voiceCapture.isRecording.value).isFalse()
         assertThat(filePath).isNotNull()
         val file = File(filePath!!)
         assertThat(file.exists()).isTrue()
         assertThat(file.extension).isEqualTo("wav")
+        assertThat(file.length()).isGreaterThan(44L)
     }
 
     @Test

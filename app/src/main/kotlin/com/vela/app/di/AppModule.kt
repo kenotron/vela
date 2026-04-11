@@ -1,32 +1,38 @@
 package com.vela.app.di
 
-    import android.content.Context
-    import androidx.room.Room
-    import com.vela.app.ai.FakeGemmaEngine
-    import com.vela.app.ai.GemmaEngine
-    import com.vela.app.data.db.MessageDao
-    import com.vela.app.data.db.VelaDatabase
-    import dagger.Module
-    import dagger.Provides
-    import dagger.hilt.InstallIn
-    import dagger.hilt.android.qualifiers.ApplicationContext
-    import dagger.hilt.components.SingletonComponent
-    import javax.inject.Singleton
+import android.content.Context
+import androidx.room.Room
+import com.vela.app.ai.FakeGemmaEngine
+import com.vela.app.ai.GemmaEngine
+import com.vela.app.data.db.MessageDao
+import com.vela.app.data.db.VelaDatabase
+import com.vela.app.data.repository.ConversationRepository
+import com.vela.app.data.repository.RoomConversationRepository
+import dagger.Module
+import dagger.Provides
+import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.components.SingletonComponent
+import javax.inject.Singleton
 
-    @Module
-    @InstallIn(SingletonComponent::class)
-    object AppModule {
+@Module
+@InstallIn(SingletonComponent::class)
+object AppModule {
 
-        @Provides
-        @Singleton
-        fun provideVelaDatabase(@ApplicationContext context: Context): VelaDatabase =
-            Room.databaseBuilder(context, VelaDatabase::class.java, "vela_database").build()
+    @Provides
+    @Singleton
+    fun provideVelaDatabase(@ApplicationContext context: Context): VelaDatabase =
+        Room.databaseBuilder(context, VelaDatabase::class.java, "vela_database").build()
 
-        @Provides
-        fun provideMessageDao(database: VelaDatabase): MessageDao = database.messageDao()
+    @Provides
+    fun provideMessageDao(database: VelaDatabase): MessageDao = database.messageDao()
 
-        @Provides
-        @Singleton
-        fun provideGemmaEngine(): GemmaEngine = FakeGemmaEngine()
-    }
-    
+    @Provides
+    @Singleton
+    fun provideGemmaEngine(): GemmaEngine = FakeGemmaEngine()
+
+    @Provides
+    @Singleton
+    fun provideConversationRepository(messageDao: MessageDao): ConversationRepository =
+        RoomConversationRepository(messageDao)
+}
