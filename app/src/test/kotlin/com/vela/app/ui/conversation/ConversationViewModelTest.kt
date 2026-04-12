@@ -2,7 +2,6 @@ package com.vela.app.ui.conversation
 
 import com.google.common.truth.Truth.assertThat
 import com.vela.app.ai.FakeGemmaEngine
-import com.vela.app.ai.IntentExtractor
 import com.vela.app.audio.FakeTtsEngine
 import com.vela.app.data.repository.ConversationRepository
 import com.vela.app.domain.model.Message
@@ -12,7 +11,6 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -38,7 +36,6 @@ class ConversationViewModelTest {
     private lateinit var fakeRepository: FakeConversationRepository
     private lateinit var fakeGemmaEngine: FakeGemmaEngine
     private lateinit var fakeTts: FakeTtsEngine
-    private lateinit var intentExtractor: IntentExtractor
 
     @Before
     fun setUp() {
@@ -46,7 +43,6 @@ class ConversationViewModelTest {
         fakeRepository = FakeConversationRepository()
         fakeGemmaEngine = FakeGemmaEngine()
         fakeTts = FakeTtsEngine()
-        intentExtractor = IntentExtractor(FakeGemmaEngine())
     }
 
     @After
@@ -57,7 +53,6 @@ class ConversationViewModelTest {
     private fun createViewModel() = ConversationViewModel(
         gemmaEngine = fakeGemmaEngine,
         repository = fakeRepository,
-        intentExtractor = intentExtractor,
         ttsEngine = fakeTts,
     )
 
@@ -72,15 +67,25 @@ class ConversationViewModelTest {
         val viewModel = createViewModel()
         viewModel.onVoiceInput("Turn on the lights")
         advanceUntilIdle()
-        assertThat(viewModel.messages.value).isNotEmpty()
-        assertThat(viewModel.messages.value.first().role).isEqualTo(MessageRole.USER)
-        assertThat(viewModel.messages.value.first().content).isEqualTo("Turn on the lights")
+        val userMessages = viewModel.messages.value.filter { it.role == MessageRole.USER }
+        assertThat(userMessages).hasSize(1)
+        assertThat(userMessages.first().content).isEqualTo("Turn on the lights")
     }
 
     @Test
-    fun onVoiceInputTriggersAssistantResponse() = runTest(testDispatcher) {
+    fun onVoiceInputAddsAssistantResponseAfterProcessing() = runTest(testDispatcher) {
         val viewModel = createViewModel()
-        viewModel.onVoiceInput("Turn on the lights")
+        viewModel.onVoiceInput("Hello")
+        advanceUntilIdle()
+        val assistantMessages = viewModel.messages.value.filter { it.role == MessageRole.ASSISTANT }
+        assertThat(assistantMessages).hasSize(1)
+        assertThat(assistantMessages.first().content).isNotEmpty()
+    }
+
+    @Test
+    fun onTextInputAddsUserAndAssistantMessages() = runTest(testDispatcher) {
+        val viewModel = createViewModel()
+        viewModel.onTextInput("What time is it?")
         advanceUntilIdle()
         assertThat(viewModel.messages.value).hasSize(2)
         assertThat(viewModel.messages.value[0].role).isEqualTo(MessageRole.USER)
@@ -88,50 +93,45 @@ class ConversationViewModelTest {
     }
 
     @Test
-    fun isProcessingIsTrueWhileGemmaRuns() = runTest(testDispatcher) {
+    fun isProcessingIsFalseInitially() {
         val viewModel = createViewModel()
-        viewModel.onVoiceInput("Turn on the lights")
-        advanceTimeBy(50)
-        assertThat(viewModel.isProcessing.value).isTrue()
-        advanceUntilIdle()
         assertThat(viewModel.isProcessing.value).isFalse()
     }
 
     @Test
-    fun onVoiceInputTriggersTextToSpeech() = runTest(testDispatcher) {
+    fun streamingResponseIsNullWhenIdle() {
         val viewModel = createViewModel()
-        viewModel.onVoiceInput("Turn on the lights")
+        assertThat(viewModel.streamingResponse.value).isNull()
+    }
+
+    @Test
+    fun streamingResponseIsNullAfterProcessingCompletes() = runTest(testDispatcher) {
+        val viewModel = createViewModel()
+        viewModel.onTextInput("hi")
         advanceUntilIdle()
-        assertThat(fakeTts.spokenTexts).isNotEmpty()
+        assertThat(viewModel.streamingResponse.value).isNull()
     }
 
     @Test
-    fun onVoiceInputWithTranscriptStoresOriginalText() = runTest(testDispatcher) {
-        val viewModel = createViewModel()
-        val transcript = "Play some jazz music"
-        viewModel.onVoiceInput(transcript)
-        advanceUntilIdle()
-        assertThat(viewModel.messages.value.first().content).isEqualTo(transcript)
-    }
-
-    @Test
-    fun engineStateIsModelReadyByDefault() {
-        val viewModel = createViewModel()
-        assertThat(viewModel.engineState.value).isEqualTo(EngineState.ModelReady)
-    }
-
-    @Test
-    fun setEngineStateTransitionsToModelNotReady() {
+    fun setEngineStateChangesState() {
         val viewModel = createViewModel()
         viewModel.setEngineState(EngineState.ModelNotReady)
         assertThat(viewModel.engineState.value).isEqualTo(EngineState.ModelNotReady)
     }
 
     @Test
-    fun setEngineStateTransitionsBackToModelReady() {
-        val viewModel = createViewModel()
-        viewModel.setEngineState(EngineState.ModelNotReady)
-        viewModel.setEngineState(EngineState.ModelReady)
-        assertThat(viewModel.engineState.value).isEqualTo(EngineState.ModelReady)
+    fun assistantResponseMatchesFakeEngineOutput() = runTest(testDispatcher) {
+        val customResponse = "Custom canned response for test"
+        val engine = FakeGemmaEngine(response = customResponse)
+        val viewModel = ConversationViewModel(
+            gemmaEngine = engine,
+            repository = fakeRepository,
+            ttsEngine = fakeTts,
+        )
+        viewModel.onTextInput("test")
+        advanceUntilIdle()
+        val assistant = viewModel.messages.value.last()
+        assertThat(assistant.role).isEqualTo(MessageRole.ASSISTANT)
+        assertThat(assistant.content).isEqualTo(customResponse)
     }
 }

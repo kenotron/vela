@@ -25,7 +25,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -49,6 +48,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.vela.app.a2ui.VelaUiParser
+import com.vela.app.a2ui.VelaUiSurface
 import com.vela.app.domain.model.Message
 import com.vela.app.domain.model.MessageRole
 import com.vela.app.ui.components.VoiceButton
@@ -66,6 +67,7 @@ fun ConversationScreen(
     val messages by viewModel.messages.collectAsState()
     val isProcessing by viewModel.isProcessing.collectAsState()
     val engineState by viewModel.engineState.collectAsState()
+    val streamingResponse by viewModel.streamingResponse.collectAsState()
 
     var textInput by remember { mutableStateOf("") }
 
@@ -149,9 +151,16 @@ fun ConversationScreen(
         EngineState.ModelReady -> {
             val listState = rememberLazyListState()
 
-            // Auto-scroll to latest message
+            // Auto-scroll to bottom when messages list grows
             LaunchedEffect(messages.size) {
                 if (messages.isNotEmpty()) {
+                    listState.animateScrollToItem(messages.size - 1)
+                }
+            }
+
+            // Also scroll during streaming as the bubble grows
+            LaunchedEffect(streamingResponse?.length) {
+                if (streamingResponse != null && messages.isNotEmpty()) {
                     listState.animateScrollToItem(messages.size - 1)
                 }
             }
@@ -203,7 +212,8 @@ fun ConversationScreen(
                         .fillMaxSize()
                         .padding(paddingValues),
                 ) {
-                    if (messages.isEmpty() && !isProcessing) {
+                    val showEmpty = messages.isEmpty() && streamingResponse == null && !isProcessing
+                    if (showEmpty) {
                         Text(
                             text = "Type a message or tap the mic to speak",
                             modifier = Modifier.align(Alignment.Center),
@@ -220,14 +230,13 @@ fun ConversationScreen(
                             items(messages) { message ->
                                 MessageBubble(message = message)
                             }
+                            // Live streaming bubble — shown while Gemma 4 is generating
+                            streamingResponse?.let { partial ->
+                                item {
+                                    StreamingBubble(text = partial)
+                                }
+                            }
                         }
-                    }
-                    if (isProcessing) {
-                        CircularProgressIndicator(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(bottom = 8.dp),
-                        )
                     }
                 }
             }
@@ -235,6 +244,11 @@ fun ConversationScreen(
     }
 }
 
+/**
+ * Renders a completed message bubble.
+ * If [message.content] parses as Vela-UI JSON, renders the structured [VelaUiSurface].
+ * Otherwise falls back to plain text.
+ */
 @Composable
 private fun MessageBubble(message: Message) {
     val isUser = message.role == MessageRole.USER
@@ -242,6 +256,23 @@ private fun MessageBubble(message: Message) {
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart,
     ) {
+        if (!isUser) {
+            // Try to parse as Vela-UI / A2UI structured response
+            val velaPayload = remember(message.content) { VelaUiParser.parse(message.content) }
+            if (velaPayload != null) {
+                VelaUiSurface(
+                    payload = velaPayload,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            color = MaterialTheme.colorScheme.surface,
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                        .padding(12.dp),
+                )
+                return@Box
+            }
+        }
         Text(
             text = message.content,
             modifier = Modifier
@@ -254,6 +285,31 @@ private fun MessageBubble(message: Message) {
                     shape = RoundedCornerShape(8.dp),
                 )
                 .padding(12.dp),
+        )
+    }
+}
+
+/**
+ * Live streaming bubble shown while Gemma 4 generates a response token by token.
+ * Shows the partial text with a blinking cursor indicator to signal active generation.
+ */
+@Composable
+private fun StreamingBubble(text: String) {
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Text(
+            // Append a cursor character so the user sees active generation
+            text = "$text▍",
+            modifier = Modifier
+                .background(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = RoundedCornerShape(8.dp),
+                )
+                .padding(12.dp)
+                .semantics { contentDescription = "Assistant is responding" },
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
         )
     }
 }

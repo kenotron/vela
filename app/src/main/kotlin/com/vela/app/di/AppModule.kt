@@ -3,7 +3,6 @@ package com.vela.app.di
 import android.content.Context
 import androidx.room.Room
 import com.vela.app.ai.GemmaEngine
-import com.vela.app.ai.IntentExtractor
 import com.vela.app.ai.LifecycleAwareEngine
 import com.vela.app.ai.MlKitGemma4Engine
 import com.vela.app.audio.AndroidTtsEngine
@@ -45,10 +44,6 @@ object AppModule {
     @Provides
     @Singleton
     fun provideGemmaEngine(engine: LifecycleAwareEngine): GemmaEngine = engine
-
-    @Provides
-    @Singleton
-    fun provideIntentExtractor(engine: GemmaEngine): IntentExtractor = IntentExtractor(engine)
 
     @Provides
     @Singleton

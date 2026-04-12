@@ -6,7 +6,6 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
 import com.vela.app.ai.FakeGemmaEngine
-import com.vela.app.ai.IntentExtractor
 import com.vela.app.audio.FakeTtsEngine
 import com.vela.app.data.repository.ConversationRepository
 import com.vela.app.domain.model.Message
@@ -33,7 +32,6 @@ class ConversationFlowTest {
     private lateinit var fakeTts: FakeTtsEngine
     private lateinit var fakeTranscriber: FakeSpeechTranscriber
     private lateinit var inMemoryRepo: InMemoryConversationRepository
-    private lateinit var intentExtractor: IntentExtractor
 
     @Before
     fun setUp() {
@@ -41,11 +39,9 @@ class ConversationFlowTest {
         fakeTts = FakeTtsEngine()
         fakeTranscriber = FakeSpeechTranscriber()
         inMemoryRepo = InMemoryConversationRepository()
-        intentExtractor = IntentExtractor(FakeGemmaEngine())
         viewModel = ConversationViewModel(
             gemmaEngine = fakeGemmaEngine,
             repository = inMemoryRepo,
-            intentExtractor = intentExtractor,
             ttsEngine = fakeTts,
         )
     }
