@@ -1,5 +1,6 @@
 package com.vela.app.ai
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -49,40 +50,47 @@ class ModelManager(
         val request = Request.Builder().url(modelUrl).build()
 
         try {
-            val response = client.newCall(request).execute()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    _downloadState.value = DownloadState.Error("HTTP ${response.code}")
+                    return@withContext
+                }
 
-            if (!response.isSuccessful) {
-                _downloadState.value = DownloadState.Error("HTTP ${response.code}")
-                return@withContext
-            }
+                val body = response.body
+                if (body == null) {
+                    _downloadState.value = DownloadState.Error("Empty response body")
+                    return@withContext
+                }
 
-            val body = response.body
-            if (body == null) {
-                _downloadState.value = DownloadState.Error("Empty response body")
-                return@withContext
-            }
+                val contentLength = body.contentLength()
+                var bytesRead = 0L
+                val buffer = ByteArray(8192)
 
-            val contentLength = body.contentLength()
-            var bytesRead = 0L
-            val buffer = ByteArray(8192)
-
-            tmpFile.outputStream().use { out ->
-                body.byteStream().use { input ->
-                    var read: Int
-                    while (input.read(buffer).also { read = it } != -1) {
-                        out.write(buffer, 0, read)
-                        bytesRead += read
-                        if (contentLength > 0) {
-                            val percent = ((bytesRead * 100) / contentLength).toInt()
-                            _downloadState.value = DownloadState.Downloading(percent)
+                tmpFile.outputStream().use { out ->
+                    body.byteStream().use { input ->
+                        var read: Int
+                        while (input.read(buffer).also { read = it } != -1) {
+                            out.write(buffer, 0, read)
+                            bytesRead += read
+                            if (contentLength > 0) {
+                                val percent = ((bytesRead * 100) / contentLength).toInt()
+                                _downloadState.value = DownloadState.Downloading(percent)
+                            }
                         }
                     }
                 }
-            }
 
-            tmpFile.renameTo(modelFile)
-            _downloadState.value = DownloadState.Downloaded(modelFile.absolutePath)
+                if (!tmpFile.renameTo(modelFile)) {
+                    tmpFile.delete()
+                    _downloadState.value = DownloadState.Error("Failed to finalize model file")
+                    return@withContext
+                }
+                _downloadState.value = DownloadState.Downloaded(modelFile.absolutePath)
+            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            tmpFile.delete()
             _downloadState.value = DownloadState.Error(e.message ?: "Unknown error")
         }
     }
