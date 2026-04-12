@@ -57,17 +57,14 @@ class IntentExtractor(private val engine: GemmaEngine) {
                 rawText = rawText,
             )
         } catch (e: Exception) {
+            // Intentionally broad: LLM response may not contain valid JSON
             fallbackIntent(originalText)
         }
     }
 
     internal fun parseConstraints(json: JSONObject): List<String> {
         val array: JSONArray = json.optJSONArray("constraints") ?: return emptyList()
-        val result = mutableListOf<String>()
-        for (i in 0 until array.length()) {
-            result.add(array.getString(i))
-        }
-        return result
+        return (0 until array.length()).map { array.getString(it) }
     }
 
     private fun fallbackIntent(originalText: String) = VelaIntent(
