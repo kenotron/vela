@@ -17,8 +17,8 @@ interface TtsEngine {
 
 class AndroidTtsEngine(context: Context) : TtsEngine {
 
-    private var initialized = false
-    private var initFailed = false
+    @Volatile private var initialized = false
+    @Volatile private var initFailed = false
 
     private val tts = TextToSpeech(context) { status ->
         if (status == TextToSpeech.SUCCESS) {
