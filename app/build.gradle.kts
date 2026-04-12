@@ -20,9 +20,6 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
-        }
     }
 
     compileOptions {
@@ -32,6 +29,7 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+        freeCompilerArgs += "-Xskip-metadata-version-check"
     }
 
     buildFeatures {
@@ -74,8 +72,8 @@ dependencies {
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
 
-    // MediaPipe
-    implementation(libs.mediapipe.tasks.genai)
+    // ML Kit GenAI Prompt (Gemma 4 via AICore)
+    implementation(libs.mlkit.genai.prompt)
 
     // OkHttp
     implementation(libs.okhttp)
@@ -84,7 +82,6 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.truth)
     testImplementation(libs.kotlinx.coroutines.test)
-    testImplementation(libs.okhttp.mockwebserver)
     testImplementation("org.json:json:20231013")
 
     // Instrumented tests
