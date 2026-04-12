@@ -1,46 +1,83 @@
 package com.vela.app.ai
 
+import com.vela.app.ai.tools.Tool
+
 /**
- * Builds the on-device prompt for Gemma 4 E2B (nano-fast) via ML Kit GenAI.
+ * Builds on-device prompts for Gemma 4 E2B (nano-fast) via ML Kit GenAI.
  *
- * ML Kit Preview constraints honoured here:
- * - No system prompt support → role prefix injected as user-turn text (standard workaround)
- * - 4000 token input limit → user input hard-capped at [MAX_USER_CHARS]
- * - No structured output → JSON-in-prompt pattern guides optional Vela-UI output
+ * ML Kit Preview constraints:
+ * - No system prompt → role prefix injected as user-turn workaround
+ * - 4000 token limit → user input capped at [MAX_USER_CHARS]
+ * - No native tool calling → JSON-in-prompt pattern with [buildWithTools]
  *
- * Vela-UI JSON is a compact A2UI v0.8-inspired schema understood by [VelaUiParser].
- * The model defaults to plain text for conversational answers; structured JSON is opt-in.
- *
- * A2UI spec: https://a2ui.org/specifications/v0.8/
- * Official Jetpack Compose A2UI renderer is planned for Q2 2025 — Vela-UI bridges the gap.
+ * Tool calling flow:
+ *   1. [buildWithTools]   → Gemma 4 produces JSON tool call or plain response
+ *   2. [buildToolResult]  → Second call with tool result injected → final answer
  */
 object VelaPromptBuilder {
 
     private const val MAX_USER_CHARS = 800
 
-    /**
-     * Prefix injected as a user-turn to simulate a system prompt.
-     * Kept intentionally short to maximise token budget for the model's response.
-     *
-     * The Vela-UI format is compact so Gemma 4 E2B can emit it reliably:
-     *   t = component type abbreviation (card, step, item, tip, code)
-     *   n = step number (steps only)
-     *   title/text = human-readable content
-     */
-    private const val SYSTEM_PREFIX = """[Vela: on-device AI assistant. Respond concisely.
-For structured answers (steps, lists, data), you MAY respond with JSON:
-{"type":"vela-ui","components":[
-{"t":"card","title":"..."},
-{"t":"step","n":1,"text":"..."},
-{"t":"item","text":"..."},
-{"t":"tip","text":"..."},
-{"t":"code","text":"..."}
-]}
-Plain text is preferred for simple conversational answers.]"""
+    // ---------- Plain prompt (no tools) ----------
 
-    /** Build the complete prompt for a given [userInput]. */
-    fun build(userInput: String): String {
-        val safe = userInput.take(MAX_USER_CHARS)
-        return "$SYSTEM_PREFIX\n\nUser: $safe\nVela:"
+    private const val PLAIN_PREFIX =
+        "[Vela: on-device AI assistant. Respond concisely.\n" +
+        "For structured answers (steps, lists, data) you MAY output:\n" +
+        "{\"type\":\"vela-ui\",\"components\":[{\"t\":\"card\",\"title\":\"...\"}," +
+        "{\"t\":\"step\",\"n\":1,\"text\":\"...\"},{\"t\":\"item\",\"text\":\"...\"}," +
+        "{\"t\":\"tip\",\"text\":\"...\"},{\"t\":\"code\",\"text\":\"...\"}]}\n" +
+        "Plain text preferred for simple answers.]"
+
+    fun build(userInput: String): String =
+        "$PLAIN_PREFIX\n\nUser: ${userInput.take(MAX_USER_CHARS)}\nVela:"
+
+    // ---------- Tool-aware prompt ----------
+
+    /**
+     * Build a prompt that advertises [tools] and instructs Gemma 4 to output
+     * a JSON tool call when it needs external data.
+     *
+     * Output format when tool is needed:
+     *   {"tool":"get_time","args":{}}
+     *
+     * Gemma 4 should output ONLY the JSON — no surrounding prose — so the
+     * ViewModel can detect and dispatch it cleanly.
+     */
+    fun buildWithTools(userInput: String, tools: List<Tool>): String {
+        val toolBlock = if (tools.isEmpty()) "" else buildString {
+            append("\nTools (use when the question requires live data):\n")
+            tools.forEach { tool ->
+                val params = if (tool.parameters.isEmpty()) "()"
+                else "(${tool.parameters.joinToString(", ") { "${it.name}: ${it.type}" }})"
+                append("  ${tool.name}$params → ${tool.description}\n")
+            }
+            append("To use a tool output ONLY the JSON: {\"tool\":\"name\",\"args\":{}}\n" +
+                   "Do NOT use tools for questions you can answer directly.")
+        }
+
+        val prefix = "[Vela: on-device AI assistant.$toolBlock\n" +
+            "For structured answers you MAY also use vela-ui JSON (card, step, item, tip, code).\n" +
+            "Plain text preferred for simple answers.]"
+
+        return "$prefix\n\nUser: ${userInput.take(MAX_USER_CHARS)}\nVela:"
+    }
+
+    /**
+     * Build the follow-up prompt after a tool call has been executed.
+     * Injects the original exchange and tool result so Gemma 4 can formulate
+     * a natural final answer for the user.
+     *
+     * @param originalPrompt The prompt from [buildWithTools].
+     * @param toolCallJson   The raw JSON string Gemma 4 output (e.g. {"tool":"get_time","args":{}}).
+     * @param toolResult     The tool's return value (e.g. "2:34 PM").
+     */
+    fun buildToolResult(
+        originalPrompt: String,
+        toolCallJson: String,
+        toolResult: String,
+    ): String {
+        // Strip the trailing "Vela:" to avoid duplicating the role prefix
+        val base = originalPrompt.trimEnd().removeSuffix("Vela:").trimEnd()
+        return "$base\nVela: $toolCallJson\nTool result: $toolResult\nVela:"
     }
 }

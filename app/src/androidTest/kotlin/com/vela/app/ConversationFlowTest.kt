@@ -6,6 +6,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
 import com.vela.app.ai.FakeGemmaEngine
+import com.vela.app.ai.tools.ToolRegistry
 import com.vela.app.audio.FakeTtsEngine
 import com.vela.app.data.repository.ConversationRepository
 import com.vela.app.domain.model.Message
@@ -43,6 +44,7 @@ class ConversationFlowTest {
             gemmaEngine = fakeGemmaEngine,
             repository = inMemoryRepo,
             ttsEngine = fakeTts,
+            toolRegistry = ToolRegistry(emptyList()),
         )
     }
 

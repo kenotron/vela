@@ -2,6 +2,7 @@ package com.vela.app.ui.conversation
 
 import com.google.common.truth.Truth.assertThat
 import com.vela.app.ai.FakeGemmaEngine
+import com.vela.app.ai.tools.ToolRegistry
 import com.vela.app.audio.FakeTtsEngine
 import com.vela.app.data.repository.ConversationRepository
 import com.vela.app.domain.model.Message
@@ -50,10 +51,13 @@ class ConversationViewModelTest {
         Dispatchers.resetMain()
     }
 
+    private val emptyRegistry = ToolRegistry(emptyList())
+
     private fun createViewModel() = ConversationViewModel(
         gemmaEngine = fakeGemmaEngine,
         repository = fakeRepository,
         ttsEngine = fakeTts,
+        toolRegistry = emptyRegistry,
     )
 
     @Test
@@ -127,6 +131,7 @@ class ConversationViewModelTest {
             gemmaEngine = engine,
             repository = fakeRepository,
             ttsEngine = fakeTts,
+            toolRegistry = ToolRegistry(emptyList()),
         )
         viewModel.onTextInput("test")
         advanceUntilIdle()

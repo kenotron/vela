@@ -48,6 +48,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import com.vela.app.a2ui.VelaUiParser
 import com.vela.app.a2ui.VelaUiSurface
 import com.vela.app.domain.model.Message
@@ -68,6 +70,7 @@ fun ConversationScreen(
     val isProcessing by viewModel.isProcessing.collectAsState()
     val engineState by viewModel.engineState.collectAsState()
     val streamingResponse by viewModel.streamingResponse.collectAsState()
+    val toolExecutionState by viewModel.toolExecutionState.collectAsState()
 
     var textInput by remember { mutableStateOf("") }
 
@@ -230,6 +233,12 @@ fun ConversationScreen(
                             items(messages) { message ->
                                 MessageBubble(message = message)
                             }
+                            // Tool execution chip — shown while a built-in tool is running
+                            toolExecutionState?.let { toolName ->
+                                item {
+                                    ToolExecutionChip(toolName = toolName)
+                                }
+                            }
                             // Live streaming bubble — shown while Gemma 4 is generating
                             streamingResponse?.let { partial ->
                                 item {
@@ -285,6 +294,30 @@ private fun MessageBubble(message: Message) {
                     shape = RoundedCornerShape(8.dp),
                 )
                 .padding(12.dp),
+        )
+    }
+}
+
+/**
+ * Chip shown while a tool is executing between the two inference passes.
+ * Gives the user a clear signal that the AI is fetching live data, not stuck.
+ */
+@Composable
+private fun ToolExecutionChip(toolName: String) {
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        AssistChip(
+            onClick = {},
+            label = { Text("🔧 Using $toolName…") },
+            modifier = Modifier.semantics {
+                contentDescription = "Using tool $toolName"
+            },
+            colors = AssistChipDefaults.assistChipColors(
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
+            ),
         )
     }
 }

@@ -5,6 +5,11 @@ import androidx.room.Room
 import com.vela.app.ai.GemmaEngine
 import com.vela.app.ai.LifecycleAwareEngine
 import com.vela.app.ai.MlKitGemma4Engine
+import com.vela.app.ai.tools.GetBatteryTool
+import com.vela.app.ai.tools.GetDateTool
+import com.vela.app.ai.tools.GetTimeTool
+import com.vela.app.ai.tools.Tool
+import com.vela.app.ai.tools.ToolRegistry
 import com.vela.app.audio.AndroidTtsEngine
 import com.vela.app.audio.TtsEngine
 import com.vela.app.data.db.MessageDao
@@ -54,4 +59,17 @@ object AppModule {
     @Singleton
     fun provideSpeechTranscriber(@ApplicationContext context: Context): SpeechTranscriber =
         AndroidSpeechTranscriber(context)
+
+    /** All built-in tools Gemma 4 can invoke via JSON-in-prompt tool calling. */
+    @Provides
+    @Singleton
+    fun provideTools(@ApplicationContext context: Context): List<Tool> = listOf(
+        GetTimeTool(),
+        GetDateTool(),
+        GetBatteryTool(context),
+    )
+
+    @Provides
+    @Singleton
+    fun provideToolRegistry(tools: @JvmSuppressWildcards List<Tool>): ToolRegistry = ToolRegistry(tools)
 }
