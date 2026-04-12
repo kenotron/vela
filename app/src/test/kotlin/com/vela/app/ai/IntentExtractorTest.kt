@@ -85,14 +85,56 @@ class IntentExtractorTest {
     }
 
     @Test
-    fun extractSendsPromptToEngine() = runTest {
+    fun promptUsesUserTurnPrefixNotSystemRole() = runTest {
         val engine = ConfigurableFakeGemmaEngine()
         engine.response = """{"action": "unknown", "target": null, "constraints": [], "rawText": "hello world"}"""
         val extractor = IntentExtractor(engine)
 
         extractor.extract("hello world")
 
+        // ML Kit Preview workaround: user-turn prefix, no system role
+        assertThat(engine.lastInput).contains("Extract intent as JSON")
         assertThat(engine.lastInput).contains("hello world")
-        assertThat(engine.lastInput).contains("Extract the user's intent")
+        assertThat(engine.lastInput).doesNotContain("system:")
+        assertThat(engine.lastInput).doesNotContain("[SYSTEM:")
+        assertThat(engine.lastInput).contains("JSON response:")
+    }
+
+    @Test
+    fun longInputIsTruncatedAt500CharsInPrompt() = runTest {
+        val engine = ConfigurableFakeGemmaEngine()
+        engine.response = """{"action": "unknown", "target": null, "constraints": [], "rawText": "x"}"""
+        val extractor = IntentExtractor(engine)
+
+        val longInput = "a".repeat(600)
+        extractor.extract(longInput)
+
+        // The prompt should contain a truncated version, not the full 600-char input
+        val truncated = "a".repeat(500)
+        assertThat(engine.lastInput).contains(truncated)
+        assertThat(engine.lastInput).doesNotContain("a".repeat(501))
+    }
+
+    @Test
+    fun promptContainsUserTextWithinBrackets() = runTest {
+        val engine = ConfigurableFakeGemmaEngine()
+        engine.response = """{"action": "unknown", "target": null, "constraints": [], "rawText": "short text"}"""
+        val extractor = IntentExtractor(engine)
+
+        extractor.extract("short text")
+
+        // The user-turn prefix pattern wraps the user input in quotes
+        assertThat(engine.lastInput).contains("\"short text\"")
+    }
+
+    @Test
+    fun velaIntentHasDefaultConfidence() {
+        val intent = VelaIntent(
+            action = "play",
+            target = "music",
+            constraints = emptyList(),
+            rawText = "play music",
+        )
+        assertThat(intent.confidence).isEqualTo(1.0f)
     }
 }

@@ -1,3 +1,13 @@
+/**
+ * Extracts structured intent from user text using Gemma 4 E2B via ML Kit Preview API.
+ *
+ * ML Kit Preview Limitations (April 2026):
+ * - No system prompt support — user-turn prefix workaround in use
+ * - No structured output — JSON-in-prompt pattern
+ * - 4000 token input limit — inputs truncated at 500 chars as safety margin
+ * - Only English and Korean validated
+ * - Tool calling deferred to post-preview GA release
+ */
 package com.vela.app.ai
 
 import org.json.JSONArray
@@ -9,9 +19,14 @@ data class VelaIntent(
     val target: String?,
     val constraints: List<String>,
     val rawText: String,
+    val confidence: Float = 1.0f,
 )
 
 class IntentExtractor @Inject constructor(private val engine: GemmaEngine) {
+
+    companion object {
+        private const val MAX_USER_INPUT_CHARS = 500
+    }
 
     suspend fun extract(userText: String): VelaIntent {
         val prompt = buildPrompt(userText)
@@ -19,20 +34,14 @@ class IntentExtractor @Inject constructor(private val engine: GemmaEngine) {
         return parseIntent(response, userText)
     }
 
-    internal fun buildPrompt(userText: String): String =
-        """
-        Extract the user's intent from the following text and return it as JSON.
-
-        User text: "$userText"
-
-        Return a JSON object with this exact format:
-        {
-          "action": "the main action or verb",
-          "target": "the target or object (or null if none)",
-          "constraints": ["constraint1", "constraint2"],
-          "rawText": "the original user text"
+    internal fun buildPrompt(userText: String): String {
+        val truncated = if (userText.length > MAX_USER_INPUT_CHARS) {
+            userText.take(MAX_USER_INPUT_CHARS)
+        } else {
+            userText
         }
-        """.trimIndent()
+        return "[Task: Extract intent as JSON. No prose, only valid JSON.]\n\nUser said: \"$truncated\"\n\nJSON response:"
+    }
 
     internal fun parseIntent(response: String, originalText: String): VelaIntent {
         return try {
