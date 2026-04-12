@@ -119,4 +119,19 @@ class ConversationViewModelTest {
         val viewModel = createViewModel()
         assertThat(viewModel.engineState.value).isEqualTo(EngineState.ModelReady)
     }
+
+    @Test
+    fun setEngineStateTransitionsToModelNotReady() {
+        val viewModel = createViewModel()
+        viewModel.setEngineState(EngineState.ModelNotReady)
+        assertThat(viewModel.engineState.value).isEqualTo(EngineState.ModelNotReady)
+    }
+
+    @Test
+    fun setEngineStateTransitionsBackToModelReady() {
+        val viewModel = createViewModel()
+        viewModel.setEngineState(EngineState.ModelNotReady)
+        viewModel.setEngineState(EngineState.ModelReady)
+        assertThat(viewModel.engineState.value).isEqualTo(EngineState.ModelReady)
+    }
 }

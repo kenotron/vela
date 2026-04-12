@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,102 +15,143 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vela.app.domain.model.Message
 import com.vela.app.domain.model.MessageRole
 import com.vela.app.ui.components.VoiceButton
-import com.vela.app.voice.FakeSpeechTranscriber
+import com.vela.app.voice.SpeechTranscriber
 import com.vela.app.voice.TranscriptState
 import com.vela.app.voice.VoiceCapture
+import kotlinx.coroutines.flow.MutableStateFlow
 
 @Composable
-fun ConversationScreen(viewModel: ConversationViewModel = hiltViewModel()) {
+fun ConversationScreen(
+    speechTranscriber: SpeechTranscriber? = null,
+    viewModel: ConversationViewModel = hiltViewModel(),
+) {
     val context = LocalContext.current
     val messages by viewModel.messages.collectAsState()
     val isProcessing by viewModel.isProcessing.collectAsState()
+    val engineState by viewModel.engineState.collectAsState()
 
-    val voiceCapture = remember {
-        VoiceCapture(FakeSpeechTranscriber())
+    val voiceCapture: VoiceCapture? = remember(speechTranscriber) {
+        speechTranscriber?.let { VoiceCapture(it) }
     }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(voiceCapture) {
         onDispose {
-            voiceCapture.destroy()
+            voiceCapture?.destroy()
         }
     }
 
-    val transcriptState by voiceCapture.transcriptState.collectAsState()
+    val idleFlow = remember { MutableStateFlow<TranscriptState>(TranscriptState.Idle) }
+    val transcriptState by (voiceCapture?.transcriptState ?: idleFlow).collectAsState()
     val isListening = transcriptState is TranscriptState.Listening || transcriptState is TranscriptState.Partial
+
+    LaunchedEffect(transcriptState) {
+        val state = transcriptState
+        if (state is TranscriptState.Final) {
+            viewModel.onVoiceInput(state.text)
+        }
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (granted) {
-            voiceCapture.startCapture()
+            voiceCapture?.startCapture()
         }
     }
 
-    Scaffold(
-        floatingActionButton = {
-            VoiceButton(
-                isListening = isListening,
-                onToggle = {
-                    if (isListening) {
-                        voiceCapture.stopCapture()
-                    } else {
-                        val hasPermission = ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.RECORD_AUDIO,
-                        ) == PackageManager.PERMISSION_GRANTED
-                        if (hasPermission) {
-                            voiceCapture.startCapture()
-                        } else {
-                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        }
-                    }
-                },
-            )
-        },
-    ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues),
-        ) {
-            if (messages.isEmpty() && !isProcessing) {
+    when (engineState) {
+        EngineState.ModelNotReady -> {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
                 Text(
-                    text = "Tap the microphone to start",
-                    modifier = Modifier.align(Alignment.Center),
+                    text = "Download AI model to begin",
+                    modifier = Modifier.semantics { contentDescription = "Model download required" },
                 )
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                Button(
+                    onClick = { /* TODO: trigger model download */ },
+                    modifier = Modifier.semantics { contentDescription = "Download model" },
                 ) {
-                    items(messages) { message ->
-                        MessageBubble(message = message)
-                    }
+                    Text("Download")
                 }
             }
-            if (isProcessing) {
-                CircularProgressIndicator(
-                    modifier = Modifier.align(Alignment.Center),
-                )
+        }
+
+        EngineState.ModelReady -> {
+            Scaffold(
+                floatingActionButton = {
+                    VoiceButton(
+                        isListening = isListening,
+                        onToggle = {
+                            if (voiceCapture == null) return@VoiceButton
+                            if (isListening) {
+                                voiceCapture.stopCapture()
+                            } else {
+                                val hasPermission = ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.RECORD_AUDIO,
+                                ) == PackageManager.PERMISSION_GRANTED
+                                if (hasPermission) {
+                                    voiceCapture.startCapture()
+                                } else {
+                                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                }
+                            }
+                        },
+                    )
+                },
+            ) { paddingValues ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues),
+                ) {
+                    if (messages.isEmpty() && !isProcessing) {
+                        Text(
+                            text = "Tap the microphone to start",
+                            modifier = Modifier.align(Alignment.Center),
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            items(messages) { message ->
+                                MessageBubble(message = message)
+                            }
+                        }
+                    }
+                    if (isProcessing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.align(Alignment.Center),
+                        )
+                    }
+                }
             }
         }
     }
