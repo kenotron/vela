@@ -18,6 +18,8 @@
     activityCompose = "1.9.0"
     navigationCompose = "2.7.7"
     datastore = "1.1.1"
+    mediapipeGenai = "0.10.14"
+    okhttp = "4.12.0"
 
     [libraries]
     # AndroidX Core
@@ -55,6 +57,13 @@
     kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
     kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
     kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
+
+    # MediaPipe
+    mediapipe-tasks-genai = { group = "com.google.mediapipe", name = "tasks-genai", version.ref = "mediapipeGenai" }
+
+    # OkHttp
+    okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+    okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "okhttp" }
 
     # Testing
     junit = { group = "junit", name = "junit", version.ref = "junit" }

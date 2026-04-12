@@ -19,6 +19,10 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
 
     compileOptions {
@@ -70,10 +74,17 @@ dependencies {
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
 
+    // MediaPipe
+    implementation(libs.mediapipe.tasks.genai)
+
+    // OkHttp
+    implementation(libs.okhttp)
+
     // Unit tests
     testImplementation(libs.junit)
     testImplementation(libs.truth)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
 
     // Instrumented tests
     androidTestImplementation(libs.androidx.test.runner)
