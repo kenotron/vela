@@ -1,16 +1,10 @@
 package com.vela.app.di
 
 import android.content.Context
-import android.util.Log
 import androidx.room.Room
-import com.vela.app.R
-import com.vela.app.ai.DownloadState
 import com.vela.app.ai.FakeGemmaEngine
 import com.vela.app.ai.GemmaEngine
 import com.vela.app.ai.IntentExtractor
-import com.vela.app.ai.MediaPipeGemmaEngine
-import com.vela.app.ai.ModelManager
-import com.vela.app.ai.RealLlmInferenceWrapper
 import com.vela.app.audio.AndroidTtsEngine
 import com.vela.app.audio.TtsEngine
 import com.vela.app.data.db.MessageDao
@@ -24,7 +18,6 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import java.io.File
 import javax.inject.Singleton
 
 @Module
@@ -46,34 +39,7 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideModelManager(@ApplicationContext context: Context): ModelManager {
-        val manager = ModelManager(
-            modelsDir = File(context.filesDir, "models"),
-            modelUrl = context.getString(R.string.model_download_url),
-        )
-        manager.checkExistingModel()
-        return manager
-    }
-
-    @Provides
-    @Singleton
-    fun provideGemmaEngine(
-        modelManager: ModelManager,
-        @ApplicationContext context: Context,
-    ): GemmaEngine {
-        return when (val state = modelManager.downloadState.value) {
-            is DownloadState.Downloaded -> {
-                try {
-                    val wrapper = RealLlmInferenceWrapper(context, state.path)
-                    MediaPipeGemmaEngine(wrapper)
-                } catch (e: Exception) {
-                    Log.w("AppModule", "Real engine unavailable, falling back to FakeGemmaEngine", e)
-                    FakeGemmaEngine()
-                }
-            }
-            else -> FakeGemmaEngine()
-        }
-    }
+    fun provideGemmaEngine(): GemmaEngine = FakeGemmaEngine()
 
     @Provides
     @Singleton
