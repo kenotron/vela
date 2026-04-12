@@ -29,6 +29,8 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+        // mlkit-genai-prompt:1.0.0-beta2 was compiled against Kotlin 2.2.0 metadata;
+        // suppresses the version mismatch error until we upgrade kotlin = "2.2.x" in libs.versions.toml
         freeCompilerArgs += "-Xskip-metadata-version-check"
     }
 
