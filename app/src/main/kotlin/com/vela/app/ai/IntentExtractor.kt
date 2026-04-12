@@ -2,6 +2,7 @@ package com.vela.app.ai
 
 import org.json.JSONArray
 import org.json.JSONObject
+import javax.inject.Inject
 
 data class VelaIntent(
     val action: String,
@@ -10,7 +11,7 @@ data class VelaIntent(
     val rawText: String,
 )
 
-class IntentExtractor(private val engine: GemmaEngine) {
+class IntentExtractor @Inject constructor(private val engine: GemmaEngine) {
 
     suspend fun extract(userText: String): VelaIntent {
         val prompt = buildPrompt(userText)

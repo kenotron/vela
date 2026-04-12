@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Room
 import com.vela.app.ai.FakeGemmaEngine
 import com.vela.app.ai.GemmaEngine
+import com.vela.app.audio.AndroidTtsEngine
+import com.vela.app.audio.TtsEngine
 import com.vela.app.data.db.MessageDao
 import com.vela.app.data.db.VelaDatabase
 import com.vela.app.data.repository.ConversationRepository
@@ -35,4 +37,9 @@ object AppModule {
     @Singleton
     fun provideConversationRepository(messageDao: MessageDao): ConversationRepository =
         RoomConversationRepository(messageDao)
+
+    @Provides
+    @Singleton
+    fun provideTtsEngine(@ApplicationContext context: Context): TtsEngine =
+        AndroidTtsEngine(context)
 }
