@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Vela</string>
+    <string name="model_download_url">https://example.com/models/vela-model.bin</string>
 </resources>
