@@ -77,6 +77,9 @@ class AndroidSpeechTranscriber(private val context: Context) : SpeechTranscriber
     }
 
     override fun startListening() {
+        recognizer?.cancel()
+        recognizer?.destroy()
+        recognizer = null
         val rec = SpeechRecognizer.createSpeechRecognizer(context)
         recognizer = rec
         rec.setRecognitionListener(listener)
