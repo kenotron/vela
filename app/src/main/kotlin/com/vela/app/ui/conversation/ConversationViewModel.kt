@@ -50,23 +50,34 @@ class ConversationViewModel @Inject constructor(
     }
 
     fun onVoiceInput(transcript: String) {
+        processInput(transcript)
+    }
+
+    fun onTextInput(text: String) {
+        processInput(text)
+    }
+
+    private fun processInput(input: String) {
         viewModelScope.launch {
-            val userMessage = Message(
-                role = MessageRole.USER,
-                content = transcript,
-            )
-            repository.saveMessage(userMessage)
+            repository.saveMessage(Message(role = MessageRole.USER, content = input))
             _isProcessing.value = true
             try {
-                val intent = intentExtractor.extract(transcript)
-                val enginePrompt = buildEnginePrompt(intent.action, intent.target, transcript)
+                val intent = intentExtractor.extract(input)
+                val enginePrompt = buildEnginePrompt(intent.action, intent.target, input)
                 val response = gemmaEngine.processText(enginePrompt)
                 ttsEngine.speak(response)
-                val assistantMessage = Message(
-                    role = MessageRole.ASSISTANT,
-                    content = response,
-                )
-                repository.saveMessage(assistantMessage)
+                repository.saveMessage(Message(role = MessageRole.ASSISTANT, content = response))
+            } catch (e: Exception) {
+                val msg = when {
+                    e.message?.contains("606") == true ->
+                        "Gemma 4 isn't ready yet on this device. Opt into the AICore Developer " +
+                        "Preview at developer.android.com/ai/aicore, or keep typing below."
+                    e.message?.contains("not loaded") == true ||
+                    e.message?.contains("not initialized") == true ->
+                        "The AI model isn't loaded yet — give it a moment and try again."
+                    else -> "Something went wrong: ${e.message?.take(120) ?: "unknown error"}"
+                }
+                repository.saveMessage(Message(role = MessageRole.ASSISTANT, content = "⚠️ $msg"))
             } finally {
                 _isProcessing.value = false
             }

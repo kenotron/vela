@@ -9,15 +9,25 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,12 +35,15 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -52,6 +65,8 @@ fun ConversationScreen(
     val isProcessing by viewModel.isProcessing.collectAsState()
     val engineState by viewModel.engineState.collectAsState()
 
+    var textInput by remember { mutableStateOf("") }
+
     val voiceCapture: VoiceCapture? = remember(speechTranscriber) {
         speechTranscriber?.let { VoiceCapture(it) }
     }
@@ -64,7 +79,8 @@ fun ConversationScreen(
 
     val idleFlow = remember { MutableStateFlow<TranscriptState>(TranscriptState.Idle) }
     val transcriptState by (voiceCapture?.transcriptState ?: idleFlow).collectAsState()
-    val isListening = transcriptState is TranscriptState.Listening || transcriptState is TranscriptState.Partial
+    val isListening = transcriptState is TranscriptState.Listening ||
+        transcriptState is TranscriptState.Partial
 
     LaunchedEffect(transcriptState) {
         val state = transcriptState
@@ -78,6 +94,31 @@ fun ConversationScreen(
     ) { granted ->
         if (granted) {
             voiceCapture?.startCapture()
+        }
+    }
+
+    fun handleSendText() {
+        val trimmed = textInput.trim()
+        if (trimmed.isNotBlank()) {
+            viewModel.onTextInput(trimmed)
+            textInput = ""
+        }
+    }
+
+    fun handleVoiceToggle() {
+        if (voiceCapture == null) return
+        if (isListening) {
+            voiceCapture.stopCapture()
+        } else {
+            val hasPermission = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (hasPermission) {
+                voiceCapture.startCapture()
+            } else {
+                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
         }
     }
 
@@ -102,27 +143,54 @@ fun ConversationScreen(
         }
 
         EngineState.ModelReady -> {
+            val listState = rememberLazyListState()
+
+            // Auto-scroll to latest message
+            LaunchedEffect(messages.size) {
+                if (messages.isNotEmpty()) {
+                    listState.animateScrollToItem(messages.size - 1)
+                }
+            }
+
             Scaffold(
-                floatingActionButton = {
-                    VoiceButton(
-                        isListening = isListening,
-                        onToggle = {
-                            if (voiceCapture == null) return@VoiceButton
-                            if (isListening) {
-                                voiceCapture.stopCapture()
-                            } else {
-                                val hasPermission = ContextCompat.checkSelfPermission(
-                                    context,
-                                    Manifest.permission.RECORD_AUDIO,
-                                ) == PackageManager.PERMISSION_GRANTED
-                                if (hasPermission) {
-                                    voiceCapture.startCapture()
-                                } else {
-                                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                }
+                bottomBar = {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                            .imePadding(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = textInput,
+                            onValueChange = { textInput = it },
+                            modifier = Modifier
+                                .weight(1f)
+                                .semantics { contentDescription = "Message input" },
+                            placeholder = { Text("Message or speak…") },
+                            maxLines = 4,
+                            shape = RoundedCornerShape(24.dp),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(onSend = { handleSendText() }),
+                        )
+                        if (textInput.isNotBlank()) {
+                            IconButton(
+                                onClick = { handleSendText() },
+                                modifier = Modifier.semantics { contentDescription = "Send message" },
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.Send,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
                             }
-                        },
-                    )
+                        }
+                        VoiceButton(
+                            isListening = isListening,
+                            onToggle = { handleVoiceToggle() },
+                        )
+                    }
                 },
             ) { paddingValues ->
                 Box(
@@ -132,13 +200,16 @@ fun ConversationScreen(
                 ) {
                     if (messages.isEmpty() && !isProcessing) {
                         Text(
-                            text = "Tap the microphone to start",
+                            text = "Type a message or tap the mic to speak",
                             modifier = Modifier.align(Alignment.Center),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     } else {
                         LazyColumn(
+                            state = listState,
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(16.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             items(messages) { message ->
@@ -148,7 +219,9 @@ fun ConversationScreen(
                     }
                     if (isProcessing) {
                         CircularProgressIndicator(
-                            modifier = Modifier.align(Alignment.Center),
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 8.dp),
                         )
                     }
                 }
