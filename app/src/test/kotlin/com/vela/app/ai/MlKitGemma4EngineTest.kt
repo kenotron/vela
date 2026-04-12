@@ -14,6 +14,7 @@ class MlKitGemma4EngineTest {
         var featureStatus: FakeFeatureStatus = FakeFeatureStatus.AVAILABLE,
         var closed: Boolean = false,
         var downloadCalled: Boolean = false,
+        var lastInput: String = "",
     ) : MlKitModelPort {
         override val isClosed: Boolean get() = closed
         override suspend fun checkStatus(): ReadinessState = when (featureStatus) {
@@ -23,7 +24,7 @@ class MlKitGemma4EngineTest {
             FakeFeatureStatus.UNAVAILABLE -> ReadinessState.Unavailable
         }
         override suspend fun download() { downloadCalled = true }
-        override suspend fun generate(input: String): String = responseText
+        override suspend fun generate(input: String): String { lastInput = input; return responseText }
         override fun close() { closed = true }
     }
 
@@ -97,5 +98,15 @@ class MlKitGemma4EngineTest {
         val engine = MlKitGemma4Engine(fakeModel = fake)
         engine.ensureReady()
         assertThat(fake.downloadCalled).isFalse()
+    }
+
+    @Test
+    fun processTextTruncatesInputOver3500Chars() = runTest {
+        val fake = FakeMlKitModel()
+        val engine = MlKitGemma4Engine(fakeModel = fake)
+        val longInput = "a".repeat(3501)
+        engine.processText(longInput)
+        assertThat(fake.lastInput.length).isAtMost(3515)
+        assertThat(fake.lastInput).endsWith("...[truncated]")
     }
 }

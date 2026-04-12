@@ -30,7 +30,7 @@ import javax.inject.Singleton
  * - Only English and Korean validated
  */
 @Singleton
-class MlKitGemma4Engine : GemmaEngine {
+class MlKitGemma4Engine : LifecycleAwareEngine {
 
     private val port: MlKitModelPort
 
@@ -53,13 +53,17 @@ class MlKitGemma4Engine : GemmaEngine {
         port = fakeModel
     }
 
-    suspend fun checkReadiness(): ReadinessState = withContext(Dispatchers.IO) {
+    override suspend fun checkReadiness(): ReadinessState = withContext(Dispatchers.IO) {
         port.checkStatus()
     }
 
-    suspend fun ensureReady() = withContext(Dispatchers.IO) {
-        if (port.checkStatus() == ReadinessState.Downloadable) {
-            port.download()
+    override suspend fun ensureReady() = withContext(Dispatchers.IO) {
+        when (checkReadiness()) {
+            ReadinessState.Downloadable -> port.download()
+            ReadinessState.Unavailable -> throw UnsupportedOperationException(
+                "Gemma 4 (AICore) is not available on this device. Unlocked bootloaders and some chipsets are unsupported."
+            )
+            else -> Unit // Available or Downloading — nothing to do
         }
     }
 
@@ -70,14 +74,14 @@ class MlKitGemma4Engine : GemmaEngine {
         port.generate(safeInput)
     }
 
-    fun shutdown() {
+    override fun shutdown() {
         port.close()
     }
 }
 
 private class RealMlKitModelPort(private val model: GenerativeModel) : MlKitModelPort {
 
-    private var modelClosed = false
+    @Volatile private var modelClosed = false
 
     override val isClosed: Boolean get() = modelClosed
 
@@ -96,7 +100,10 @@ private class RealMlKitModelPort(private val model: GenerativeModel) : MlKitMode
 
     override suspend fun generate(input: String): String = withContext(Dispatchers.IO) {
         val response = model.generateContent(input)
-        response.candidates.firstOrNull()?.text ?: ""
+        response.candidates.firstOrNull()?.text
+            ?: throw IllegalStateException(
+                "Gemma 4 returned no candidates — model may be unresponsive or input was safety-filtered"
+            )
     }
 
     override fun close() {
