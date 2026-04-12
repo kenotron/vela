@@ -6,6 +6,7 @@ import com.vela.app.data.repository.ConversationRepository
 import com.vela.app.domain.model.Message
 import com.vela.app.domain.model.MessageRole
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -28,6 +29,7 @@ class FakeConversationRepository : ConversationRepository {
     }
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ConversationViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
