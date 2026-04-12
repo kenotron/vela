@@ -16,7 +16,8 @@ class RoomConversationRepository @Inject constructor(
             entities.map { entity ->
                 Message(
                     id = entity.id,
-                    role = MessageRole.valueOf(entity.role),
+                    role = MessageRole.entries.firstOrNull { it.name == entity.role }
+                            ?: MessageRole.USER,
                     content = entity.content,
                     timestamp = entity.timestamp,
                 )
