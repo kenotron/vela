@@ -1,6 +1,7 @@
 package com.vela.app.di
 
 import android.content.Context
+import android.util.Log
 import androidx.room.Room
 import com.vela.app.R
 import com.vela.app.ai.DownloadState
@@ -66,6 +67,7 @@ object AppModule {
                     val wrapper = RealLlmInferenceWrapper(context, state.path)
                     MediaPipeGemmaEngine(wrapper)
                 } catch (e: Exception) {
+                    Log.w("AppModule", "Real engine unavailable, falling back to FakeGemmaEngine", e)
                     FakeGemmaEngine()
                 }
             }
