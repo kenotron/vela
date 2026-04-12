@@ -51,6 +51,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import com.vela.app.a2ui.VelaUiParser
+import com.vela.app.ui.conversation.AgentStep
 import com.vela.app.a2ui.VelaUiSurface
 import com.vela.app.domain.model.Message
 import com.vela.app.domain.model.MessageRole
@@ -71,6 +72,7 @@ fun ConversationScreen(
     val engineState by viewModel.engineState.collectAsState()
     val streamingResponse by viewModel.streamingResponse.collectAsState()
     val toolExecutionState by viewModel.toolExecutionState.collectAsState()
+    val agentStep by viewModel.agentStep.collectAsState()
 
     var textInput by remember { mutableStateOf("") }
 
@@ -236,7 +238,7 @@ fun ConversationScreen(
                             // Tool execution chip — shown while a built-in tool is running
                             toolExecutionState?.let { toolName ->
                                 item {
-                                    ToolExecutionChip(toolName = toolName)
+                                    ToolExecutionChip(toolName = toolName, step = agentStep)
                                 }
                             }
                             // Live streaming bubble — shown while Gemma 4 is generating
@@ -302,18 +304,25 @@ private fun MessageBubble(message: Message) {
  * Chip shown while a tool is executing between the two inference passes.
  * Gives the user a clear signal that the AI is fetching live data, not stuck.
  */
+/**
+ * Chip shown while a tool is executing between inference passes.
+ * When [step] is non-null we're in a multi-step agentic loop and show "Step N/M".
+ */
 @Composable
-private fun ToolExecutionChip(toolName: String) {
+private fun ToolExecutionChip(toolName: String, step: AgentStep? = null) {
+    val label = buildString {
+        append("🔧 Using $toolName")
+        if (step != null) append(" (step ${step.current}/${step.max})")
+        append("…")
+    }
     Box(
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = Alignment.CenterStart,
     ) {
         AssistChip(
             onClick = {},
-            label = { Text("🔧 Using $toolName…") },
-            modifier = Modifier.semantics {
-                contentDescription = "Using tool $toolName"
-            },
+            label = { Text(label) },
+            modifier = Modifier.semantics { contentDescription = label },
             colors = AssistChipDefaults.assistChipColors(
                 containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                 labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
