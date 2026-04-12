@@ -63,7 +63,6 @@
 
     # OkHttp
     okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
-    okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "okhttp" }
 
     # Testing
     junit = { group = "junit", name = "junit", version.ref = "junit" }
