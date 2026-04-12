@@ -85,6 +85,7 @@ dependencies {
     testImplementation(libs.truth)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.okhttp.mockwebserver)
+    testImplementation("org.json:json:20231013")
 
     // Instrumented tests
     androidTestImplementation(libs.androidx.test.runner)
