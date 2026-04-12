@@ -1,72 +1,39 @@
 package com.vela.app.voice
 
 import com.google.common.truth.Truth.assertThat
-import org.junit.Rule
 import org.junit.Test
-import org.junit.rules.TemporaryFolder
-import java.io.File
 
 class VoiceCaptureTest {
 
-    @get:Rule
-    val tempFolder = TemporaryFolder()
-
     @Test
     fun initialStateIsIdle() {
-        val voiceCapture = VoiceCapture(
-            outputDir = tempFolder.root,
-            audioRecordFactory = { FakeAudioRecord() },
-        )
-        assertThat(voiceCapture.isRecording.value).isFalse()
+        val transcriber = FakeSpeechTranscriber()
+        val voiceCapture = VoiceCapture(transcriber)
+        assertThat(voiceCapture.transcriptState.value).isEqualTo(TranscriptState.Idle)
     }
 
     @Test
-    fun startCaptureTransitionsToRecording() {
-        val voiceCapture = VoiceCapture(
-            outputDir = tempFolder.root,
-            audioRecordFactory = { FakeAudioRecord() },
-        )
+    fun startCaptureTransitionsToListening() {
+        val transcriber = FakeSpeechTranscriber()
+        val voiceCapture = VoiceCapture(transcriber)
         voiceCapture.startCapture()
-        assertThat(voiceCapture.isRecording.value).isTrue()
+        assertThat(voiceCapture.transcriptState.value).isEqualTo(TranscriptState.Listening)
     }
 
     @Test
-    fun stopCaptureTransitionsToIdleAndReturnsFilePath() {
-        val voiceCapture = VoiceCapture(
-            outputDir = tempFolder.root,
-            audioRecordFactory = { FakeAudioRecord() },
-        )
+    fun stopCaptureTransitionsToIdle() {
+        val transcriber = FakeSpeechTranscriber()
+        val voiceCapture = VoiceCapture(transcriber)
         voiceCapture.startCapture()
-        Thread.sleep(50) // Allow recording thread to write at least one audio buffer
-        val filePath = voiceCapture.stopCapture()
-        assertThat(voiceCapture.isRecording.value).isFalse()
-        assertThat(filePath).isNotNull()
-        val file = File(filePath!!)
-        assertThat(file.exists()).isTrue()
-        assertThat(file.extension).isEqualTo("wav")
-        assertThat(file.length()).isGreaterThan(44L)
+        voiceCapture.stopCapture()
+        assertThat(voiceCapture.transcriptState.value).isEqualTo(TranscriptState.Idle)
     }
 
     @Test
-    fun stopCaptureWithoutStartReturnsNull() {
-        val voiceCapture = VoiceCapture(
-            outputDir = tempFolder.root,
-            audioRecordFactory = { FakeAudioRecord() },
-        )
-        val filePath = voiceCapture.stopCapture()
-        assertThat(filePath).isNull()
+    fun transcriptStateForwardsFinal() {
+        val transcriber = FakeSpeechTranscriber()
+        val voiceCapture = VoiceCapture(transcriber)
+        transcriber.emitFinal("hello world")
+        assertThat(voiceCapture.transcriptState.value).isEqualTo(TranscriptState.Final("hello world"))
     }
-}
-
-private class FakeAudioRecord : AudioRecordWrapper {
-    override fun startRecording() {}
-
-    override fun stop() {}
-
-    override fun read(buffer: ByteArray, offsetInBytes: Int, sizeInBytes: Int): Int {
-        buffer.fill(0)
-        return sizeInBytes
-    }
-
-    override fun release() {}
 }

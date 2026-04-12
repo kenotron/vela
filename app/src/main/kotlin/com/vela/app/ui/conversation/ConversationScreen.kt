@@ -2,9 +2,6 @@ package com.vela.app.ui.conversation
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.media.AudioFormat
-import android.media.AudioRecord
-import android.media.MediaRecorder
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -35,7 +32,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.vela.app.domain.model.Message
 import com.vela.app.domain.model.MessageRole
 import com.vela.app.ui.components.VoiceButton
-import com.vela.app.voice.AudioRecordWrapper
+import com.vela.app.voice.FakeSpeechTranscriber
+import com.vela.app.voice.TranscriptState
 import com.vela.app.voice.VoiceCapture
 
 @Composable
@@ -45,39 +43,17 @@ fun ConversationScreen(viewModel: ConversationViewModel = hiltViewModel()) {
     val isProcessing by viewModel.isProcessing.collectAsState()
 
     val voiceCapture = remember {
-        VoiceCapture(
-            outputDir = context.cacheDir,
-            audioRecordFactory = {
-                val minBufSize = AudioRecord.getMinBufferSize(
-                    16000,
-                    AudioFormat.CHANNEL_IN_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT,
-                )
-                val audioRecord = AudioRecord(
-                    MediaRecorder.AudioSource.MIC,
-                    16000,
-                    AudioFormat.CHANNEL_IN_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT,
-                    minBufSize,
-                )
-                object : AudioRecordWrapper {
-                    override fun startRecording() = audioRecord.startRecording()
-                    override fun stop() = audioRecord.stop()
-                    override fun read(buffer: ByteArray, offsetInBytes: Int, sizeInBytes: Int): Int =
-                        audioRecord.read(buffer, offsetInBytes, sizeInBytes)
-                    override fun release() = audioRecord.release()
-                }
-            },
-        )
+        VoiceCapture(FakeSpeechTranscriber())
     }
+
     DisposableEffect(Unit) {
         onDispose {
-            if (voiceCapture.isRecording.value) {
-                voiceCapture.stopCapture()
-            }
+            voiceCapture.destroy()
         }
     }
-    val isRecording by voiceCapture.isRecording.collectAsState()
+
+    val transcriptState by voiceCapture.transcriptState.collectAsState()
+    val isListening = transcriptState is TranscriptState.Listening || transcriptState is TranscriptState.Partial
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -90,13 +66,10 @@ fun ConversationScreen(viewModel: ConversationViewModel = hiltViewModel()) {
     Scaffold(
         floatingActionButton = {
             VoiceButton(
-                isListening = isRecording,
+                isListening = isListening,
                 onToggle = {
-                    if (isRecording) {
-                        val path = voiceCapture.stopCapture()
-                        if (path != null) {
-                            viewModel.onVoiceInput(path)
-                        }
+                    if (isListening) {
+                        voiceCapture.stopCapture()
                     } else {
                         val hasPermission = ContextCompat.checkSelfPermission(
                             context,
