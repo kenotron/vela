@@ -1,0 +1,21 @@
+# Built artifacts
+.gradle/
+local.properties
+.idea/
+*.iml
+*.iws
+*.ipr
+.DS_Store
+build/
+app/build/
+
+# Kotlin/Android generated files
+.kotlin/
+
+# Credentials
+keystore.properties
+*.jks
+*.keystore
+
+# Room schema exports — intentionally NOT ignored (commit these for migration auditing)
+# app/schemas/
