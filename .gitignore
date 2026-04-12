@@ -19,3 +19,6 @@ keystore.properties
 
 # Room schema exports — intentionally NOT ignored (commit these for migration auditing)
 # app/schemas/
+
+# Stale build artifacts that can appear at project root (e.g. extracted compose-test class files)
+androidx/
