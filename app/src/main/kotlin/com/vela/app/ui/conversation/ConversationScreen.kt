@@ -2,9 +2,12 @@ package com.vela.app.ui.conversation
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,10 +20,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -51,376 +56,287 @@ import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.*
 
+// ---- Root: animates between conversation and full-page sessions list ----------
+
+@Composable
+fun ConversationRoot(
+    speechTranscriber: SpeechTranscriber? = null,
+    viewModel: ConversationViewModel = hiltViewModel(),
+) {
+    var showSessions by remember { mutableStateOf(false) }
+    BackHandler(enabled = showSessions) { showSessions = false }
+
+    AnimatedContent(
+        targetState = showSessions,
+        transitionSpec = {
+            if (targetState) {
+                slideInHorizontally { it } + fadeIn() togetherWith slideOutHorizontally { -it / 3 } + fadeOut()
+            } else {
+                slideInHorizontally { -it / 3 } + fadeIn() togetherWith slideOutHorizontally { it } + fadeOut()
+            }
+        },
+        label = "page-swap",
+    ) { inSessions ->
+        if (inSessions) {
+            SessionsPage(viewModel = viewModel, onBack = { showSessions = false }, onSelect = { showSessions = false })
+        } else {
+            ConversationScreen(speechTranscriber = speechTranscriber, viewModel = viewModel, onOpenSessions = { showSessions = true })
+        }
+    }
+}
+
+// ---- Full-page sessions list -------------------------------------------------
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SessionsPage(
+    viewModel: ConversationViewModel,
+    onBack: () -> Unit,
+    onSelect: () -> Unit,
+) {
+    val conversations by viewModel.conversations.collectAsState()
+    val activeId      by viewModel.activeConversationId.collectAsState()
+    var query         by remember { mutableStateOf("") }
+
+    val filtered = remember(conversations, query) {
+        if (query.isBlank()) conversations
+        else conversations.filter { it.title.contains(query, ignoreCase = true) }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+                title = { Text("Chats", style = MaterialTheme.typography.titleLarge) },
+                actions = {
+                    FilledTonalIconButton(onClick = { viewModel.newSession(); onSelect() }) {
+                        Icon(Icons.Default.Add, "New chat")
+                    }
+                },
+            )
+        },
+    ) { pad ->
+        Column(Modifier.fillMaxSize().padding(pad)) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                placeholder = { Text("Search chats\u2026") },
+                leadingIcon = { Icon(Icons.Default.Search, null) },
+                singleLine = true,
+                shape = RoundedCornerShape(28.dp),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            )
+
+            if (filtered.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        if (query.isBlank()) "No chats yet \u2014 tap + to start." else "No chats matching \u201c$query\u201d",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                LazyColumn(contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    items(filtered, key = { it.id }) { conv ->
+                        SessionCard(
+                            conv = conv,
+                            isActive = conv.id == activeId,
+                            onClick  = { viewModel.switchSession(conv.id); onSelect() },
+                            onDelete = { viewModel.deleteSession(conv.id) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SessionCard(conv: Conversation, isActive: Boolean, onClick: () -> Unit, onDelete: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val dateStr = remember(conv.updatedAt) {
+        val delta = System.currentTimeMillis() - conv.updatedAt
+        when {
+            delta < 60_000L         -> "Just now"
+            delta < 3_600_000L      -> "${delta / 60_000}m ago"
+            delta < 86_400_000L     -> "${delta / 3_600_000}h ago"
+            delta < 7*86_400_000L   -> "${delta / 86_400_000}d ago"
+            else                    -> SimpleDateFormat("MMM d", Locale.US).format(Date(conv.updatedAt))
+        }
+    }
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = if (isActive) cs.primaryContainer.copy(alpha = 0.55f) else cs.surfaceContainerLow),
+        border = if (isActive) BorderStroke(1.dp, cs.primary.copy(alpha = 0.4f)) else null,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(Modifier.size(42.dp).background(if (isActive) cs.primary.copy(alpha=0.15f) else cs.surfaceContainerHigh, CircleShape), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.ChatBubbleOutline, null, tint = if (isActive) cs.primary else cs.onSurfaceVariant, modifier = Modifier.size(20.dp))
+            }
+            Column(Modifier.weight(1f)) {
+                Text(conv.title, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal), color = if (isActive) cs.primary else cs.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(dateStr, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+            }
+            IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Default.Delete, "Delete", tint = cs.onSurfaceVariant.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
+            }
+        }
+    }
+}
+
+// ---- Conversation screen -----------------------------------------------------
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConversationScreen(
     speechTranscriber: SpeechTranscriber? = null,
     viewModel: ConversationViewModel = hiltViewModel(),
+    onOpenSessions: () -> Unit = {},
 ) {
-    val context         = LocalContext.current
-    val messages        by viewModel.messages.collectAsState()
-    val conversations   by viewModel.conversations.collectAsState()
-    val activeTitle     by viewModel.activeTitle.collectAsState()
-    val activeId        by viewModel.activeConversationId.collectAsState()
-    val isProcessing    by viewModel.isProcessing.collectAsState()
-    val streamingResp   by viewModel.streamingResponse.collectAsState()
-
-    var textInput         by remember { mutableStateOf("") }
-    var showSessionSheet  by remember { mutableStateOf(false) }
+    val context       = LocalContext.current
+    val messages      by viewModel.messages.collectAsState()
+    val activeTitle   by viewModel.activeTitle.collectAsState()
+    val streamingResp by viewModel.streamingResponse.collectAsState()
+    var textInput by remember { mutableStateOf("") }
 
     val voiceCapture = remember(speechTranscriber) { speechTranscriber?.let { VoiceCapture(it) } }
     DisposableEffect(voiceCapture) { onDispose { voiceCapture?.destroy() } }
 
     val idleFlow        = remember { MutableStateFlow<TranscriptState>(TranscriptState.Idle) }
     val transcriptState by (voiceCapture?.transcriptState ?: idleFlow).collectAsState()
-    val isListening     = transcriptState is TranscriptState.Listening ||
-                          transcriptState is TranscriptState.Partial
+    val isListening     = transcriptState is TranscriptState.Listening || transcriptState is TranscriptState.Partial
 
     LaunchedEffect(transcriptState) {
-        if (transcriptState is TranscriptState.Final)
-            viewModel.onVoiceInput((transcriptState as TranscriptState.Final).text)
+        if (transcriptState is TranscriptState.Final) viewModel.onVoiceInput((transcriptState as TranscriptState.Final).text)
     }
+    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) voiceCapture?.startCapture() }
 
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted -> if (granted) voiceCapture?.startCapture() }
-
-    fun handleSend() {
-        val t = textInput.trim()
-        if (t.isNotBlank()) { viewModel.onTextInput(t); textInput = "" }
-    }
+    fun handleSend() { val t = textInput.trim(); if (t.isNotBlank()) { viewModel.onTextInput(t); textInput = "" } }
     fun handleMic() {
         if (voiceCapture == null) return
         if (isListening) voiceCapture.stopCapture()
-        else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
-                 == PackageManager.PERMISSION_GRANTED) voiceCapture.startCapture()
-        else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) voiceCapture.startCapture()
+        else permLauncher.launch(Manifest.permission.RECORD_AUDIO)
     }
 
     val listState  = rememberLazyListState()
     val totalItems = messages.size + if (streamingResp != null) 1 else 0
-    LaunchedEffect(totalItems) {
-        if (totalItems > 0) listState.animateScrollToItem(totalItems - 1)
-    }
-
-    // ── Session list bottom sheet ─────────────────────────────────────────────
-    if (showSessionSheet) {
-        ModalBottomSheet(onDismissRequest = { showSessionSheet = false }) {
-            SessionListSheet(
-                conversations = conversations,
-                activeId      = activeId,
-                onSelect = { id ->
-                    viewModel.switchSession(id)
-                    showSessionSheet = false
-                },
-                onDelete = { id -> viewModel.deleteSession(id) },
-                onNewChat = {
-                    viewModel.newSession()
-                    showSessionSheet = false
-                },
-            )
-        }
-    }
+    LaunchedEffect(totalItems) { if (totalItems > 0) listState.animateScrollToItem(totalItems - 1) }
 
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = {
-                    Text(
-                        activeTitle,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = { showSessionSheet = true }) {
-                        Icon(Icons.Default.ChatBubbleOutline, "All chats")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { viewModel.newSession() }) {
-                        Icon(Icons.Default.Add, "New chat",
-                             tint = MaterialTheme.colorScheme.primary)
-                    }
-                },
+                navigationIcon = { IconButton(onClick = onOpenSessions) { Icon(Icons.Default.ChatBubbleOutline, "All chats") } },
+                title = { Text(activeTitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium) },
+                actions = { IconButton(onClick = { viewModel.newSession() }) { Icon(Icons.Default.Add, "New chat", tint = MaterialTheme.colorScheme.primary) } },
             )
         },
         bottomBar = {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
-                    .imePadding(),
+                modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp).imePadding(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                OutlinedTextField(
-                    value = textInput,
-                    onValueChange = { textInput = it },
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("Message\u2026") },
-                    maxLines = 4,
-                    shape = RoundedCornerShape(24.dp),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = { handleSend() }),
-                )
-                if (textInput.isNotBlank()) {
-                    IconButton(onClick = { handleSend() }) {
-                        Icon(Icons.AutoMirrored.Filled.Send, null,
-                             tint = MaterialTheme.colorScheme.primary)
-                    }
-                }
+                OutlinedTextField(value = textInput, onValueChange = { textInput = it }, modifier = Modifier.weight(1f), placeholder = { Text("Message\u2026") }, maxLines = 4, shape = RoundedCornerShape(24.dp), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { handleSend() }))
+                if (textInput.isNotBlank()) IconButton(onClick = { handleSend() }) { Icon(Icons.AutoMirrored.Filled.Send, null, tint = MaterialTheme.colorScheme.primary) }
                 VoiceButton(isListening = isListening, onToggle = { handleMic() })
             }
-        }
-    ) { paddingValues ->
+        },
+    ) { pad ->
         if (messages.isEmpty() && streamingResp == null) {
-            Box(Modifier.fillMaxSize().padding(paddingValues), contentAlignment = Alignment.Center) {
-                Text(
-                    "Start a conversation",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) {
+                Text("Start a conversation", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize().padding(paddingValues),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                // Unified message list — USER, ASSISTANT, TOOL_CALL in timestamp order.
-                // TOOL_CALL rows were inserted before the ASSISTANT response → correct timeline.
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(pad), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(messages, key = { it.id }) { msg ->
-                    when (msg.role) {
-                        MessageRole.TOOL_CALL -> ToolCallBlockItem(msg)
-                        else                  -> MessageBubble(msg)
-                    }
+                    when (msg.role) { MessageRole.TOOL_CALL -> ToolCallBlockItem(msg); else -> MessageBubble(msg) }
                 }
-                streamingResp?.let {
-                    item(key = "streaming") { StreamingBubble(it) }
-                }
+                streamingResp?.let { item(key = "streaming") { StreamingBubble(it) } }
             }
         }
     }
 }
 
-// ─── Session list sheet ───────────────────────────────────────────────────────
+// ---- Message bubble ----------------------------------------------------------
 
-@Composable
-private fun SessionListSheet(
-    conversations: List<Conversation>,
-    activeId: String?,
-    onSelect: (String) -> Unit,
-    onDelete: (String) -> Unit,
-    onNewChat: () -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 24.dp),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Chats", style = MaterialTheme.typography.titleLarge)
-            FilledTonalButton(onClick = onNewChat) {
-                Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("New Chat")
-            }
-        }
-        HorizontalDivider()
-        LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
-            items(conversations, key = { it.id }) { conv ->
-                SessionRow(
-                    conv     = conv,
-                    isActive = conv.id == activeId,
-                    onClick  = { onSelect(conv.id) },
-                    onDelete = { onDelete(conv.id) },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SessionRow(
-    conv: Conversation,
-    isActive: Boolean,
-    onClick: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    val cs = MaterialTheme.colorScheme
-    val dateStr = remember(conv.updatedAt) {
-        val fmt = SimpleDateFormat("MMM d", Locale.US)
-        fmt.format(Date(conv.updatedAt))
-    }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(if (isActive) cs.primaryContainer.copy(alpha = 0.3f) else Color.Transparent)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                conv.title,
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-                ),
-                color = if (isActive) cs.primary else cs.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(dateStr, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
-        }
-        if (!isActive) {
-            IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Default.Delete, "Delete", tint = cs.onSurfaceVariant, modifier = Modifier.size(18.dp))
-            }
-        }
-    }
-}
-
-// ─── Message bubble ───────────────────────────────────────────────────────────
-
-private val UserShape      = RoundedCornerShape(18.dp, 18.dp,  4.dp, 18.dp)
-private val AssistantShape = RoundedCornerShape( 4.dp, 18.dp, 18.dp, 18.dp)
+private val UserShape      = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp)
+private val AssistantShape = RoundedCornerShape(4.dp, 18.dp, 18.dp, 18.dp)
 
 @Composable
 private fun MessageBubble(message: Message) {
     val isUser = message.role == MessageRole.USER
     val maxW   = (LocalConfiguration.current.screenWidthDp * 0.82).dp
     val cs     = MaterialTheme.colorScheme
-
-    Row(Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start) {
         if (!isUser) {
-            val velaPayload = remember(message.content) { VelaUiParser.parse(message.content) }
-            if (velaPayload != null) {
-                VelaUiSurface(velaPayload, Modifier.widthIn(max = maxW)
-                    .background(cs.surface, AssistantShape).padding(12.dp))
-                return@Row
-            }
+            val payload = remember(message.content) { VelaUiParser.parse(message.content) }
+            if (payload != null) { VelaUiSurface(payload, Modifier.widthIn(max = maxW).background(cs.surface, AssistantShape).padding(12.dp)); return@Row }
         }
-        Box(
-            Modifier.widthIn(max = maxW)
-                .background(
-                    if (isUser) cs.primaryContainer else cs.secondaryContainer,
-                    if (isUser) UserShape else AssistantShape,
-                )
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-        ) {
-            if (isUser) Text(message.content, style = MaterialTheme.typography.bodyMedium,
-                             color = cs.onPrimaryContainer)
+        Box(Modifier.widthIn(max = maxW).background(if (isUser) cs.primaryContainer else cs.secondaryContainer, if (isUser) UserShape else AssistantShape).padding(horizontal = 14.dp, vertical = 10.dp)) {
+            if (isUser) Text(message.content, style = MaterialTheme.typography.bodyMedium, color = cs.onPrimaryContainer)
             else MarkdownText(text = message.content, color = cs.onSecondaryContainer)
         }
     }
 }
 
-// ─── Streaming bubble ─────────────────────────────────────────────────────────
+// ---- Streaming bubble --------------------------------------------------------
 
 @Composable
 private fun StreamingBubble(text: String) {
     val maxW  = (LocalConfiguration.current.screenWidthDp * 0.82).dp
     val cs    = MaterialTheme.colorScheme
     val inf   = rememberInfiniteTransition(label = "pulse")
-    val alpha by inf.animateFloat(0.3f, 1f,
-        infiniteRepeatable(tween(600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "a")
+    val alpha by inf.animateFloat(0.3f, 1f, infiniteRepeatable(tween(600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "a")
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
-        Box(Modifier.widthIn(max = maxW).background(cs.secondaryContainer, AssistantShape)
-                    .padding(horizontal = 14.dp, vertical = 10.dp)) {
+        Box(Modifier.widthIn(max = maxW).background(cs.secondaryContainer, AssistantShape).padding(horizontal = 14.dp, vertical = 10.dp)) {
             Column {
-                if (text.isNotEmpty()) {
-                    MarkdownText(text = text, color = cs.onSecondaryContainer)
-                    Spacer(Modifier.height(4.dp))
-                }
-                Box(Modifier.size(8.dp).alpha(alpha)
-                    .background(cs.onSecondaryContainer.copy(alpha = 0.4f), CircleShape))
+                if (text.isNotEmpty()) { MarkdownText(text = text, color = cs.onSecondaryContainer); Spacer(Modifier.height(4.dp)) }
+                Box(Modifier.size(8.dp).alpha(alpha).background(cs.onSecondaryContainer.copy(alpha = 0.4f), CircleShape))
             }
         }
     }
 }
 
-// ─── Tool call block ──────────────────────────────────────────────────────────
+// ---- Tool call block ---------------------------------------------------------
 
 @Composable
 private fun ToolCallBlockItem(message: Message) {
-    val meta          = remember(message.toolMeta) {
-        runCatching { JSONObject(message.toolMeta ?: "{}") }.getOrDefault(JSONObject())
-    }
-    val displayName   = meta.optString("displayName", message.content)
-    val icon          = meta.optString("icon", "\uD83D\uDD27")
-    val summary       = meta.optString("summary", "")
-    val status        = meta.optString("status", "in_progress")
-
-    val isDone = status == "done"
-    val isErr  = status == "error"
-    val cs     = MaterialTheme.colorScheme
-
-    val borderColor = when {
-        isDone -> cs.primary.copy(alpha = 0.35f)
-        isErr  -> cs.error.copy(alpha = 0.4f)
-        else   -> cs.outline.copy(alpha = 0.3f)
-    }
-    val bgColor = when {
-        isDone -> cs.primaryContainer.copy(alpha = 0.25f)
-        isErr  -> cs.errorContainer.copy(alpha = 0.25f)
-        else   -> cs.surfaceVariant.copy(alpha = 0.4f)
-    }
-
+    val meta        = remember(message.toolMeta) { runCatching { JSONObject(message.toolMeta ?: "{}") }.getOrDefault(JSONObject()) }
+    val displayName = meta.optString("displayName", message.content)
+    val icon        = meta.optString("icon", "\uD83D\uDD27")
+    val summary     = meta.optString("summary", "")
+    val status      = meta.optString("status", "in_progress")
+    val isDone = status == "done";  val isErr = status == "error"
+    val cs = MaterialTheme.colorScheme
+    val borderColor = when { isDone -> cs.primary.copy(alpha=0.35f); isErr -> cs.error.copy(alpha=0.4f); else -> cs.outline.copy(alpha=0.3f) }
+    val bgColor     = when { isDone -> cs.primaryContainer.copy(alpha=0.25f); isErr -> cs.errorContainer.copy(alpha=0.25f); else -> cs.surfaceVariant.copy(alpha=0.4f) }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
         Row(
-            modifier = Modifier
-                .widthIn(max = (LocalConfiguration.current.screenWidthDp * 0.82).dp)
-                .background(bgColor, RoundedCornerShape(12.dp))
-                .border(1.dp, borderColor, RoundedCornerShape(12.dp))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.widthIn(max = (LocalConfiguration.current.screenWidthDp * 0.82).dp).background(bgColor, RoundedCornerShape(12.dp)).border(1.dp, borderColor, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(icon, fontSize = 18.sp)
             Column(Modifier.weight(1f)) {
-                Text(
-                    displayName,
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-                    color = cs.onSurface,
-                )
-                if (summary.isNotBlank()) {
-                    Text(
-                        "\u201c$summary\u201d",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = cs.onSurfaceVariant,
-                    )
-                }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
+                Text(displayName, style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold), color = cs.onSurface)
+                if (summary.isNotBlank()) Text("\u201c$summary\u201d", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (!isDone && !isErr) {
                         val inf = rememberInfiniteTransition(label = "spin")
-                        val a by inf.animateFloat(0.4f, 1f,
-                            infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "b")
+                        val a by inf.animateFloat(0.4f, 1f, infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "b")
                         Box(Modifier.size(6.dp).alpha(a).background(cs.primary, CircleShape))
                     } else {
-                        Text(if (isDone) "\u2713" else "\u2717", fontSize = 11.sp,
-                             color = if (isDone) cs.primary else cs.error)
+                        Text(if (isDone) "\u2713" else "\u2717", fontSize = 11.sp, color = if (isDone) cs.primary else cs.error)
                     }
-                    Text(
-                        when (status) { "done" -> "Done"; "error" -> "Failed"; else -> "Working\u2026" },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (isDone) cs.primary else if (isErr) cs.error else cs.onSurfaceVariant,
-                    )
+                    Text(when(status) { "done" -> "Done"; "error" -> "Failed"; else -> "Working\u2026" }, style = MaterialTheme.typography.labelSmall, color = if (isDone) cs.primary else if (isErr) cs.error else cs.onSurfaceVariant)
                 }
             }
         }
