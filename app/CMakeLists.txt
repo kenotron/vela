@@ -8,9 +8,12 @@
     set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
-    # GPU backends — off by default. Enable GGML_OPENCL for Adreno (Qualcomm) GPUs.
-    # set(GGML_OPENCL ON CACHE BOOL "" FORCE)
-    set(GGML_VULKAN OFF CACHE BOOL "" FORCE)
+    # GPU backends
+    # set(GGML_OPENCL ON CACHE BOOL "" FORCE)  # Enable for Adreno GPU
+    set(GGML_VULKAN  OFF CACHE BOOL "" FORCE)
+    # Disable OpenMP — libomp.so is not 16KB-page-aligned on NDK 27
+    # llama.cpp uses its own thread pool (ggml-threading) as fallback
+    set(GGML_OPENMP  OFF CACHE BOOL "" FORCE)
 
     # Pull in the full llama.cpp CMake tree (builds llama + ggml + common)
     add_subdirectory(src/main/cpp/llama.cpp)
@@ -30,6 +33,9 @@
         src/main/cpp/llama.cpp/include
         src/main/cpp/llama.cpp/ggml/include
     )
+
+    # 16KB page alignment — required for Android 15+ (Pixel 10 Pro)
+    target_link_options(vela-llama PRIVATE "-Wl,-z,max-page-size=16384")
 
     target_link_libraries(vela-llama
         llama
