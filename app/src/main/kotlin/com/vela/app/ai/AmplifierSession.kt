@@ -34,7 +34,7 @@ class AmplifierSession @Inject constructor(
         private const val PREFS_NAME   = "amplifier_prefs"
         private const val KEY_API_KEY  = "anthropic_api_key"
         private const val KEY_MODEL    = "anthropic_model"
-        const val DEFAULT_MODEL = "claude-3-5-haiku-20241022"
+        const val DEFAULT_MODEL = "claude-sonnet-4-6"
     }
 
     private val history = mutableListOf<JSONObject>()
