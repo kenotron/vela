@@ -6,6 +6,7 @@
     import androidx.activity.result.contract.ActivityResultContracts
     import androidx.compose.animation.core.*
     import androidx.compose.foundation.background
+    import androidx.compose.foundation.border
     import androidx.compose.foundation.layout.*
     import androidx.compose.foundation.lazy.LazyColumn
     import androidx.compose.foundation.lazy.items
@@ -21,18 +22,20 @@
     import androidx.compose.ui.Alignment
     import androidx.compose.ui.Modifier
     import androidx.compose.ui.draw.alpha
+    import androidx.compose.ui.graphics.Color
     import androidx.compose.ui.platform.LocalConfiguration
     import androidx.compose.ui.platform.LocalContext
-    import androidx.compose.ui.semantics.contentDescription
-    import androidx.compose.ui.semantics.semantics
+    import androidx.compose.ui.text.font.FontWeight
     import androidx.compose.ui.text.input.ImeAction
     import androidx.compose.ui.unit.dp
+    import androidx.compose.ui.unit.sp
     import androidx.core.content.ContextCompat
     import androidx.hilt.navigation.compose.hiltViewModel
     import com.vela.app.a2ui.VelaUiParser
     import com.vela.app.a2ui.VelaUiSurface
     import com.vela.app.domain.model.Message
     import com.vela.app.domain.model.MessageRole
+    import com.vela.app.ui.components.MarkdownText
     import com.vela.app.ui.components.VoiceButton
     import com.vela.app.voice.SpeechTranscriber
     import com.vela.app.voice.TranscriptState
@@ -44,28 +47,27 @@
         speechTranscriber: SpeechTranscriber? = null,
         viewModel: ConversationViewModel = hiltViewModel(),
     ) {
-        val context = LocalContext.current
-        val messages by viewModel.messages.collectAsState()
-        val isProcessing by viewModel.isProcessing.collectAsState()
-        val streamingResponse by viewModel.streamingResponse.collectAsState()
-        val toolState by viewModel.toolState.collectAsState()
+        val context          = LocalContext.current
+        val messages         by viewModel.messages.collectAsState()
+        val isProcessing     by viewModel.isProcessing.collectAsState()
+        val streamingResp    by viewModel.streamingResponse.collectAsState()
+        val toolCallBlocks   by viewModel.toolCallBlocks.collectAsState()
 
         var textInput by remember { mutableStateOf("") }
 
-        val voiceCapture: VoiceCapture? = remember(speechTranscriber) {
+        val voiceCapture = remember(speechTranscriber) {
             speechTranscriber?.let { VoiceCapture(it) }
         }
         DisposableEffect(voiceCapture) { onDispose { voiceCapture?.destroy() } }
 
-        val idleFlow = remember { MutableStateFlow<TranscriptState>(TranscriptState.Idle) }
-        val transcriptState by (voiceCapture?.transcriptState ?: idleFlow).collectAsState()
-        val isListening = transcriptState is TranscriptState.Listening ||
-                          transcriptState is TranscriptState.Partial
+        val idleFlow         = remember { MutableStateFlow<TranscriptState>(TranscriptState.Idle) }
+        val transcriptState  by (voiceCapture?.transcriptState ?: idleFlow).collectAsState()
+        val isListening      = transcriptState is TranscriptState.Listening ||
+                               transcriptState is TranscriptState.Partial
 
         LaunchedEffect(transcriptState) {
-            if (transcriptState is TranscriptState.Final) {
+            if (transcriptState is TranscriptState.Final)
                 viewModel.onVoiceInput((transcriptState as TranscriptState.Final).text)
-            }
         }
 
         val permissionLauncher = rememberLauncherForActivityResult(
@@ -86,12 +88,9 @@
         }
 
         val listState = rememberLazyListState()
-        LaunchedEffect(messages.size) {
-            if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
-        }
-        LaunchedEffect(streamingResponse?.length) {
-            if (streamingResponse != null && messages.isNotEmpty())
-                listState.animateScrollToItem(messages.size - 1)
+        val totalItems = messages.size + toolCallBlocks.size + if (streamingResp != null) 1 else 0
+        LaunchedEffect(totalItems) {
+            if (totalItems > 0) listState.animateScrollToItem(totalItems - 1)
         }
 
         Scaffold(
@@ -125,109 +124,213 @@
                 }
             }
         ) { paddingValues ->
-            Box(Modifier.fillMaxSize().padding(paddingValues)) {
-                if (messages.isEmpty() && streamingResponse == null && !isProcessing) {
+            if (messages.isEmpty() && toolCallBlocks.isEmpty() && streamingResp == null) {
+                Box(Modifier.fillMaxSize().padding(paddingValues), contentAlignment = Alignment.Center) {
                     Text(
-                        "Type a message or tap the mic to speak",
-                        modifier = Modifier.align(Alignment.Center),
+                        "Type a message or tap the mic",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        items(messages) { MessageBubble(it) }
+                }
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize().padding(paddingValues),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    items(messages, key = { it.id }) { MessageBubble(it) }
 
-                        toolState?.let { item { ToolChip(it) } }
+                    // Persistent tool call blocks — stay visible after turn completes
+                    items(toolCallBlocks, key = { it.id }) { block ->
+                        ToolCallBlockItem(block)
+                    }
 
-                        streamingResponse?.let { item { StreamingBubble(it) } }
+                    // Live streaming response
+                    streamingResp?.let {
+                        item(key = "streaming") { StreamingBubble(it) }
                     }
                 }
             }
         }
     }
 
-    // ─── Bubble shape helpers ───────────────────────────────────────────────────
+    // ─── Message bubble ───────────────────────────────────────────────────────────
 
-    private val UserShape = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp)
-    private val AssistantShape = RoundedCornerShape(4.dp, 18.dp, 18.dp, 18.dp)
+    private val UserShape      = RoundedCornerShape(18.dp, 18.dp,  4.dp, 18.dp)
+    private val AssistantShape = RoundedCornerShape( 4.dp, 18.dp, 18.dp, 18.dp)
 
     @Composable
     private fun MessageBubble(message: Message) {
         val isUser = message.role == MessageRole.USER
-        val maxW = (LocalConfiguration.current.screenWidthDp * 0.82).dp
-        Row(Modifier.fillMaxWidth(),
-            horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start) {
+        val maxW   = (LocalConfiguration.current.screenWidthDp * 0.82).dp
+        val cs     = MaterialTheme.colorScheme
+
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+        ) {
             if (!isUser) {
-                val payload = remember(message.content) { VelaUiParser.parse(message.content) }
-                if (payload != null) {
-                    VelaUiSurface(payload,
-                        Modifier.widthIn(max = maxW)
-                                .background(MaterialTheme.colorScheme.surface, AssistantShape)
-                                .padding(12.dp))
+                val velaPayload = remember(message.content) { VelaUiParser.parse(message.content) }
+                if (velaPayload != null) {
+                    VelaUiSurface(
+                        velaPayload,
+                        Modifier
+                            .widthIn(max = maxW)
+                            .background(cs.surface, AssistantShape)
+                            .padding(12.dp),
+                    )
                     return@Row
                 }
             }
-            Text(
-                message.content,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier
+
+            Box(
+                Modifier
                     .widthIn(max = maxW)
                     .background(
-                        if (isUser) MaterialTheme.colorScheme.primaryContainer
-                        else MaterialTheme.colorScheme.secondaryContainer,
+                        if (isUser) cs.primaryContainer else cs.secondaryContainer,
                         if (isUser) UserShape else AssistantShape,
                     )
                     .padding(horizontal = 14.dp, vertical = 10.dp),
-                color = if (isUser) MaterialTheme.colorScheme.onPrimaryContainer
-                        else MaterialTheme.colorScheme.onSecondaryContainer,
-            )
+            ) {
+                if (isUser) {
+                    Text(
+                        message.content,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = cs.onPrimaryContainer,
+                    )
+                } else {
+                    MarkdownText(
+                        text  = message.content,
+                        color = cs.onSecondaryContainer,
+                    )
+                }
+            }
         }
     }
+
+    // ─── Streaming bubble ─────────────────────────────────────────────────────────
 
     @Composable
     private fun StreamingBubble(text: String) {
         val maxW = (LocalConfiguration.current.screenWidthDp * 0.82).dp
-        val inf = rememberInfiniteTransition(label = "dot")
+        val cs   = MaterialTheme.colorScheme
+        val inf  = rememberInfiniteTransition(label = "pulse")
         val alpha by inf.animateFloat(0.3f, 1f,
             infiniteRepeatable(tween(600, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-            label = "a")
+            label = "a",
+        )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
-            Column(
-                Modifier.widthIn(max = maxW)
-                        .background(MaterialTheme.colorScheme.secondaryContainer, AssistantShape)
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
-                        .semantics { contentDescription = "Assistant is responding" }
+            Box(
+                Modifier
+                    .widthIn(max = maxW)
+                    .background(cs.secondaryContainer, AssistantShape)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
             ) {
-                if (text.isNotEmpty()) {
-                    Text(text, style = MaterialTheme.typography.bodyMedium,
-                         color = MaterialTheme.colorScheme.onSecondaryContainer)
-                    Spacer(Modifier.size(4.dp))
+                Column {
+                    if (text.isNotEmpty()) {
+                        MarkdownText(text = text, color = cs.onSecondaryContainer)
+                        Spacer(Modifier.height(4.dp))
+                    }
+                    Box(
+                        Modifier
+                            .size(8.dp)
+                            .alpha(alpha)
+                            .background(cs.onSecondaryContainer.copy(alpha = 0.4f), CircleShape)
+                    )
                 }
-                Box(Modifier.size(8.dp).alpha(alpha)
-                        .background(MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.5f),
-                                    CircleShape))
             }
         }
     }
 
+    // ─── Tool call block ──────────────────────────────────────────────────────────
+
     @Composable
-    private fun ToolChip(toolName: String) {
-        val label = "🔧 Using $toolName…"
-        Row(Modifier.fillMaxWidth()) {
-            AssistChip(
-                onClick = {},
-                label = { Text(label, style = MaterialTheme.typography.labelMedium) },
-                modifier = Modifier.semantics { contentDescription = label },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                    labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                ),
-            )
+    private fun ToolCallBlockItem(block: ToolCallBlock) {
+        val cs     = MaterialTheme.colorScheme
+        val isDone = block.status == ToolCallBlock.Status.DONE
+        val isErr  = block.status == ToolCallBlock.Status.ERROR
+
+        val borderColor = when {
+            isDone -> cs.primary.copy(alpha = 0.35f)
+            isErr  -> cs.error.copy(alpha = 0.4f)
+            else   -> cs.outline.copy(alpha = 0.3f)
+        }
+        val bgColor = when {
+            isDone -> cs.primaryContainer.copy(alpha = 0.25f)
+            isErr  -> cs.errorContainer.copy(alpha = 0.25f)
+            else   -> cs.surfaceVariant.copy(alpha = 0.4f)
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Start,
+        ) {
+            Row(
+                modifier = Modifier
+                    .widthIn(max = (LocalConfiguration.current.screenWidthDp * 0.82).dp)
+                    .background(bgColor, RoundedCornerShape(12.dp))
+                    .border(1.dp, borderColor, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                // Icon
+                Text(block.icon, fontSize = 18.sp)
+
+                Column(Modifier.weight(1f)) {
+                    // Tool name
+                    Text(
+                        block.displayName,
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                        color = cs.onSurface,
+                    )
+                    // Query/summary
+                    if (block.summary.isNotBlank()) {
+                        Text(
+                            text  = "“${block.summary}”",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = cs.onSurfaceVariant,
+                        )
+                    }
+                    // Status line
+                    val statusText = when (block.status) {
+                        ToolCallBlock.Status.IN_PROGRESS -> "Searching…"
+                        ToolCallBlock.Status.DONE        ->
+                            block.resultSnippet?.let { "Done" } ?: "Done"
+                        ToolCallBlock.Status.ERROR       -> "Failed"
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        if (block.status == ToolCallBlock.Status.IN_PROGRESS) {
+                            val inf = rememberInfiniteTransition(label = "spin")
+                            val a   by inf.animateFloat(0.4f, 1f,
+                                infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "b")
+                            Box(
+                                Modifier
+                                    .size(6.dp)
+                                    .alpha(a)
+                                    .background(cs.primary, CircleShape),
+                            )
+                        } else {
+                            Text(
+                                if (isDone) "✓" else "✗",
+                                fontSize = 11.sp,
+                                color = if (isDone) cs.primary else cs.error,
+                            )
+                        }
+                        Text(
+                            statusText,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isDone) cs.primary
+                                    else if (isErr) cs.error
+                                    else cs.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
         }
     }
     
