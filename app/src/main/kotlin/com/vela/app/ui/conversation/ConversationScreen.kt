@@ -4,26 +4,38 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,6 +53,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -48,10 +62,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
 import com.vela.app.a2ui.VelaUiParser
-import com.vela.app.ui.conversation.AgentStep
 import com.vela.app.a2ui.VelaUiSurface
 import com.vela.app.domain.model.Message
 import com.vela.app.domain.model.MessageRole
@@ -81,9 +92,7 @@ fun ConversationScreen(
     }
 
     DisposableEffect(voiceCapture) {
-        onDispose {
-            voiceCapture?.destroy()
-        }
+        onDispose { voiceCapture?.destroy() }
     }
 
     val idleFlow = remember { MutableStateFlow<TranscriptState>(TranscriptState.Idle) }
@@ -93,25 +102,16 @@ fun ConversationScreen(
 
     LaunchedEffect(transcriptState) {
         val state = transcriptState
-        if (state is TranscriptState.Final) {
-            viewModel.onVoiceInput(state.text)
-        }
+        if (state is TranscriptState.Final) viewModel.onVoiceInput(state.text)
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        if (granted) {
-            voiceCapture?.startCapture()
-        }
-    }
+    ) { granted -> if (granted) voiceCapture?.startCapture() }
 
     fun handleSendText() {
         val trimmed = textInput.trim()
-        if (trimmed.isNotBlank()) {
-            viewModel.onTextInput(trimmed)
-            textInput = ""
-        }
+        if (trimmed.isNotBlank()) { viewModel.onTextInput(trimmed); textInput = "" }
     }
 
     fun handleVoiceToggle() {
@@ -120,23 +120,17 @@ fun ConversationScreen(
             voiceCapture.stopCapture()
         } else {
             val hasPermission = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.RECORD_AUDIO,
+                context, Manifest.permission.RECORD_AUDIO,
             ) == PackageManager.PERMISSION_GRANTED
-            if (hasPermission) {
-                voiceCapture.startCapture()
-            } else {
-                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-            }
+            if (hasPermission) voiceCapture.startCapture()
+            else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 
     when (engineState) {
         EngineState.ModelNotReady -> {
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .safeDrawingPadding(),
+                modifier = Modifier.fillMaxSize().safeDrawingPadding(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
@@ -145,29 +139,21 @@ fun ConversationScreen(
                     modifier = Modifier.semantics { contentDescription = "Model download required" },
                 )
                 Button(
-                    onClick = { /* TODO: trigger model download */ },
+                    onClick = { /* handled by MainActivity download flow */ },
                     modifier = Modifier.semantics { contentDescription = "Download model" },
-                ) {
-                    Text("Download")
-                }
+                ) { Text("Download") }
             }
         }
 
         EngineState.ModelReady -> {
             val listState = rememberLazyListState()
 
-            // Auto-scroll to bottom when messages list grows
             LaunchedEffect(messages.size) {
-                if (messages.isNotEmpty()) {
-                    listState.animateScrollToItem(messages.size - 1)
-                }
+                if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
             }
-
-            // Also scroll during streaming as the bubble grows
             LaunchedEffect(streamingResponse?.length) {
-                if (streamingResponse != null && messages.isNotEmpty()) {
+                if (streamingResponse != null && messages.isNotEmpty())
                     listState.animateScrollToItem(messages.size - 1)
-                }
             }
 
             Scaffold(
@@ -205,17 +191,12 @@ fun ConversationScreen(
                                 )
                             }
                         }
-                        VoiceButton(
-                            isListening = isListening,
-                            onToggle = { handleVoiceToggle() },
-                        )
+                        VoiceButton(isListening = isListening, onToggle = { handleVoiceToggle() })
                     }
                 },
             ) { paddingValues ->
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
+                    modifier = Modifier.fillMaxSize().padding(paddingValues),
                 ) {
                     val showEmpty = messages.isEmpty() && streamingResponse == null && !isProcessing
                     if (showEmpty) {
@@ -230,22 +211,16 @@ fun ConversationScreen(
                             state = listState,
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            items(messages) { message ->
-                                MessageBubble(message = message)
-                            }
-                            // Tool execution chip — shown while a built-in tool is running
+                            items(messages) { message -> MessageBubble(message = message) }
+
                             toolExecutionState?.let { toolName ->
-                                item {
-                                    ToolExecutionChip(toolName = toolName, step = agentStep)
-                                }
+                                item { ToolExecutionChip(toolName = toolName, step = agentStep) }
                             }
-                            // Live streaming bubble — shown while Gemma 4 is generating
+
                             streamingResponse?.let { partial ->
-                                item {
-                                    StreamingBubble(text = partial)
-                                }
+                                item { StreamingBubble(text = partial) }
                             }
                         }
                     }
@@ -255,103 +230,138 @@ fun ConversationScreen(
     }
 }
 
+// ─── Bubble shape helpers ─────────────────────────────────────────────────────
+
+private val UserBubbleShape = RoundedCornerShape(
+    topStart = 18.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 4.dp,
+)
+private val AssistantBubbleShape = RoundedCornerShape(
+    topStart = 4.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 18.dp,
+)
+
+// ─── MessageBubble ────────────────────────────────────────────────────────────
+
 /**
- * Renders a completed message bubble.
+ * Renders a completed message bubble, constrained to 82% of screen width.
  * If [message.content] parses as Vela-UI JSON, renders the structured [VelaUiSurface].
- * Otherwise falls back to plain text.
+ * User messages are right-aligned with the primaryContainer colour.
+ * Assistant messages are left-aligned with secondaryContainer.
  */
 @Composable
 private fun MessageBubble(message: Message) {
     val isUser = message.role == MessageRole.USER
-    Box(
+    val maxWidth = (LocalConfiguration.current.screenWidthDp * 0.82).dp
+
+    Row(
         modifier = Modifier.fillMaxWidth(),
-        contentAlignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart,
+        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
     ) {
         if (!isUser) {
-            // Try to parse as Vela-UI / A2UI structured response
             val velaPayload = remember(message.content) { VelaUiParser.parse(message.content) }
             if (velaPayload != null) {
                 VelaUiSurface(
                     payload = velaPayload,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            color = MaterialTheme.colorScheme.surface,
-                            shape = RoundedCornerShape(12.dp),
-                        )
+                        .widthIn(max = maxWidth)
+                        .background(MaterialTheme.colorScheme.surface, AssistantBubbleShape)
                         .padding(12.dp),
                 )
-                return@Box
+                return@Row
             }
         }
+
         Text(
             text = message.content,
+            style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier
+                .widthIn(max = maxWidth)
                 .background(
-                    color = if (isUser) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.secondaryContainer
-                    },
-                    shape = RoundedCornerShape(8.dp),
+                    color = if (isUser) MaterialTheme.colorScheme.primaryContainer
+                            else MaterialTheme.colorScheme.secondaryContainer,
+                    shape = if (isUser) UserBubbleShape else AssistantBubbleShape,
                 )
-                .padding(12.dp),
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            color = if (isUser) MaterialTheme.colorScheme.onPrimaryContainer
+                    else MaterialTheme.colorScheme.onSecondaryContainer,
         )
     }
 }
 
+// ─── StreamingBubble ──────────────────────────────────────────────────────────
+
 /**
- * Chip shown while a tool is executing between the two inference passes.
- * Gives the user a clear signal that the AI is fetching live data, not stuck.
+ * Live streaming bubble — visually distinct from committed messages.
+ * Shows the partial text with three animated dots to signal active generation.
  */
+@Composable
+private fun StreamingBubble(text: String) {
+    val maxWidth = (LocalConfiguration.current.screenWidthDp * 0.82).dp
+    val infinite = rememberInfiniteTransition(label = "streaming")
+    val dotAlpha by infinite.animateFloat(
+        initialValue = 0.3f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "dot",
+    )
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Start,
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = maxWidth)
+                .background(MaterialTheme.colorScheme.secondaryContainer, AssistantBubbleShape)
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+                .semantics { contentDescription = "Assistant is responding" },
+        ) {
+            if (text.isNotEmpty()) {
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+                Spacer(modifier = Modifier.size(4.dp))
+            }
+            // Animated pulse dot — signals live generation
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .alpha(dotAlpha)
+                    .background(
+                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.5f),
+                        shape = CircleShape,
+                    ),
+            )
+        }
+    }
+}
+
+// ─── ToolExecutionChip ────────────────────────────────────────────────────────
+
 /**
  * Chip shown while a tool is executing between inference passes.
- * When [step] is non-null we're in a multi-step agentic loop and show "Step N/M".
+ * When [step] is non-null we're in a multi-step agentic loop — shows "Step N/M".
  */
 @Composable
 private fun ToolExecutionChip(toolName: String, step: AgentStep? = null) {
     val label = buildString {
         append("🔧 Using $toolName")
-        if (step != null) append(" (step ${step.current}/${step.max})")
+        if (step != null) append(" · step ${step.current}/${step.max}")
         append("…")
     }
-    Box(
-        modifier = Modifier.fillMaxWidth(),
-        contentAlignment = Alignment.CenterStart,
-    ) {
+    Row(modifier = Modifier.fillMaxWidth()) {
         AssistChip(
             onClick = {},
-            label = { Text(label) },
+            label = { Text(label, style = MaterialTheme.typography.labelMedium) },
             modifier = Modifier.semantics { contentDescription = label },
             colors = AssistChipDefaults.assistChipColors(
                 containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                 labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
             ),
-        )
-    }
-}
-
-/**
- * Live streaming bubble shown while Gemma 4 generates a response token by token.
- * Shows the partial text with a blinking cursor indicator to signal active generation.
- */
-@Composable
-private fun StreamingBubble(text: String) {
-    Box(
-        modifier = Modifier.fillMaxWidth(),
-        contentAlignment = Alignment.CenterStart,
-    ) {
-        Text(
-            // Append a cursor character so the user sees active generation
-            text = "$text▍",
-            modifier = Modifier
-                .background(
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    shape = RoundedCornerShape(8.dp),
-                )
-                .padding(12.dp)
-                .semantics { contentDescription = "Assistant is responding" },
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
         )
     }
 }
