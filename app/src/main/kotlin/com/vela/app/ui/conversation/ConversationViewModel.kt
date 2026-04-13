@@ -12,31 +12,9 @@
     import kotlinx.coroutines.flow.MutableStateFlow
     import kotlinx.coroutines.flow.StateFlow
     import kotlinx.coroutines.flow.asStateFlow
-    import kotlinx.coroutines.flow.update
     import kotlinx.coroutines.launch
     import org.json.JSONObject
-    import java.util.UUID
     import javax.inject.Inject
-
-    // ─── Tool call block model ─────────────────────────────────────────────────
-
-    /**
-     * Represents one tool invocation shown persistently in the conversation.
-     * Stays visible after the turn completes so the user can see what was looked up.
-     */
-    data class ToolCallBlock(
-        val id: String = UUID.randomUUID().toString(),
-        val toolName: String,
-        val displayName: String,
-        val icon: String,
-        val summary: String,          // e.g. the search query or URL
-        val status: Status = Status.IN_PROGRESS,
-        val resultSnippet: String? = null,
-    ) {
-        enum class Status { IN_PROGRESS, DONE, ERROR }
-    }
-
-    // ─── ViewModel ────────────────────────────────────────────────────────────
 
     @HiltViewModel
     class ConversationViewModel @Inject constructor(
@@ -45,7 +23,7 @@
         private val toolRegistry: ToolRegistry,
     ) : ViewModel() {
 
-        private val _messages = MutableStateFlow<List<Message>>(emptyList())
+        private val _messages     = MutableStateFlow<List<Message>>(emptyList())
         val messages: StateFlow<List<Message>> = _messages.asStateFlow()
 
         private val _isProcessing = MutableStateFlow(false)
@@ -54,16 +32,10 @@
         private val _streamingResponse = MutableStateFlow<String?>(null)
         val streamingResponse: StateFlow<String?> = _streamingResponse.asStateFlow()
 
-        /** Persistent tool call blocks accumulated across the current conversation. */
-        private val _toolCallBlocks = MutableStateFlow<List<ToolCallBlock>>(emptyList())
-        val toolCallBlocks: StateFlow<List<ToolCallBlock>> = _toolCallBlocks.asStateFlow()
-
         val isConfigured: Boolean get() = session.isConfigured()
 
         init {
-            viewModelScope.launch {
-                repository.getMessages().collect { _messages.value = it }
-            }
+            viewModelScope.launch { repository.getMessages().collect { _messages.value = it } }
         }
 
         fun onVoiceInput(text: String) = processInput(text)
@@ -72,7 +44,7 @@
 
         fun clearHistory() {
             session.clearHistory()
-            _toolCallBlocks.value = emptyList()
+            viewModelScope.launch { /* optionally wipe DB too */ }
         }
 
         private fun processInput(input: String) {
@@ -85,30 +57,42 @@
                     session.runTurn(
                         userInput   = input,
                         onToolStart = { name, argsJson ->
+                            // Insert a TOOL_CALL message at this point in the timeline.
+                            // It will be updated in-place when the tool finishes.
                             val tool    = toolRegistry.find(name)
-                            val summary = extractSummary(argsJson)
-                            val block   = ToolCallBlock(
-                                toolName    = name,
+                            val summary = extractSummary(name, argsJson)
+                            val meta    = toolMeta(
                                 displayName = tool?.displayName ?: name,
                                 icon        = tool?.icon ?: "🔧",
                                 summary     = summary,
+                                status      = "in_progress",
                             )
-                            _toolCallBlocks.update { it + block }
+                            val msg = Message(
+                                role     = MessageRole.TOOL_CALL,
+                                content  = summary,
+                                toolMeta = meta,
+                            )
+                            viewModelScope.launch { repository.saveMessage(msg) }
+                                .also { /* keep id for update below — stored by convention: last in_progress for this name */ }
                         },
                         onToolEnd = { name, result ->
-                            val snippet = result.take(120).replace("\n", " ")
-                            _toolCallBlocks.update { blocks ->
-                                // Mark the most recent IN_PROGRESS block for this tool as DONE
-                                val idx = blocks.indexOfLast {
-                                    it.toolName == name && it.status == ToolCallBlock.Status.IN_PROGRESS
+                            // Find the latest in_progress TOOL_CALL for this name and flip it to done
+                            val existing = _messages.value.lastOrNull {
+                                it.role == MessageRole.TOOL_CALL &&
+                                metaStatus(it.toolMeta) == "in_progress" &&
+                                metaField(it.toolMeta, "displayName").let { dn ->
+                                    dn == (toolRegistry.find(name)?.displayName ?: name)
                                 }
-                                if (idx < 0) blocks
-                                else blocks.toMutableList().also { list ->
-                                    list[idx] = list[idx].copy(
-                                        status        = ToolCallBlock.Status.DONE,
-                                        resultSnippet = snippet,
-                                    )
+                            }
+                            if (existing != null) {
+                                val updated = buildString {
+                                    val obj = runCatching { JSONObject(existing.toolMeta ?: "{}") }
+                                        .getOrDefault(JSONObject())
+                                    obj.put("status", "done")
+                                    obj.put("resultSnippet", result.take(120).replace("\n", " "))
+                                    append(obj.toString())
                                 }
+                                viewModelScope.launch { repository.updateToolMeta(existing.id, updated) }
                             }
                         },
                     ).collect { chunk ->
@@ -116,11 +100,8 @@
                         _streamingResponse.value = sb.toString()
                     }
 
-                    // ← Fix double-bubble: clear streaming BEFORE saving to DB.
-                    // If we clear after saving, Room notifies observers synchronously and the
-                    // saved bubble + streaming bubble are both visible for one frame.
                     val finalText = sb.toString().trim()
-                    _streamingResponse.value = null
+                    _streamingResponse.value = null     // clear streaming BEFORE DB save → no double-bubble
                     if (finalText.isNotEmpty()) {
                         repository.saveMessage(Message(role = MessageRole.ASSISTANT, content = finalText))
                     }
@@ -138,22 +119,27 @@
 
         // ── Helpers ───────────────────────────────────────────────────────────────
 
-        /**
-         * Extract the most meaningful string from tool args for the UI label.
-         * e.g. {"query":"AI news"} → "AI news"
-         *      {"url":"https://..."} → "https://..."
-         */
-        private fun extractSummary(argsJson: String): String = try {
+        private fun toolMeta(displayName: String, icon: String, summary: String, status: String): String =
+            JSONObject()
+                .put("displayName", displayName)
+                .put("icon", icon)
+                .put("summary", summary)
+                .put("status", status)
+                .toString()
+
+        private fun metaStatus(toolMeta: String?): String =
+            runCatching { JSONObject(toolMeta ?: "{}").optString("status", "") }.getOrDefault("")
+
+        private fun metaField(toolMeta: String?, field: String): String =
+            runCatching { JSONObject(toolMeta ?: "{}").optString(field, "") }.getOrDefault("")
+
+        private fun extractSummary(name: String, argsJson: String): String = try {
             val obj = JSONObject(argsJson)
             sequenceOf("query", "url", "location", "expression", "command")
                 .mapNotNull { key -> obj.optString(key).takeIf { it.isNotBlank() } }
-                .firstOrNull() ?: argsJson.take(60)
-        } catch (e: Exception) {
-            argsJson.take(60)
-        }
+                .firstOrNull() ?: name
+        } catch (e: Exception) { name }
     }
-
-    data class AgentStep(val current: Int, val max: Int)
 
     fun hasVelaUiPayload(content: String): Boolean =
         content.contains("\"type\":\"vela-ui\"") && VelaUiParser.parse(content) != null

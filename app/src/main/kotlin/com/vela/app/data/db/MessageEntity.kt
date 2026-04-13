@@ -1,12 +1,14 @@
-package com.vela.app.data.db
+    package com.vela.app.data.db
 
-import androidx.room.Entity
-import androidx.room.PrimaryKey
+    import androidx.room.Entity
+    import androidx.room.PrimaryKey
 
-@Entity(tableName = "messages")
-data class MessageEntity(
-    @PrimaryKey val id: String,
-    val role: String,
-    val content: String,
-    val timestamp: Long,
-)
+    @Entity(tableName = "messages")
+    data class MessageEntity(
+        @PrimaryKey val id: String,
+        val role: String,
+        val content: String,
+        val timestamp: Long,
+        val toolMeta: String? = null,
+    )
+    

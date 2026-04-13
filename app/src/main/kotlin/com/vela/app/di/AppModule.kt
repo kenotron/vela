@@ -10,8 +10,7 @@
     import com.vela.app.ai.tools.SearchWebTool
     import com.vela.app.ai.tools.Tool
     import com.vela.app.ai.tools.ToolRegistry
-    import com.vela.app.audio.AndroidTtsEngine
-    import com.vela.app.audio.TtsEngine
+    import com.vela.app.data.db.MIGRATION_1_2
     import com.vela.app.data.db.MessageDao
     import com.vela.app.data.db.VelaDatabase
     import com.vela.app.data.repository.ConversationRepository
@@ -33,7 +32,9 @@
 
         @Provides @Singleton
         fun provideDatabase(@ApplicationContext ctx: Context): VelaDatabase =
-            Room.databaseBuilder(ctx, VelaDatabase::class.java, "vela_database").build()
+            Room.databaseBuilder(ctx, VelaDatabase::class.java, "vela_database")
+                .addMigrations(MIGRATION_1_2)
+                .build()
 
         @Provides
         fun provideMessageDao(db: VelaDatabase): MessageDao = db.messageDao()
@@ -66,9 +67,6 @@
             @ApplicationContext ctx: Context,
             toolRegistry: ToolRegistry,
         ): AmplifierSession = AmplifierSession(ctx, toolRegistry)
-
-        @Provides @Singleton
-        fun provideTtsEngine(@ApplicationContext ctx: Context): TtsEngine = AndroidTtsEngine(ctx)
 
         @Provides @Singleton
         fun provideSpeechTranscriber(@ApplicationContext ctx: Context): SpeechTranscriber =
