@@ -10,41 +10,15 @@
     android {
         namespace = "com.vela.app"
         compileSdk = 35
-        ndkVersion = "27.1.12297006"   // Phase 2: NDK for llama.cpp JNI
 
         defaultConfig {
             applicationId = "com.vela.app"
             minSdk = 26
             targetSdk = 35
             versionCode = 1
-            versionName = "0.1.0"
+            versionName = "0.2.0"
 
             testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-            // Only build for 64-bit ARM — the only realistic llama.cpp target on modern Android.
-            ndk {
-                abiFilters += "arm64-v8a"
-            }
-
-            // CMake args for llama.cpp
-            externalNativeBuild {
-                cmake {
-                    cppFlags += "-std=c++17"
-                    arguments += listOf(
-                        "-DANDROID_STL=c++_static",
-                        "-DCMAKE_BUILD_TYPE=Release",
-                        "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
-                    )
-                }
-            }
-        }
-
-        // Phase 2: wire in CMakeLists.txt that builds vela-llama.so from llama_bridge.cpp + llama.cpp
-        externalNativeBuild {
-            cmake {
-                path = file("CMakeLists.txt")
-                version = "3.22.1"
-            }
         }
 
         compileOptions {
@@ -52,21 +26,33 @@
             targetCompatibility = JavaVersion.VERSION_17
         }
 
-        kotlinOptions {
-            jvmTarget = "17"
-            // mlkit-genai-prompt:1.0.0-beta2 was compiled against Kotlin 2.2.0 metadata;
-            // suppresses the version mismatch error until we upgrade kotlin = "2.2.x" in libs.versions.toml
-            freeCompilerArgs += "-Xskip-metadata-version-check"
-        }
+        kotlinOptions { jvmTarget = "17" }
 
-        buildFeatures {
-            compose = true
-        }
+        buildFeatures { compose = true }
 
-        room {
-            schemaDirectory("$projectDir/schemas")
-        }
+        room { schemaDirectory("$projectDir/schemas") }
+
+        // Pre-built Rust .so lands in jniLibs — Android Studio auto-packages it
+        sourceSets["main"].jniLibs.srcDirs("src/main/jniLibs")
     }
+
+    // ─── Rust build (cargo-ndk) ──────────────────────────────────────────────────
+    // Requires: cargo install cargo-ndk  +  rustup target add aarch64-linux-android
+    // Run once to set up: bash scripts/setup-rust-android.sh
+    tasks.register<Exec>("buildRustRelease") {
+        group = "build"
+        description = "Compile amplifier-android Rust crate for arm64-v8a via cargo-ndk"
+        workingDir("src/main/rust/amplifier-android")
+        commandLine(
+            "cargo", "ndk",
+            "--target", "arm64-v8a",
+            "--platform", "26",
+            "--output-dir", "../../jniLibs",
+            "build", "--release"
+        )
+    }
+
+    tasks.named("preBuild") { dependsOn("buildRustRelease") }
 
     dependencies {
         // Core Android
@@ -82,7 +68,6 @@
         implementation(libs.androidx.compose.material3)
         implementation("androidx.compose.material:material-icons-extended")
 
-        // Debug Compose tools
         debugImplementation(libs.androidx.compose.ui.tooling)
         debugImplementation(libs.androidx.compose.ui.test.manifest)
 
@@ -99,10 +84,7 @@
         // Coroutines
         implementation(libs.kotlinx.coroutines.android)
 
-        // ML Kit GenAI Prompt (Gemma 4 via AICore) — kept as fallback provider
-        implementation(libs.mlkit.genai.prompt)
-
-        // OkHttp — shared for web tools + model download
+        // OkHttp — web tools
         implementation(libs.okhttp)
 
         // Unit tests
@@ -111,11 +93,9 @@
         testImplementation(libs.kotlinx.coroutines.test)
         testImplementation("org.json:json:20231013")
 
-        // Instrumented tests
         androidTestImplementation(libs.androidx.test.runner)
         androidTestImplementation(libs.androidx.test.rules)
         androidTestImplementation(libs.androidx.espresso.core)
-        androidTestImplementation(libs.androidx.uiautomator)
         androidTestImplementation(libs.truth)
         androidTestImplementation(platform(libs.androidx.compose.bom))
         androidTestImplementation(libs.androidx.compose.ui.test.junit4)

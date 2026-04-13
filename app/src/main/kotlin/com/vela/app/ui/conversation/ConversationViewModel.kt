@@ -3,7 +3,7 @@
     import androidx.lifecycle.ViewModel
     import androidx.lifecycle.viewModelScope
     import com.vela.app.a2ui.VelaUiParser
-    import com.vela.app.ai.AgentOrchestrator
+    import com.vela.app.ai.AmplifierSession
     import com.vela.app.data.repository.ConversationRepository
     import com.vela.app.domain.model.Message
     import com.vela.app.domain.model.MessageRole
@@ -14,11 +14,9 @@
     import kotlinx.coroutines.launch
     import javax.inject.Inject
 
-    enum class EngineState { ModelNotReady, ModelReady }
-
     @HiltViewModel
     class ConversationViewModel @Inject constructor(
-        private val orchestrator: AgentOrchestrator,
+        private val session: AmplifierSession,
         private val repository: ConversationRepository,
     ) : ViewModel() {
 
@@ -28,80 +26,51 @@
         private val _isProcessing = MutableStateFlow(false)
         val isProcessing: StateFlow<Boolean> = _isProcessing.asStateFlow()
 
-        private val _engineState = MutableStateFlow(EngineState.ModelReady)
-        val engineState: StateFlow<EngineState> = _engineState.asStateFlow()
-
         private val _streamingResponse = MutableStateFlow<String?>(null)
         val streamingResponse: StateFlow<String?> = _streamingResponse.asStateFlow()
 
-        private val _toolExecutionState = MutableStateFlow<String?>(null)
-        val toolExecutionState: StateFlow<String?> = _toolExecutionState.asStateFlow()
+        /** Shown while a tool is executing between LLM calls. */
+        private val _toolState = MutableStateFlow<String?>(null)
+        val toolState: StateFlow<String?> = _toolState.asStateFlow()
 
-        private val _agentStep = MutableStateFlow<AgentStep?>(null)
-        val agentStep: StateFlow<AgentStep?> = _agentStep.asStateFlow()
+        val isConfigured: Boolean get() = session.isConfigured()
 
         init {
             viewModelScope.launch {
-                repository.getMessages().collect { msgs -> _messages.value = msgs }
+                repository.getMessages().collect { _messages.value = it }
             }
         }
 
-        fun setEngineState(state: EngineState) { _engineState.value = state }
-        fun onVoiceInput(transcript: String) = processInput(transcript)
+        fun onVoiceInput(text: String) = processInput(text)
         fun onTextInput(text: String) = processInput(text)
+
+        fun setApiKey(key: String) = session.setApiKey(key)
+        fun clearHistory() = session.clearHistory()
 
         private fun processInput(input: String) {
             viewModelScope.launch {
                 repository.saveMessage(Message(role = MessageRole.USER, content = input))
                 _isProcessing.value = true
+                val sb = StringBuilder()
                 try {
-                    val finalText = orchestrator.runLoop(
-                        userInput = input,
-                        onTokenChunk = { chunk ->
-                            _streamingResponse.value = (_streamingResponse.value ?: "") + chunk
-                        },
-                        onToolStart = { toolName ->
-                            _streamingResponse.value = null
-                            _agentStep.value = AgentStep(current = 0, max = AgentOrchestrator.MAX_STEPS)
-                            _toolExecutionState.value = toolName
-                        },
-                        onToolEnd = {
-                            _toolExecutionState.value = null
-                            _agentStep.value = null
-                        },
-                        onStepChange = { current, max ->
-                            _agentStep.value = AgentStep(current = current, max = max)
-                        },
-                    )
+                    session.runTurn(input).collect { chunk ->
+                        sb.append(chunk)
+                        _streamingResponse.value = sb.toString()
+                    }
+                    val finalText = sb.toString().trim()
                     if (finalText.isNotEmpty()) {
                         repository.saveMessage(Message(role = MessageRole.ASSISTANT, content = finalText))
                     }
                 } catch (e: Exception) {
-                    _toolExecutionState.value = null
-                    _agentStep.value = null
                     repository.saveMessage(
-                        Message(role = MessageRole.ASSISTANT, content = "⚠️ ${buildErrorMessage(e)}")
-                    )
+                        Message(role = MessageRole.ASSISTANT,
+                                content = "Error: ${e.message?.take(120) ?: "unknown"}"))
                 } finally {
                     _streamingResponse.value = null
-                    _toolExecutionState.value = null
-                    _agentStep.value = null
+                    _toolState.value = null
                     _isProcessing.value = false
                 }
             }
-        }
-
-        private fun buildErrorMessage(e: Exception): String = when {
-            e.message?.contains("606") == true ->
-                "Gemma 4 isn't ready yet — opt into AICore Developer Preview and try again."
-            e.message?.contains("not loaded") == true ||
-            e.message?.contains("not initialized") == true ->
-                "The AI model isn't loaded yet — give it a moment and try again."
-            e.message?.contains("shut down") == true ->
-                "The engine is restarting — please try again."
-            e.message?.contains("Failed to load model") == true ->
-                "Couldn't load the local model. Ensure it downloaded correctly."
-            else -> "Something went wrong: ${e.message?.take(120) ?: "unknown error"}"
         }
     }
 

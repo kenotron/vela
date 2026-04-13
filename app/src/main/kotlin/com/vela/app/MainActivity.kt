@@ -4,58 +4,79 @@
     import androidx.activity.ComponentActivity
     import androidx.activity.compose.setContent
     import androidx.activity.enableEdgeToEdge
-    import androidx.compose.runtime.collectAsState
-    import androidx.compose.runtime.getValue
+    import androidx.compose.foundation.layout.*
+    import androidx.compose.material3.*
+    import androidx.compose.runtime.*
+    import androidx.compose.ui.Modifier
+    import androidx.compose.ui.unit.dp
     import androidx.hilt.navigation.compose.hiltViewModel
     import com.vela.app.ui.conversation.ConversationScreen
-    import com.vela.app.ui.download.ModelDownloadScreen
-    import com.vela.app.ui.download.ModelDownloadUiState
-    import com.vela.app.ui.download.ModelDownloadViewModel
+    import com.vela.app.ui.conversation.ConversationViewModel
     import com.vela.app.ui.theme.VelaTheme
     import com.vela.app.voice.SpeechTranscriber
     import dagger.hilt.android.AndroidEntryPoint
     import javax.inject.Inject
 
     /**
-     * Single activity. Shows [ModelDownloadScreen] on first launch until the GGUF model is ready,
-     * then switches to [ConversationScreen] for the main AI chat experience.
-     *
-     * Navigation is state-driven (no NavHost needed — there are only two screens and they're
-     * permanently ordered: download → conversation).
+     * Single activity. Shows an API key dialog on first launch if no key is stored,
+     * then goes straight to ConversationScreen.
      */
     @AndroidEntryPoint
     class MainActivity : ComponentActivity() {
 
-        @Inject
-        lateinit var speechTranscriber: SpeechTranscriber
+        @Inject lateinit var speechTranscriber: SpeechTranscriber
 
         override fun onCreate(savedInstanceState: Bundle?) {
             super.onCreate(savedInstanceState)
             enableEdgeToEdge()
             setContent {
                 VelaTheme {
-                    val downloadVm: ModelDownloadViewModel = hiltViewModel()
-                    val downloadState by downloadVm.uiState.collectAsState()
+                    val vm: ConversationViewModel = hiltViewModel()
+                    var showApiKeyDialog by remember { mutableStateOf(!vm.isConfigured) }
 
-                    if (downloadState is ModelDownloadUiState.Done) {
-                        // Model is ready (either just downloaded or already on disk).
-                        ConversationScreen(speechTranscriber = speechTranscriber)
-                    } else {
-                        // First-launch: show download prompt / progress.
-                        ModelDownloadScreen(
-                            uiState           = downloadState,
-                            onConfirmDownload = downloadVm::confirmDownload,
-                            onCancel = {
-                                // User declined local model — fall back to ML Kit (AICore).
-                                // Mark as "done" so the conversation screen appears.
-                                // ML Kit will be used automatically via ProviderRegistry fallback.
-                                downloadVm.skipToMlKit()
-                            },
-                            onRetry = downloadVm::retry,
+                    if (showApiKeyDialog) {
+                        ApiKeyDialog(
+                            onConfirm = { key ->
+                                vm.setApiKey(key)
+                                showApiKeyDialog = false
+                            }
                         )
+                    } else {
+                        ConversationScreen(speechTranscriber = speechTranscriber)
                     }
                 }
             }
         }
+    }
+
+    @Composable
+    private fun ApiKeyDialog(onConfirm: (String) -> Unit) {
+        var key by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Anthropic API Key") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Enter your Anthropic API key to use Vela. " +
+                        "Get one at console.anthropic.com.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    OutlinedTextField(
+                        value = key,
+                        onValueChange = { key = it },
+                        label = { Text("sk-ant-...") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { if (key.isNotBlank()) onConfirm(key.trim()) },
+                    enabled = key.isNotBlank(),
+                ) { Text("Save") }
+            },
+        )
     }
     
