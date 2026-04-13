@@ -10,7 +10,7 @@
     android {
         namespace = "com.vela.app"
         compileSdk = 35
-        ndkVersion = "27.0.12077973"   // Phase 2: NDK for llama.cpp JNI
+        ndkVersion = "27.1.12297006"   // Phase 2: NDK for llama.cpp JNI
 
         defaultConfig {
             applicationId = "com.vela.app"
