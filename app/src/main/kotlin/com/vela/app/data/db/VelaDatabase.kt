@@ -12,8 +12,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SshNodeEntity::class,
         TurnEntity::class,
         TurnEventEntity::class,
+        VaultEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class VelaDatabase : RoomDatabase() {
@@ -22,6 +23,7 @@ abstract class VelaDatabase : RoomDatabase() {
     abstract fun sshNodeDao(): SshNodeDao
     abstract fun turnDao(): TurnDao
     abstract fun turnEventDao(): TurnEventDao
+    abstract fun vaultDao(): VaultDao
 }
 
 val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -53,6 +55,7 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
 }
 /** v5→v6: add turns + turn_events tables. Existing Message rows untouched. */
 val MIGRATION_5_6 = object : Migration(5, 6) {
+
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE turns (
@@ -80,5 +83,24 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
                 toolStatus TEXT
             )
         """.trimIndent())
+    }
+}
+/** v6→v7: add vaults table; add mode column to conversations. */
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        // Create vaults table
+        database.execSQL("""
+            CREATE TABLE IF NOT EXISTS vaults (
+                id TEXT NOT NULL PRIMARY KEY,
+                name TEXT NOT NULL,
+                localPath TEXT NOT NULL,
+                isEnabled INTEGER NOT NULL DEFAULT 1,
+                createdAt INTEGER NOT NULL DEFAULT 0
+            )
+        """.trimIndent())
+        // Add mode column to conversations
+        database.execSQL(
+            "ALTER TABLE conversations ADD COLUMN mode TEXT NOT NULL DEFAULT 'default'"
+        )
     }
 }

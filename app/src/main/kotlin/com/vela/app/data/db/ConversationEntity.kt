@@ -9,5 +9,6 @@
         val title: String,
         val createdAt: Long,
         val updatedAt: Long,
+        val mode: String = "default",
     )
     
