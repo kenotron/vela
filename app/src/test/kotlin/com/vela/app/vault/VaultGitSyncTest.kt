@@ -64,5 +64,18 @@ package com.vela.app.vault
             val result = sync.commit("test-vault", workDir, "update file", addAll = true)
             assertThat(result).contains("update file")
         }
+
+        @Test fun `cloneIfNeeded returns already cloned when git dir exists`() = runBlocking {
+            // setUp already called initRepo, so .git exists in workDir
+            val result = sync.cloneIfNeeded("test-vault", workDir)
+            assertThat(result).isEqualTo("Already cloned.")
+        }
+
+        @Test fun `cloneIfNeeded returns no remote when url is blank`() = runBlocking {
+            val freshDir = tmp.newFolder("fresh-vault")
+            val result = sync.cloneIfNeeded("test-vault", freshDir)
+            // stubSettings returns "" for getRemoteUrl, so "No remote configured." expected
+            assertThat(result).isEqualTo("No remote configured.")
+        }
     }
     

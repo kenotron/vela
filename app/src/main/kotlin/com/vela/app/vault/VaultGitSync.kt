@@ -4,6 +4,7 @@ package com.vela.app.vault
     import kotlinx.coroutines.withContext
     import org.eclipse.jgit.api.Git
     import org.eclipse.jgit.lib.PersonIdent
+    import org.eclipse.jgit.transport.RemoteRefUpdate
     import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
     import java.io.File
 
@@ -68,8 +69,17 @@ package com.vela.app.vault
         suspend fun push(vaultId: String, vaultPath: File): String = withContext(Dispatchers.IO) {
             runCatching {
                 Git.open(vaultPath).use { git ->
-                    git.push().setCredentialsProvider(credProvider(vaultId)).call()
-                    "Pushed to ${vaultSettings.getRemoteUrl(vaultId)}"
+                    val results = git.push()
+                        .setCredentialsProvider(credProvider(vaultId))
+                        .call()
+                    val rejected = results.flatMap { it.remoteUpdates }
+                        .filter { it.status != RemoteRefUpdate.Status.OK
+                               && it.status != RemoteRefUpdate.Status.UP_TO_DATE }
+                    if (rejected.isNotEmpty()) {
+                        "Push rejected: ${rejected.joinToString { "${it.remoteName}: ${it.status}" }}"
+                    } else {
+                        "Pushed to ${vaultSettings.getRemoteUrl(vaultId)}"
+                    }
                 }
             }.getOrElse { "Error pushing: ${it.message}" }
         }
