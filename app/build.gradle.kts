@@ -34,6 +34,14 @@
 
         // Pre-built Rust .so lands in jniLibs — Android Studio auto-packages it
         sourceSets["main"].jniLibs.srcDirs("src/main/jniLibs")
+
+        packaging {
+            // JSch + Markwon each ship META-INF/versions — keep first, discard rest
+            resources.excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+            resources.excludes += "META-INF/DEPENDENCIES"
+            resources.excludes += "META-INF/LICENSE*"
+            resources.excludes += "META-INF/NOTICE*"
+        }
     }
 
     // ─── Rust build (cargo-ndk) ──────────────────────────────────────────────────
@@ -96,6 +104,9 @@
 
             // OkHttp — web tools
             implementation(libs.okhttp)
+
+                // SSH — modern JSch fork, Ed25519 + modern ciphers, pure Java (no Kotlin metadata issues)
+            implementation("com.github.mwiede:jsch:0.2.19")
 
             // Markdown rendering — Markwon (Java-based, version-agnostic, full GFM)
             // Headers, bold/italic/strikethrough, code blocks, tables, task lists, links
