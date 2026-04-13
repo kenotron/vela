@@ -4,6 +4,7 @@ import com.vela.app.data.db.VaultDao
 import com.vela.app.data.db.VaultEntity
 import kotlinx.coroutines.flow.Flow
 import java.io.File
+import java.io.IOException
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -33,12 +34,21 @@ class VaultRegistry @Inject constructor(
 
     suspend fun delete(vaultId: String) {
         val entity = dao.getById(vaultId) ?: return
+        val vaultDir = File(entity.localPath)
+        // Bounds check: verify the path falls within vaultManager.root
+        val canonical = try { vaultDir.canonicalPath } catch (_: IOException) { return }
+        val rootCanonical = vaultManager.root.canonicalPath
+        if (!canonical.startsWith(rootCanonical + File.separator) && canonical != rootCanonical) return
+        // Filesystem first: if this fails, the DB record is untouched and the vault is still recoverable
+        vaultDir.deleteRecursively()
         dao.delete(entity)
-        File(entity.localPath).deleteRecursively()
     }
 
-    suspend fun resolveVaultForPath(file: File): VaultEntity? =
-        getEnabledVaults().firstOrNull { vault ->
-            file.canonicalPath.startsWith(File(vault.localPath).canonicalPath)
+    suspend fun resolveVaultForPath(file: File): VaultEntity? {
+        val filePath = try { file.canonicalPath } catch (_: IOException) { return null }
+        return getEnabledVaults().firstOrNull { vault ->
+            val vaultCanonical = try { File(vault.localPath).canonicalPath } catch (_: IOException) { return@firstOrNull false }
+            filePath == vaultCanonical || filePath.startsWith(vaultCanonical + File.separator)
         }
+    }
 }
