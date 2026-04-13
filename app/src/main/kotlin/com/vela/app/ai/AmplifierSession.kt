@@ -66,13 +66,21 @@ class AmplifierSession @Inject constructor(
         val toolsJson = buildToolsJson()
         Log.d(TAG, "runTurn model=${getModel()} historyLen=${historyJson.length}")
 
+        // Antipattern guard: orchestrator.rs calls emit_token() AND returns the
+        // same string. Without this flag the text would be emitted twice —
+        // once via tokenCb during nativeRun, once from the return value below.
+        var tokenWasEmitted = false
+
         val finalText = AmplifierBridge.nativeRun(
             apiKey      = getApiKey(),
             model       = getModel(),
             toolsJson   = toolsJson,
             historyJson = historyJson,
             userInput   = userInput,
-            tokenCb     = { token -> runBlocking { onToken(token) } },
+            tokenCb     = { token ->
+                tokenWasEmitted = true
+                runBlocking { onToken(token) }
+            },
             toolCb      = { name, argsJson ->
                 runBlocking {
                     val stableId = onToolStart(name, argsJson)
@@ -83,8 +91,9 @@ class AmplifierSession @Inject constructor(
             },
         )
 
-        // If Rust returned a final string without emitting tokens, emit it now
-        if (finalText.isNotEmpty()) onToken(finalText)
+        // Fallback: only emit from return value if streaming callbacks never fired
+        // (e.g., future code path where Rust skips emit_token).
+        if (!tokenWasEmitted && finalText.isNotEmpty()) onToken(finalText)
     }
 
     private suspend fun executeTool(name: String, argsJson: String): String = try {
