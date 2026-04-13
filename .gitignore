@@ -22,3 +22,13 @@ keystore.properties
 
 # Stale build artifacts that can appear at project root (e.g. extracted compose-test class files)
 androidx/
+
+    # Rust build artifacts
+    app/src/main/rust/amplifier-android/target/
+    app/src/main/jniLibs/
+
+    # Android NDK CMake cache
+    app/.cxx/
+    EOF
+    echo "gitignore updated"
+    

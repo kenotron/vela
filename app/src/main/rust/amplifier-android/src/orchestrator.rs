@@ -209,13 +209,11 @@ impl SimpleOrchestrator {
 
         // Safe downcast: JObject → JString (jni 0.21 guarantees same repr).
         let jstr = JString::from(jobject);
-        match env.get_string(&jstr) {
-            Ok(s) => s.into(),
-            Err(e) => {
-                warn!("call_tool: get_string failed: {e:?}");
-                String::new()
-            }
-        }
+        // Collect into owned String before jstr drops (lifetime constraint)
+        let result: String = env.get_string(&jstr)
+            .map(|s| s.into())
+            .unwrap_or_else(|e| { warn!("call_tool: get_string failed: {e:?}"); String::new() });
+        result
     }
 
     /// Invoke `tokenCallback.onToken(text)` on the Kotlin side.

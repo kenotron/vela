@@ -43,6 +43,16 @@
         group = "build"
         description = "Compile amplifier-android Rust crate for arm64-v8a via cargo-ndk"
         workingDir("src/main/rust/amplifier-android")
+
+        // Find the NDK — respect explicit env var, then fall back to sdk.dir/ndk/*
+        val ndkHome = System.getenv("ANDROID_NDK_HOME")
+            ?: (properties["sdk.dir"]?.toString()
+                ?: System.getenv("ANDROID_HOME")
+                ?: "${System.getProperty("user.home")}/Library/Android/sdk")
+                .let { sdkDir -> file("$sdkDir/ndk").listFiles()?.maxByOrNull { it.name }?.absolutePath }
+
+        if (ndkHome != null) environment("ANDROID_NDK_HOME", ndkHome)
+
         commandLine(
             "cargo", "ndk",
             "--target", "arm64-v8a",
