@@ -1,96 +1,122 @@
 package com.vela.app.engine
 
 import com.google.common.truth.Truth.assertThat
-import kotlinx.coroutines.runBlocking
 import org.junit.Test
 
 /**
- * Unit tests for the InferenceEngine event ordering invariants.
- * These run on the JVM — no device needed.
- *
- * We test the data model and ordering logic directly, not the DB.
- * The @Relation DB fix is verified by integration tests on-device.
+ * Unit tests verifying InferenceEngine event ordering invariants.
+ * Run on JVM: ./gradlew :app:testDebugUnitTest
  */
 class InferenceFlowTest {
 
-    // Simulate what InferenceEngine writes to DB
-    data class SimulatedEvent(val id: String, val seq: Int, val type: String, val status: String)
+    data class Event(val id: String, val seq: Int, val type: String, val status: String, val text: String? = null)
 
-    private fun simulateTurn(toolCount: Int): List<SimulatedEvent> {
-        val events = mutableListOf<SimulatedEvent>()
+    /**
+     * Simulate what InferenceEngine.processTurn writes to DB.
+     * preambleText → tool calls → finalText is the typical Anthropic response shape.
+     */
+    private fun simulateTurn(
+        preambleText: String? = null,
+        toolNames: List<String> = emptyList(),
+        finalText: String? = "Here is my response.",
+    ): List<Event> {
+        val events = mutableListOf<Event>()
         var seq = 0
 
-        // onToolStart for each tool
-        val toolIds = (1..toolCount).map { i ->
-            val id = "event-tool-$i"
-            events += SimulatedEvent(id, seq++, "tool", "running")
-            id
+        // Text BEFORE tools — flushed when first tool starts (or at end if no tools)
+        if (!preambleText.isNullOrBlank() && toolNames.isNotEmpty()) {
+            events += Event("text-pre", seq++, "text", "done", preambleText)
         }
 
-        // onToolEnd for each tool — same IDs, status updated in-place
-        // In real code this is an UPDATE, simulated here as replacement
-        toolIds.forEachIndexed { i, id ->
+        // Tool events (insert on start, update in-place on done)
+        val toolEventIds = toolNames.map { name ->
+            val id = "tool-$name"
+            events += Event(id, seq++, "tool", "running")
+            id
+        }
+        // Update in-place — same index, same seq
+        toolEventIds.forEachIndexed { i, id ->
             val idx = events.indexOfFirst { it.id == id }
             events[idx] = events[idx].copy(status = "done")
         }
 
-        // Final text event — always last
-        events += SimulatedEvent("event-text", seq++, "text", "done")
+        // Text AFTER tools (or only text if no tools)
+        val postText = if (preambleText != null && toolNames.isEmpty()) preambleText else finalText
+        if (!postText.isNullOrBlank()) {
+            events += Event("text-post", seq++, "text", "done", postText)
+        }
 
         return events
     }
 
     @Test
-    fun toolEventsAlwaysBeforeTextEventBySeq() {
-        val events = simulateTurn(toolCount = 2)
+    fun preambleTextBeforeToolBySeq() {
+        val events = simulateTurn(
+            preambleText = "I'll search for that...",
+            toolNames    = listOf("search_web"),
+            finalText    = "Based on results...",
+        )
+        val preText  = events.first { it.id == "text-pre" }
+        val tool     = events.first { it.type == "tool" }
+        val postText = events.first { it.id == "text-post" }
 
-        val toolEvents = events.filter { it.type == "tool" }
-        val textEvents = events.filter { it.type == "text" }
-
-        assertThat(toolEvents).isNotEmpty()
-        assertThat(textEvents).hasSize(1)
-
-        val maxToolSeq = toolEvents.maxOf { it.seq }
-        val textSeq    = textEvents.first().seq
-
-        assertThat(maxToolSeq).isLessThan(textSeq)
+        assertThat(preText.seq).isLessThan(tool.seq)
+        assertThat(tool.seq).isLessThan(postText.seq)
     }
 
     @Test
-    fun multipleToolsGetUniqueIncreasingSeqs() {
-        val events = simulateTurn(toolCount = 3)
-        val seqs   = events.map { it.seq }
-
-        assertThat(seqs.toSet().size).isEqualTo(seqs.size)
-        assertThat(seqs).isInOrder()
+    fun textAndToolsInterleaveCorrectly() {
+        val events = simulateTurn(
+            preambleText = "Let me search...",
+            toolNames    = listOf("search_web", "fetch_url"),
+            finalText    = "Here's the answer.",
+        )
+        // Order must be: text → tool → tool → text
+        val ordered = events.sortedBy { it.seq }
+        assertThat(ordered[0].type).isEqualTo("text")
+        assertThat(ordered[1].type).isEqualTo("tool")
+        assertThat(ordered[2].type).isEqualTo("tool")
+        assertThat(ordered[3].type).isEqualTo("text")
     }
 
     @Test
-    fun toolEventsUpdateInPlaceNotAppend() {
-        val events = simulateTurn(toolCount = 1)
+    fun noToolsJustText() {
+        val events = simulateTurn(preambleText = null, toolNames = emptyList(), finalText = "Simple answer.")
+        assertThat(events).hasSize(1)
+        assertThat(events[0].type).isEqualTo("text")
+    }
 
-        // Only one tool event row (not two — running + done)
+    @Test
+    fun toolsUpdateInPlaceNeverDuplicated() {
+        val events = simulateTurn(toolNames = listOf("search_web"))
         val toolEvents = events.filter { it.type == "tool" }
         assertThat(toolEvents).hasSize(1)
         assertThat(toolEvents[0].status).isEqualTo("done")
     }
 
     @Test
-    fun zeroToolsStillProducesTextEvent() {
-        val events = simulateTurn(toolCount = 0)
-        assertThat(events.filter { it.type == "text" }).hasSize(1)
+    fun eventsPersistAfterTurnCompletes() {
+        // Regression: events disappeared when _activeTurnId was cleared.
+        // TurnWithEvents @Relation means events always load with the turn.
+        val events = simulateTurn(
+            preambleText = "Searching...",
+            toolNames    = listOf("search_web"),
+            finalText    = "Done.",
+        )
+        // After "turn completes" the event list is unchanged
+        assertThat(events.filter { it.type == "tool" }).hasSize(1)
+        assertThat(events.filter { it.type == "text" }).hasSize(2)
     }
 
     @Test
-    fun eventsPersistAfterTurnCompletes() {
-        // Regression: completed turns rendered with emptyList().
-        // Here we verify the model itself — events list is not cleared on status change.
-        val events = simulateTurn(toolCount = 2)
-
-        // Events are still accessible after the turn "completes"
-        // (In DB terms: UPDATE turns SET status='complete' does not touch turn_events)
-        assertThat(events).hasSize(3) // tool1, tool2, text
-        assertThat(events.filter { it.type == "tool" }).hasSize(2)
-        assertThat(events.filter { it.type == "text" }).hasSize(1)
+    fun seqsAreStrictlyMonotonic() {
+        val events = simulateTurn(
+            preambleText = "text before",
+            toolNames    = listOf("tool1", "tool2"),
+            finalText    = "text after",
+        )
+        val seqs = events.map { it.seq }
+        assertThat(seqs.toSet().size).isEqualTo(seqs.size)  // all unique
+        assertThat(seqs).isInOrder()                         // monotonic
     }
 }

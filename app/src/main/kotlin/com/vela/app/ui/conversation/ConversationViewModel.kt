@@ -49,27 +49,18 @@ class ConversationViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "New Chat")
 
-    /**
-     * All turns WITH their events for the active conversation.
-     * Single reactive query — one emission covers everything:
-     *   - turn inserted
-     *   - event inserted (tool start)
-     *   - event updated (tool done)
-     *   - text event appended (turn complete)
-     *   - turn status updated
-     *
-     * The UI renders this list directly. No separate "live vs completed" paths.
-     */
     val turnsWithEvents: StateFlow<List<TurnWithEvents>> = _activeConvId
         .filterNotNull()
         .flatMapLatest { convId -> turnDao.getTurnsWithEvents(convId) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** In-memory streaming text (not yet in DB as a TurnEvent). Keyed by turnId. */
-    private val _streamingText = MutableStateFlow<Map<String, String>>(emptyMap())
-    val streamingText: StateFlow<Map<String, String>> = _streamingText.asStateFlow()
+    /**
+     * In-flight text not yet committed to a TurnEvent row.
+     * Sourced directly from InferenceEngine — cleared when text is flushed to DB.
+     * The streaming bubble shows this. It goes empty when text becomes a DB row.
+     */
+    val streamingText: StateFlow<Map<String, String>> = inferenceEngine.streamingText
 
-    /** Which turn is currently running (null = idle). */
     private val _activeTurnId = MutableStateFlow<String?>(null)
     val activeTurnId: StateFlow<String?> = _activeTurnId.asStateFlow()
 
@@ -82,19 +73,8 @@ class ConversationViewModel @Inject constructor(
             if (savedId != null) _activeConvId.value = savedId else newSession()
         }
 
-        // Collect streaming tokens from InferenceEngine's SharedFlow
-        viewModelScope.launch {
-            inferenceEngine.streamingText.collect { (turnId, token) ->
-                _streamingText.update { map ->
-                    map + (turnId to ((map[turnId] ?: "") + token))
-                }
-            }
-        }
-
-        // Clear streaming state when a turn completes
         viewModelScope.launch {
             inferenceEngine.turnComplete.collect { turnId ->
-                _streamingText.update { it - turnId }
                 if (_activeTurnId.value == turnId) _activeTurnId.value = null
             }
         }
@@ -103,9 +83,7 @@ class ConversationViewModel @Inject constructor(
     fun onTextInput(text: String)  = processInput(text)
     fun onVoiceInput(text: String) = processInput(text)
 
-    fun setApiKey(key: String) {
-        prefs.edit().putString("anthropic_api_key", key).apply()
-    }
+    fun setApiKey(key: String) { prefs.edit().putString("anthropic_api_key", key).apply() }
 
     fun newSession() {
         viewModelScope.launch {
@@ -123,7 +101,6 @@ class ConversationViewModel @Inject constructor(
 
     fun switchSession(id: String) {
         _activeConvId.value = id
-        _streamingText.value = emptyMap()
         prefs.edit().putString(KEY_ACTIVE_ID, id).apply()
     }
 
@@ -137,7 +114,6 @@ class ConversationViewModel @Inject constructor(
 
     private fun processInput(input: String) {
         val convId = _activeConvId.value ?: return
-
         viewModelScope.launch {
             val isFirst = turnDao.getTurnsWithEvents(convId).first().isEmpty()
             if (isFirst) {
@@ -145,9 +121,6 @@ class ConversationViewModel @Inject constructor(
                 conversationDao.updateTitle(convId, title, System.currentTimeMillis())
             }
         }
-
-        _streamingText.update { it - (_activeTurnId.value ?: "") }
-
         val turnId = inferenceEngine.startTurn(convId, input)
         _activeTurnId.value = turnId
     }

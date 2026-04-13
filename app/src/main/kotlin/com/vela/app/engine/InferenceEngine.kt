@@ -1,8 +1,6 @@
 package com.vela.app.engine
 
 import android.util.Log
-import com.vela.app.engine.InferenceSession
-import com.vela.app.ai.tools.ToolRegistry
 import com.vela.app.data.db.TurnDao
 import com.vela.app.data.db.TurnEventDao
 import com.vela.app.data.db.TurnEntity
@@ -12,8 +10,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -26,39 +28,51 @@ import javax.inject.Singleton
 private const val TAG = "InferenceEngine"
 
 /**
- * Owns all AI inference. Lives as a process-scoped singleton — completely
- * independent of any ViewModel or Activity lifecycle.
+ * Owns all AI inference. Completely independent of any ViewModel or UI lifecycle.
  *
- * When the user sends a message:
- *   1. [startTurn] creates a Turn row in DB and returns immediately.
- *   2. A coroutine in [scope] runs the inference on Dispatchers.IO.
- *   3. Tool events are written to turn_events as they start (status="running")
- *      and updated in-place when they finish (status="done").
- *   4. The final text is written as a text TurnEvent after all tools.
- *   5. [streamingText] emits (turnId, token) for the live streaming indicator.
- *   6. [turnComplete] emits turnId when done so the ViewModel can clear the indicator.
+ * INTERLEAVING DESIGN:
  *
- * The UI reads only from Room (reactive Flows). It never touches this scope.
+ * The Anthropic content array may look like:
+ *   [{type:text, text:"I'll search..."}, {type:tool_use, ...}, {type:text, text:"Based on..."}]
+ *
+ * The Rust orchestrator already emits text before tools (via emit_token / preamble),
+ * then calls executeTool per tool block, then emits the final text on the next round.
+ *
+ * We produce TurnEvents in the order events arrive:
+ *
+ *   seq=0  text   "I'll search..."     ← flushed when tool starts
+ *   seq=1  tool   search_web  running  ← inserted when tool starts
+ *   seq=1  tool   search_web  done     ← updated in-place (same row, same seq)
+ *   seq=2  text   "Based on results…"  ← flushed at turn end
+ *
+ * KEY INVARIANT: text that arrives BEFORE a tool call is flushed to DB
+ * (with the next available seq) immediately when [onToolStart] fires.
+ * This guarantees correct interleaving — text seq < adjacent tool seq.
+ *
+ * The streaming text StateFlow carries ONLY uncommitted in-flight text.
+ * When text is flushed to DB it is removed from the streaming map.
  */
 @Singleton
 class InferenceEngine @Inject constructor(
     private val session: InferenceSession,
-    private val toolRegistry: ToolRegistry,
+    private val toolRegistry: com.vela.app.ai.tools.ToolRegistry,
     private val turnDao: TurnDao,
     private val turnEventDao: TurnEventDao,
 ) {
-    /** Scope outlives any ViewModel. */
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val activeJobs = ConcurrentHashMap<String, Job>()
 
-    /** (turnId, textChunk) — UI accumulates these into the streaming bubble. */
-    private val _streamingText = MutableSharedFlow<Pair<String, String>>(extraBufferCapacity = 128)
-    val streamingText: SharedFlow<Pair<String, String>> = _streamingText
+    /**
+     * In-flight streaming text per turn — ONLY text not yet committed to DB.
+     * Cleared (entry removed) when text is flushed to a TurnEvent row.
+     * The streaming bubble in the UI should show this AND disappear when it's in DB.
+     */
+    private val _streamingText = MutableStateFlow<Map<String, String>>(emptyMap())
+    val streamingText: StateFlow<Map<String, String>> = _streamingText.asStateFlow()
 
-    /** Emits turnId when inference ends (success or error). */
     private val _turnComplete = MutableSharedFlow<String>(extraBufferCapacity = 16)
-    val turnComplete: SharedFlow<String> = _turnComplete
+    val turnComplete: SharedFlow<String> = _turnComplete.asSharedFlow()
 
     // ── Public API ────────────────────────────────────────────────────────────
 
@@ -78,7 +92,6 @@ class InferenceEngine @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "Turn $turnId failed", e)
                 turnDao.updateStatus(turnId, "error", e.message?.take(200))
-                // Emit error as a text event so it appears in the conversation
                 turnEventDao.insert(TurnEventEntity(
                     id     = UUID.randomUUID().toString(),
                     turnId = turnId,
@@ -87,6 +100,7 @@ class InferenceEngine @Inject constructor(
                     text   = "Error: ${e.message?.take(200) ?: "unknown"}",
                 ))
             } finally {
+                _streamingText.update { it - turnId }
                 _turnComplete.emit(turnId)
                 activeJobs.remove(turnId)
             }
@@ -100,25 +114,54 @@ class InferenceEngine @Inject constructor(
     // ── Inference ─────────────────────────────────────────────────────────────
 
     private suspend fun processTurn(turnId: String, conversationId: String, userMessage: String) {
-        val seq = AtomicInteger(0)
-        val historyJson = buildHistory(conversationId)
-        Log.d(TAG, "processTurn turnId=$turnId historyLen=${historyJson.length}")
+        val seq       = AtomicInteger(0)
+        val textBuffer = StringBuilder()   // uncommitted text since last flush
 
-        val sb = StringBuilder()
+        fun flushText() {
+            val text = textBuffer.toString().trim()
+            if (text.isNotEmpty()) {
+                scope.launch {
+                    turnEventDao.insert(TurnEventEntity(
+                        id     = UUID.randomUUID().toString(),
+                        turnId = turnId,
+                        seq    = seq.getAndIncrement(),
+                        type   = "text",
+                        text   = text,
+                    ))
+                }
+                textBuffer.clear()
+                // Remove from streaming map — it's now in DB
+                _streamingText.update { it - turnId }
+            }
+        }
+
+        val historyJson = buildHistory(conversationId)
 
         session.runTurn(
             historyJson = historyJson,
             userInput   = userMessage,
+
+            onToken = { token ->
+                textBuffer.append(token)
+                // Show uncommitted text in streaming bubble
+                _streamingText.update { map ->
+                    map + (turnId to textBuffer.toString())
+                }
+            },
+
             onToolStart = { name, argsJson ->
+                // FLUSH any accumulated text BEFORE the tool — this preserves
+                // the order: preamble text (seq N) < tool (seq N+1)
+                flushText()
+
                 val eventId = UUID.randomUUID().toString()
                 val tool    = toolRegistry.find(name)
                 val summary = extractSummary(name, argsJson)
 
-                // INSERT immediately — visible in UI before tool even executes
                 turnEventDao.insert(TurnEventEntity(
                     id              = eventId,
                     turnId          = turnId,
-                    seq             = seq.getAndIncrement(),  // ← integer, never a timestamp
+                    seq             = seq.getAndIncrement(),
                     type            = "tool",
                     toolName        = name,
                     toolDisplayName = tool?.displayName ?: name,
@@ -127,58 +170,35 @@ class InferenceEngine @Inject constructor(
                     toolArgs        = argsJson,
                     toolStatus      = "running",
                 ))
-
-                Log.d(TAG, "Tool started: $name seq=${seq.get()-1} eventId=$eventId")
-                eventId // caller-assigned stable ID returned to onToolEnd
+                Log.d(TAG, "Tool started: $name seq=${seq.get()-1}")
+                eventId
             },
+
             onToolEnd = { eventId, result ->
-                // UPDATE the same row, same seq — never moves in the UI
+                // Same row, same seq — just flip the status in-place
                 turnEventDao.updateEvent(
                     id     = eventId,
                     status = "done",
                     result = result.take(500),
                 )
-                Log.d(TAG, "Tool done: eventId=$eventId")
-            },
-            onToken = { token ->
-                sb.append(token)
-                _streamingText.emit(Pair(turnId, token))
+                Log.d(TAG, "Tool done: $eventId")
             },
         )
 
-        val finalText = sb.toString().trim()
-        if (finalText.isNotEmpty()) {
-            turnEventDao.insert(TurnEventEntity(
-                id     = UUID.randomUUID().toString(),
-                turnId = turnId,
-                seq    = seq.getAndIncrement(),  // always AFTER all tool seqs
-                type   = "text",
-                text   = finalText,
-            ))
-        }
+        // Flush whatever text arrived after the last tool call (or the only response)
+        flushText()
     }
 
     // ── History ───────────────────────────────────────────────────────────────
 
-    /**
-     * Build the Anthropic message history JSON from completed prior turns.
-     *
-     * Each completed turn contributes:
-     *   {role:"user", content: userMessage}
-     *   {role:"assistant", content: <assembled from text events in that turn>}
-     *
-     * This gives the model correct context of the conversation so far.
-     */
     private suspend fun buildHistory(conversationId: String): String {
-        val arr = JSONArray()
+        val arr           = JSONArray()
         val completedTurns = turnDao.getCompletedTurnsWithEvents(conversationId)
 
-        for (turnWithEvents in completedTurns) {
-            // User message
-            arr.put(JSONObject().put("role", "user").put("content", turnWithEvents.turn.userMessage))
+        for (twe in completedTurns) {
+            arr.put(JSONObject().put("role", "user").put("content", twe.turn.userMessage))
 
-            // Assistant content: all text events from this turn, in seq order
-            val assistantText = turnWithEvents.sortedEvents
+            val assistantText = twe.sortedEvents
                 .filter { it.type == "text" && !it.text.isNullOrBlank() }
                 .joinToString("\n") { it.text!! }
 
@@ -186,9 +206,10 @@ class InferenceEngine @Inject constructor(
                 arr.put(JSONObject().put("role", "assistant").put("content", assistantText))
             }
         }
-
         return arr.toString()
     }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private fun extractSummary(name: String, argsJson: String) = try {
         val obj = JSONObject(argsJson)
