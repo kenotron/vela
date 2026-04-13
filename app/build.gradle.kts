@@ -108,6 +108,9 @@
                 // SSH — modern JSch fork, Ed25519 + modern ciphers, pure Java (no Kotlin metadata issues)
             implementation("com.github.mwiede:jsch:0.2.19")
 
+            // Git version control — JGit for vault git sync
+            implementation("org.eclipse.jgit:org.eclipse.jgit:6.8.0.202311291450-r")
+
             // Markdown rendering — Markwon (Java-based, version-agnostic, full GFM)
             // Headers, bold/italic/strikethrough, code blocks, tables, task lists, links
             implementation("io.noties.markwon:core:4.6.2")
