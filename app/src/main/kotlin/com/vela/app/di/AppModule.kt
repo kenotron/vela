@@ -1,10 +1,16 @@
-package com.vela.app.di
+    package com.vela.app.di
 
     import android.content.Context
     import androidx.room.Room
+    import com.vela.app.ai.AgentOrchestrator
     import com.vela.app.ai.GemmaEngine
+    import com.vela.app.ai.InferenceProvider
     import com.vela.app.ai.LifecycleAwareEngine
     import com.vela.app.ai.MlKitGemma4Engine
+    import com.vela.app.ai.MlKitInferenceProvider
+    import com.vela.app.ai.ProviderRegistry
+    import com.vela.app.ai.llama.LlamaCppProvider
+    import com.vela.app.ai.llama.ModelDownloadManager
     import com.vela.app.ai.tools.FetchUrlTool
     import com.vela.app.ai.tools.GetBatteryTool
     import com.vela.app.ai.tools.GetDateTool
@@ -26,6 +32,7 @@ package com.vela.app.di
     import dagger.hilt.android.qualifiers.ApplicationContext
     import dagger.hilt.components.SingletonComponent
     import okhttp3.OkHttpClient
+    import java.io.File
     import java.util.concurrent.TimeUnit
     import javax.inject.Singleton
 
@@ -33,40 +40,32 @@ package com.vela.app.di
     @InstallIn(SingletonComponent::class)
     object AppModule {
 
-        @Provides
-        @Singleton
+        // ─── Persistence ────────────────────────────────────────────────────────────
+
+        @Provides @Singleton
         fun provideVelaDatabase(@ApplicationContext context: Context): VelaDatabase =
             Room.databaseBuilder(context, VelaDatabase::class.java, "vela_database").build()
 
         @Provides
         fun provideMessageDao(database: VelaDatabase): MessageDao = database.messageDao()
 
-        @Provides
-        @Singleton
+        @Provides @Singleton
         fun provideConversationRepository(messageDao: MessageDao): ConversationRepository =
             RoomConversationRepository(messageDao)
 
-        @Provides
-        @Singleton
+        // ─── ML Kit Engine (kept for loading-screen readiness checks + fallback) ────
+
+        @Provides @Singleton
         fun provideLifecycleAwareEngine(engine: MlKitGemma4Engine): LifecycleAwareEngine = engine
 
-        @Provides
-        @Singleton
+        /** GemmaEngine binding retained for ModelLoadingViewModel and any legacy callers. */
+        @Provides @Singleton
         fun provideGemmaEngine(engine: LifecycleAwareEngine): GemmaEngine = engine
 
-        @Provides
-        @Singleton
-        fun provideTtsEngine(@ApplicationContext context: Context): TtsEngine =
-            AndroidTtsEngine(context)
+        // ─── HTTP ───────────────────────────────────────────────────────────────────
 
-        @Provides
-        @Singleton
-        fun provideSpeechTranscriber(@ApplicationContext context: Context): SpeechTranscriber =
-            AndroidSpeechTranscriber(context)
-
-        /** Shared OkHttpClient for all HTTP-based tools. Single instance = shared connection pool. */
-        @Provides
-        @Singleton
+        /** Shared OkHttpClient — used by web tools AND the model download manager. */
+        @Provides @Singleton
         fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
@@ -74,12 +73,82 @@ package com.vela.app.di
             .followRedirects(true)
             .build()
 
+        // ─── Phase 2: llama.cpp ──────────────────────────────────────────────────────
+
         /**
-         * All tools available to Gemma 4 via JSON-in-prompt agentic loop.
-         * Add new tools here — they automatically appear in the model's prompt.
+         * Manages the GGUF model download. Model lives at:
+         *   {filesDir}/models/gemma-3-4b-it-Q4_K_M.gguf  (~2.5 GB)
+         *
+         * To swap the model, change ModelDownloadManager.DEFAULT_URL and DEFAULT_FILE_NAME.
+         * The download screen will appear again if the new file doesn't exist yet.
          */
-        @Provides
-        @Singleton
+        @Provides @Singleton
+        fun provideModelDownloadManager(
+            @ApplicationContext context: Context,
+            client: OkHttpClient,
+        ): ModelDownloadManager = ModelDownloadManager(
+            modelsDir = File(context.filesDir, "models"),
+            client    = client,
+        )
+
+        /**
+         * LlamaCppProvider singleton — loaded lazily after the GGUF is downloaded.
+         *
+         * [isAvailable] returns false until [LlamaCppProvider.loadModel] is called, so
+         * ProviderRegistry gracefully falls back to MlKitInferenceProvider in the meantime.
+         *
+         * nGpuLayers = 0 → CPU-only (safe default). Set to 99 for Adreno GPU offload.
+         */
+        @Provides @Singleton
+        fun provideLlamaCppProvider(
+            downloadManager: ModelDownloadManager,
+        ): LlamaCppProvider = LlamaCppProvider(
+            modelFile   = downloadManager.modelFile(),
+            nCtx        = 4096,
+            nThreads    = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(2, 4),
+            nGpuLayers  = 0,
+            nPredict    = 512,
+        )
+
+        // ─── InferenceProvider chain ─────────────────────────────────────────────────
+
+        /**
+         * Ordered provider list — first available wins in ProviderRegistry.
+         *
+         * LlamaCppProvider is listed first (primary). It returns isAvailable = false
+         * until the model is downloaded + loaded, at which point it becomes the
+         * automatic primary. MlKitInferenceProvider is the fallback.
+         */
+        @Provides @Singleton
+        fun provideInferenceProviders(
+            llamaCpp: LlamaCppProvider,
+            mlKit: MlKitInferenceProvider,
+        ): List<InferenceProvider> = listOf(llamaCpp, mlKit)
+
+        @Provides @Singleton
+        fun provideProviderRegistry(
+            providers: @JvmSuppressWildcards List<InferenceProvider>,
+        ): ProviderRegistry = ProviderRegistry(providers)
+
+        @Provides @Singleton
+        fun provideAgentOrchestrator(
+            registry: ProviderRegistry,
+            tools: ToolRegistry,
+        ): AgentOrchestrator = AgentOrchestrator(registry, tools)
+
+        // ─── Audio / Voice ──────────────────────────────────────────────────────────
+
+        @Provides @Singleton
+        fun provideTtsEngine(@ApplicationContext context: Context): TtsEngine =
+            AndroidTtsEngine(context)
+
+        @Provides @Singleton
+        fun provideSpeechTranscriber(@ApplicationContext context: Context): SpeechTranscriber =
+            AndroidSpeechTranscriber(context)
+
+        // ─── Tools ──────────────────────────────────────────────────────────────────
+
+        @Provides @Singleton
         fun provideTools(
             @ApplicationContext context: Context,
             client: OkHttpClient,
@@ -91,8 +160,7 @@ package com.vela.app.di
             FetchUrlTool(client),
         )
 
-        @Provides
-        @Singleton
+        @Provides @Singleton
         fun provideToolRegistry(tools: @JvmSuppressWildcards List<Tool>): ToolRegistry =
             ToolRegistry(tools)
     }
