@@ -9,12 +9,12 @@
 
     android {
         namespace = "com.vela.app"
-        compileSdk = 35
+        compileSdk = 36
 
         defaultConfig {
             applicationId = "com.vela.app"
             minSdk = 26
-            targetSdk = 35
+            targetSdk = 36
             versionCode = 1
             versionName = "0.2.0"
 
@@ -94,8 +94,16 @@
         // Coroutines
         implementation(libs.kotlinx.coroutines.android)
 
-        // OkHttp — web tools
-        implementation(libs.okhttp)
+            // OkHttp — web tools
+            implementation(libs.okhttp)
+
+            // Markdown rendering — Markwon (Java-based, version-agnostic, full GFM)
+            // Headers, bold/italic/strikethrough, code blocks, tables, task lists, links
+            implementation("io.noties.markwon:core:4.6.2")
+            implementation("io.noties.markwon:ext-strikethrough:4.6.2")
+            implementation("io.noties.markwon:ext-tables:4.6.2")
+            implementation("io.noties.markwon:ext-tasklist:4.6.2")
+            implementation("io.noties.markwon:linkify:4.6.2")
 
         // Unit tests
         testImplementation(libs.junit)
