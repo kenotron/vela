@@ -12,9 +12,10 @@ class ListSshNodesTool(private val nodeRegistry: SshNodeRegistry) : Tool {
 
     override suspend fun execute(args: Map<String, Any>): String {
         val nodes = nodeRegistry.allSync()
-        if (nodes.isEmpty()) return "No Vela nodes configured. Add one in the app's Nodes screen (🔗 icon)."
+        if (nodes.isEmpty()) return "No Vela nodes configured. Add one in the app's Nodes screen."
         return "Configured Vela nodes:\n" + nodes.joinToString("\n") { n ->
-            "  • ${n.label}: ${n.username}@${n.host}:${n.port}"
+            val hostList = n.hosts.joinToString(", ")
+            "  • ${n.label}: ${n.username}@[$hostList]:${n.port}"
         }
     }
 }

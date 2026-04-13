@@ -29,9 +29,8 @@ class NodesViewModel @Inject constructor(
     val addError: StateFlow<String?> = _addError
 
     init {
-        // Keep registry cache warm so tools can resolve labels without blocking
         viewModelScope.launch {
-            nodes.collect { registry.cache = it }
+            nodes.collect { registry.updateCache(it) }
         }
     }
 
@@ -45,7 +44,7 @@ class NodesViewModel @Inject constructor(
             registry.addNode(SshNode(
                 id       = UUID.randomUUID().toString(),
                 label    = label.trim(),
-                host     = host.trim(),
+                hosts    = listOf(host.trim()),
                 port     = port,
                 username = username.trim(),
             ))
@@ -53,7 +52,25 @@ class NodesViewModel @Inject constructor(
         }
     }
 
-    fun removeNode(id: String) = viewModelScope.launch { registry.removeNode(id) }
+    /** Add an IP/hostname to an existing node's fallback list. */
+    fun addHostToNode(nodeId: String, newHost: String) {
+        if (newHost.isBlank()) return
+        val node = nodes.value.firstOrNull { it.id == nodeId } ?: return
+        if (node.hosts.contains(newHost.trim())) return
+        viewModelScope.launch {
+            registry.updateNode(node.copy(hosts = node.hosts + newHost.trim()))
+        }
+    }
 
-    fun clearError() { _addError.value = null }
+    /** Remove one IP/hostname from a node. Guard: can't remove the last one. */
+    fun removeHostFromNode(nodeId: String, host: String) {
+        val node = nodes.value.firstOrNull { it.id == nodeId } ?: return
+        if (node.hosts.size <= 1) return
+        viewModelScope.launch {
+            registry.updateNode(node.copy(hosts = node.hosts - host))
+        }
+    }
+
+    fun removeNode(id: String) = viewModelScope.launch { registry.removeNode(id) }
+    fun clearError()           { _addError.value = null }
 }

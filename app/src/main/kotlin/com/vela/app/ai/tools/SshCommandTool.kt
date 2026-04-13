@@ -3,7 +3,9 @@ package com.vela.app.ai.tools
 import android.util.Log
 import com.jcraft.jsch.ChannelExec
 import com.jcraft.jsch.JSch
+import com.jcraft.jsch.JSchException
 import com.vela.app.ssh.SshKeyManager
+import com.vela.app.ssh.SshNode
 import com.vela.app.ssh.SshNodeRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -11,14 +13,6 @@ import java.io.ByteArrayOutputStream
 
 private const val TAG = "SshCommandTool"
 
-/**
- * Runs a shell command on a named Vela node via SSH, authenticated using the
- * device's RSA identity key managed by [SshKeyManager].
- *
- * Example AI calls:
- *   run_ssh_command(node="MacBook Pro", command="ls ~/Desktop")
- *   run_ssh_command(node="dev-box", command="docker ps", timeout_seconds=15)
- */
 class SshCommandTool(
     private val nodeRegistry: SshNodeRegistry,
     private val keyManager: SshKeyManager,
@@ -45,55 +39,71 @@ class SshCommandTool(
         val node = nodeRegistry.findByLabel(nodeLabel) ?: run {
             val avail = nodeRegistry.allSync().map { it.label }
             return@withContext if (avail.isEmpty())
-                "No Vela nodes configured. Add one via the Nodes screen (🔗 icon)."
+                "No Vela nodes configured. Add one via the Nodes screen."
             else
                 "No node found with label \"$nodeLabel\". Available: ${avail.joinToString()}"
         }
 
-        Log.d(TAG, "SSH → ${node.username}@${node.host}:${node.port}  cmd=`$command`")
+        return@withContext runCommandOnNode(node, command, timeout)
+    }
 
-        return@withContext try {
-            val jsch = JSch()
-            jsch.addIdentity(
-                "vela",
-                keyManager.getPrivateKeyPem().toByteArray(Charsets.UTF_8),
-                null, null,
-            )
+    private fun runCommandOnNode(node: SshNode, command: String, timeout: Int): String {
+        val jsch = JSch()
+        jsch.addIdentity(
+            "vela",
+            keyManager.getPrivateKeyPem().toByteArray(Charsets.UTF_8),
+            null, null,
+        )
 
-            val session = jsch.getSession(node.username, node.host, node.port)
-            session.setConfig("StrictHostKeyChecking", "no")
-            session.setConfig("ServerAliveInterval", "10")
-            session.connect(timeout * 1000)
+        // Try each host in order — first one that connects wins.
+        val errors = mutableListOf<String>()
+        for (host in node.hosts) {
+            Log.d(TAG, "SSH → ${node.username}@$host:${node.port}  cmd=`$command`")
+            try {
+                val session = jsch.getSession(node.username, host, node.port)
+                session.setConfig("StrictHostKeyChecking", "no")
+                session.setConfig("ServerAliveInterval", "10")
+                session.connect(timeout * 1000)
 
-            val channel = session.openChannel("exec") as ChannelExec
-            channel.setCommand(command)
+                val channel = session.openChannel("exec") as ChannelExec
+                channel.setCommand(command)
 
-            val stdout = ByteArrayOutputStream()
-            val stderr = ByteArrayOutputStream()
-            channel.outputStream = stdout
-            channel.setErrStream(stderr)
-            channel.connect()
+                val stdout = ByteArrayOutputStream()
+                val stderr = ByteArrayOutputStream()
+                channel.outputStream = stdout
+                channel.setErrStream(stderr)
+                channel.connect()
 
-            val deadline = System.currentTimeMillis() + timeout * 1000L
-            while (!channel.isClosed && System.currentTimeMillis() < deadline) {
+                val deadline = System.currentTimeMillis() + timeout * 1000L
+                while (!channel.isClosed && System.currentTimeMillis() < deadline) {
+                    Thread.sleep(50)
+                }
                 Thread.sleep(50)
-            }
-            Thread.sleep(50) // flush buffers
 
-            val exitCode = channel.exitStatus
-            channel.disconnect()
-            session.disconnect()
+                val exitCode = channel.exitStatus
+                channel.disconnect()
+                session.disconnect()
 
-            buildString {
-                val out = stdout.toString(Charsets.UTF_8.name()).trimEnd()
-                val err = stderr.toString(Charsets.UTF_8.name()).trimEnd()
-                if (out.isNotEmpty()) appendLine(out)
-                if (err.isNotEmpty()) appendLine("[stderr] $err")
-                append("[exit $exitCode]")
+                return buildString {
+                    val out = stdout.toString(Charsets.UTF_8.name()).trimEnd()
+                    val err = stderr.toString(Charsets.UTF_8.name()).trimEnd()
+                    if (node.hosts.size > 1) appendLine("[connected via $host]")
+                    if (out.isNotEmpty()) appendLine(out)
+                    if (err.isNotEmpty()) appendLine("[stderr] $err")
+                    append("[exit $exitCode]")
+                }
+            } catch (e: JSchException) {
+                val msg = "[$host] ${e.message?.take(80)}"
+                Log.w(TAG, "SSH failed on $host: $e")
+                errors += msg
+                // Continue to next host
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "SSH command failed", e)
-            "SSH error: ${e.message?.take(300)}"
         }
+
+        // All hosts failed
+        return buildString {
+            appendLine("SSH failed on all ${node.hosts.size} address(es):")
+            errors.forEach { appendLine("  • $it") }
+        }.trimEnd()
     }
 }

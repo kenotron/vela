@@ -1,4 +1,4 @@
-    package com.vela.app.data.db
+package com.vela.app.data.db
 
     import androidx.room.Entity
     import androidx.room.PrimaryKey
@@ -7,7 +7,8 @@
     data class SshNodeEntity(
         @PrimaryKey val id: String,
         val label: String,
-        val host: String,
+        /** Comma-separated ordered list of IPs/hostnames. */
+        val hosts: String,
         val port: Int,
         val username: String,
         val addedAt: Long,

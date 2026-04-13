@@ -7,7 +7,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [MessageEntity::class, ConversationEntity::class, SshNodeEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class VelaDatabase : RoomDatabase() {
@@ -21,7 +21,6 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
         db.execSQL("ALTER TABLE messages ADD COLUMN toolMeta TEXT")
     }
 }
-
 val MIGRATION_2_3 = object : Migration(2, 3) {
     override fun migrate(db: SupportSQLiteDatabase) {
         val now = System.currentTimeMillis()
@@ -31,9 +30,18 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
         db.execSQL("UPDATE messages SET conversationId = 'legacy'")
     }
 }
-
 val MIGRATION_3_4 = object : Migration(3, 4) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("CREATE TABLE ssh_nodes (id TEXT NOT NULL PRIMARY KEY, label TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL, username TEXT NOT NULL, addedAt INTEGER NOT NULL)")
+    }
+}
+/** v4→v5: replace single `host` column with `hosts` (comma-separated ordered list). */
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE ssh_nodes_new (id TEXT NOT NULL PRIMARY KEY, label TEXT NOT NULL, hosts TEXT NOT NULL, port INTEGER NOT NULL, username TEXT NOT NULL, addedAt INTEGER NOT NULL)")
+        // Preserve existing single host in the new comma-separated column
+        db.execSQL("INSERT INTO ssh_nodes_new SELECT id, label, host, port, username, addedAt FROM ssh_nodes")
+        db.execSQL("DROP TABLE ssh_nodes")
+        db.execSQL("ALTER TABLE ssh_nodes_new RENAME TO ssh_nodes")
     }
 }
