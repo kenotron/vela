@@ -20,7 +20,8 @@
 
     data class ToolParameter(
         val name: String,
-        val type: String,          // "string" | "number" | "boolean"
+        val type: String,          // "string" | "number" | "boolean" | "integer"
         val description: String,
+        val required: Boolean = true,
     )
     

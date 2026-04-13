@@ -112,8 +112,9 @@ class AmplifierSession @Inject constructor(
                 props.put(p.name, JSONObject().put("type", p.type.lowercase()).put("description", p.description))
             }
             val params = JSONObject().put("type", "object").put("properties", props).also { obj ->
-                if (tool.parameters.isNotEmpty()) obj.put("required", JSONArray().also { req ->
-                    tool.parameters.forEach { req.put(it.name) }
+                val requiredParams = tool.parameters.filter { it.required }
+                if (requiredParams.isNotEmpty()) obj.put("required", JSONArray().also { req ->
+                    requiredParams.forEach { req.put(it.name) }
                 })
             }
             arr.put(JSONObject()
