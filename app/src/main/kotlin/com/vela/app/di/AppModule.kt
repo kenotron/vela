@@ -3,16 +3,8 @@
     import android.content.Context
     import androidx.room.Room
     import com.vela.app.ai.AmplifierSession
-    import com.vela.app.ai.tools.FetchUrlTool
-    import com.vela.app.ai.tools.GetBatteryTool
-    import com.vela.app.ai.tools.GetDateTool
-    import com.vela.app.ai.tools.GetTimeTool
-    import com.vela.app.ai.tools.SearchWebTool
-    import com.vela.app.ai.tools.Tool
-    import com.vela.app.ai.tools.ToolRegistry
-    import com.vela.app.data.db.MIGRATION_1_2
-    import com.vela.app.data.db.MessageDao
-    import com.vela.app.data.db.VelaDatabase
+    import com.vela.app.ai.tools.*
+    import com.vela.app.data.db.*
     import com.vela.app.data.repository.ConversationRepository
     import com.vela.app.data.repository.RoomConversationRepository
     import com.vela.app.voice.AndroidSpeechTranscriber
@@ -33,15 +25,17 @@
         @Provides @Singleton
         fun provideDatabase(@ApplicationContext ctx: Context): VelaDatabase =
             Room.databaseBuilder(ctx, VelaDatabase::class.java, "vela_database")
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
 
-        @Provides
-        fun provideMessageDao(db: VelaDatabase): MessageDao = db.messageDao()
+        @Provides fun provideMessageDao(db: VelaDatabase): MessageDao = db.messageDao()
+        @Provides fun provideConversationDao(db: VelaDatabase): ConversationDao = db.conversationDao()
 
         @Provides @Singleton
-        fun provideConversationRepository(dao: MessageDao): ConversationRepository =
-            RoomConversationRepository(dao)
+        fun provideConversationRepository(
+            messageDao: MessageDao,
+            conversationDao: ConversationDao,
+        ): ConversationRepository = RoomConversationRepository(messageDao, conversationDao)
 
         @Provides @Singleton
         fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
@@ -51,11 +45,8 @@
 
         @Provides @Singleton
         fun provideTools(@ApplicationContext ctx: Context, client: OkHttpClient): List<Tool> = listOf(
-            GetTimeTool(),
-            GetDateTool(),
-            GetBatteryTool(ctx),
-            SearchWebTool(client),
-            FetchUrlTool(client),
+            GetTimeTool(), GetDateTool(), GetBatteryTool(ctx),
+            SearchWebTool(client), FetchUrlTool(client),
         )
 
         @Provides @Singleton

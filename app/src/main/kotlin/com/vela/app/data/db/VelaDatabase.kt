@@ -5,15 +5,36 @@
     import androidx.room.migration.Migration
     import androidx.sqlite.db.SupportSQLiteDatabase
 
-    @Database(entities = [MessageEntity::class], version = 2, exportSchema = true)
+    @Database(
+        entities = [MessageEntity::class, ConversationEntity::class],
+        version = 3,
+        exportSchema = true,
+    )
     abstract class VelaDatabase : RoomDatabase() {
         abstract fun messageDao(): MessageDao
+        abstract fun conversationDao(): ConversationDao
     }
 
-    /** Add toolMeta column (nullable) — no data loss. */
     val MIGRATION_1_2 = object : Migration(1, 2) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("ALTER TABLE messages ADD COLUMN toolMeta TEXT")
+        }
+    }
+
+    val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            val now = System.currentTimeMillis()
+            db.execSQL(
+                "CREATE TABLE conversations (" +
+                "id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, " +
+                "createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL)"
+            )
+            db.execSQL("ALTER TABLE messages ADD COLUMN conversationId TEXT NOT NULL DEFAULT ''")
+            db.execSQL(
+                "INSERT INTO conversations (id, title, createdAt, updatedAt) " +
+                "VALUES ('legacy', 'Imported Chat', $now, $now)"
+            )
+            db.execSQL("UPDATE messages SET conversationId = 'legacy'")
         }
     }
     
