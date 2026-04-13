@@ -94,7 +94,7 @@
          */
         private fun appendExchange(prompt: String, toolCallJson: String, toolResult: String): String {
             val base = prompt.trimEnd().removeSuffix("Vela:").trimEnd()
-            return "\$base\nVela: \$toolCallJson\nTool result: \$toolResult\nVela:"
+            return "$base\nVela: $toolCallJson\nTool result: $toolResult\nVela:"
         }
     }
     
