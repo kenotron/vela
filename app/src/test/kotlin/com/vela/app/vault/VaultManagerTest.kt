@@ -20,10 +20,13 @@ class VaultManagerTest {
     }
 
     @Test
-    fun absoluteStylePathStripsLeadingSlashAndResolvesInsideRoot() {
-        val result = manager.resolve("/Personal/Notes/today.md")
-        assertThat(result).isNotNull()
-        assertThat(result!!.canonicalPath).startsWith(manager.root.canonicalPath)
+    fun `absolute-style path produces same result as relative path`() {
+        val relative = manager.resolve("Personal/Notes/today.md")
+        val absolute = manager.resolve("/Personal/Notes/today.md")
+        assertThat(relative).isNotNull()
+        assertThat(absolute).isNotNull()
+        // The key assertion: both should point to the same file
+        assertThat(absolute!!.canonicalPath).isEqualTo(relative!!.canonicalPath)
     }
 
     @Test

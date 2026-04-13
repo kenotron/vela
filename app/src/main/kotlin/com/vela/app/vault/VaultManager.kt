@@ -20,8 +20,8 @@ class VaultManager(val root: File) {
         root.mkdirs()
     }
 
-    /** Returns true if the vault root exists and contains at least one entry. */
-    fun isInitialized(): Boolean = root.exists() && root.listFiles()?.isNotEmpty() == true
+    /** Returns true if the vault root exists. */
+    fun isInitialized(): Boolean = root.exists()
 
     /**
      * Resolves [path] to a [File] within [root].
