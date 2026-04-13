@@ -4,7 +4,6 @@
     import androidx.lifecycle.viewModelScope
     import com.vela.app.a2ui.VelaUiParser
     import com.vela.app.ai.AgentOrchestrator
-    import com.vela.app.audio.TtsEngine
     import com.vela.app.data.repository.ConversationRepository
     import com.vela.app.domain.model.Message
     import com.vela.app.domain.model.MessageRole
@@ -21,7 +20,6 @@
     class ConversationViewModel @Inject constructor(
         private val orchestrator: AgentOrchestrator,
         private val repository: ConversationRepository,
-        private val ttsEngine: TtsEngine,
     ) : ViewModel() {
 
         private val _messages = MutableStateFlow<List<Message>>(emptyList())
@@ -33,21 +31,12 @@
         private val _engineState = MutableStateFlow(EngineState.ModelReady)
         val engineState: StateFlow<EngineState> = _engineState.asStateFlow()
 
-        /** Live token stream while the model is generating. Null when idle. */
         private val _streamingResponse = MutableStateFlow<String?>(null)
         val streamingResponse: StateFlow<String?> = _streamingResponse.asStateFlow()
 
-        /**
-         * Name of the tool currently executing between inference passes.
-         * Shown as "🔧 Using search_web…" chip while the tool runs. Null when idle.
-         */
         private val _toolExecutionState = MutableStateFlow<String?>(null)
         val toolExecutionState: StateFlow<String?> = _toolExecutionState.asStateFlow()
 
-        /**
-         * Current iteration index of the agentic loop (1-based) while it is running.
-         * Null when not in a multi-step loop. Used by the UI to show "Step 2/4".
-         */
         private val _agentStep = MutableStateFlow<AgentStep?>(null)
         val agentStep: StateFlow<AgentStep?> = _agentStep.asStateFlow()
 
@@ -58,7 +47,6 @@
         }
 
         fun setEngineState(state: EngineState) { _engineState.value = state }
-
         fun onVoiceInput(transcript: String) = processInput(transcript)
         fun onTextInput(text: String) = processInput(text)
 
@@ -86,7 +74,6 @@
                         },
                     )
                     if (finalText.isNotEmpty()) {
-                        ttsEngine.speak(finalText)
                         repository.saveMessage(Message(role = MessageRole.ASSISTANT, content = finalText))
                     }
                 } catch (e: Exception) {
@@ -116,17 +103,10 @@
                 "Couldn't load the local model. Ensure it downloaded correctly."
             else -> "Something went wrong: ${e.message?.take(120) ?: "unknown error"}"
         }
-
-        override fun onCleared() {
-            super.onCleared()
-            ttsEngine.shutdown()
-        }
     }
 
-    /** Describes which step of the agentic loop we are on. Shown in the UI. */
     data class AgentStep(val current: Int, val max: Int)
 
-    /** True if [content] is a Vela-UI JSON payload to render with VelaUiSurface. */
     fun hasVelaUiPayload(content: String): Boolean =
         content.contains("\"type\":\"vela-ui\"") && VelaUiParser.parse(content) != null
     
