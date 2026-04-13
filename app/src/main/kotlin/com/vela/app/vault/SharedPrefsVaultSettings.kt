@@ -3,8 +3,7 @@ package com.vela.app.vault
 import android.content.Context
 
 class SharedPrefsVaultSettings(private val context: Context) : VaultSettings {
-    private val prefs
-        get() = context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE)
+    private val prefs = context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE)
 
     override fun getRemoteUrl(vaultId: String): String =
         prefs.getString("${vaultId}_remote_url", "") ?: ""
