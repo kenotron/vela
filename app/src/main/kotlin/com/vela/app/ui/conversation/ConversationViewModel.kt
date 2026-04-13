@@ -15,6 +15,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -33,22 +35,17 @@ class ConversationViewModel @Inject constructor(
 
     private val prefs get() = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    // ── Active session ────────────────────────────────────────────────────────
-
     private val _activeConversationId = MutableStateFlow<String?>(null)
     val activeConversationId: StateFlow<String?> = _activeConversationId.asStateFlow()
 
-    /** Messages for the active conversation, live from Room. */
     val messages: StateFlow<List<Message>> = _activeConversationId
         .filterNotNull()
         .flatMapLatest { convId -> repository.getMessages(convId) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** All conversations for the session list. */
     val conversations: StateFlow<List<Conversation>> = repository.getAllConversations()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Title of the active conversation. */
     val activeTitle: StateFlow<String> = _activeConversationId
         .filterNotNull()
         .flatMapLatest { id ->
@@ -66,20 +63,13 @@ class ConversationViewModel @Inject constructor(
 
     val isConfigured: Boolean get() = session.isConfigured()
 
-    // ── Init: restore or create the active session ────────────────────────────
-
     init {
         viewModelScope.launch {
             val savedId = prefs.getString(KEY_ACTIVE_SESSION, null)
-            if (savedId != null) {
-                _activeConversationId.value = savedId
-            } else {
-                createAndActivate(Conversation(title = "New Chat"))
-            }
+            if (savedId != null) _activeConversationId.value = savedId
+            else createAndActivate(Conversation(title = "New Chat"))
         }
     }
-
-    // ── Public actions ────────────────────────────────────────────────────────
 
     fun onTextInput(text: String)  = processInput(text)
     fun onVoiceInput(text: String) = processInput(text)
@@ -101,18 +91,17 @@ class ConversationViewModel @Inject constructor(
         }
     }
 
-    // ── Message processing ────────────────────────────────────────────────────
-
     private fun processInput(input: String) {
         val convId = _activeConversationId.value ?: return
         viewModelScope.launch {
-            // Save user message first
+            // Save user message
+            val turnStart = System.currentTimeMillis()
             repository.saveMessage(
-                Message(conversationId = convId, role = MessageRole.USER, content = input)
+                Message(conversationId = convId, role = MessageRole.USER, content = input,
+                        timestamp = turnStart)
             )
             repository.touchConversation(convId)
 
-            // Auto-title from first user message
             if (messages.value.count { it.role == MessageRole.USER } == 0) {
                 val title = input.take(40).trim() + if (input.length > 40) "…" else ""
                 repository.updateConversationTitle(convId, title)
@@ -121,10 +110,17 @@ class ConversationViewModel @Inject constructor(
             _isProcessing.value = true
             val sb = StringBuilder()
 
+            // Monotonic counter so tool calls and assistant message have
+            // strictly increasing timestamps even if all arrive within 1ms.
+            val clock = AtomicLong(turnStart + 1)
+
+            // Track pending tool calls: toolName → (messageId, metaJson)
+            // Carry the metaJson from onToolStart so onToolEnd never needs to
+            // read from messages.value (which may not have the row yet).
+            val pendingToolIds = mutableMapOf<String, Pair<String, String>>()
+
             try {
-                // Build history from DB messages — this is the source of truth.
-                // AmplifierSession is stateless; we pass the full history each time.
-                val prior = messages.value  // already loaded from Room
+                val prior = messages.value
 
                 session.runTurn(
                     priorMessages = prior,
@@ -132,37 +128,35 @@ class ConversationViewModel @Inject constructor(
                     onToolStart   = { name, argsJson ->
                         val tool    = toolRegistry.find(name)
                         val summary = extractSummary(name, argsJson)
+                        val msgId   = UUID.randomUUID().toString()
                         val meta    = toolMeta(
                             displayName = tool?.displayName ?: name,
-                            icon        = tool?.icon ?: "\uD83D\uDD27",
+                            icon        = tool?.icon ?: "🔧",
                             summary     = summary,
                             status      = "in_progress",
                         )
-                        viewModelScope.launch {
-                            repository.saveMessage(
-                                Message(
-                                    conversationId = convId,
-                                    role     = MessageRole.TOOL_CALL,
-                                    content  = summary,
-                                    toolMeta = meta,
-                                )
+                        // Store (id, meta) so onToolEnd never touches messages.value
+                        pendingToolIds[name] = Pair(msgId, meta)
+
+                        repository.saveMessage(
+                            Message(
+                                id             = msgId,
+                                conversationId = convId,
+                                role           = MessageRole.TOOL_CALL,
+                                content        = summary,
+                                // Strictly-increasing timestamp — tool calls always before assistant
+                                timestamp      = clock.getAndIncrement(),
+                                toolMeta       = meta,
                             )
-                        }
+                        )
                     },
                     onToolEnd = { name, result ->
-                        val existing = messages.value.lastOrNull {
-                            it.role == MessageRole.TOOL_CALL &&
-                            metaStatus(it.toolMeta) == "in_progress" &&
-                            metaField(it.toolMeta, "displayName") ==
-                                (toolRegistry.find(name)?.displayName ?: name)
-                        }
-                        if (existing != null) {
-                            val updated = JSONObject(existing.toolMeta ?: "{}")
-                                .put("status", "done")
-                                .put("resultSnippet", result.take(120).replace("\n", " "))
-                                .toString()
-                            viewModelScope.launch { repository.updateToolMeta(existing.id, updated) }
-                        }
+                        val (msgId, existingMeta) = pendingToolIds.remove(name) ?: return@runTurn
+                        val updated = JSONObject(existingMeta)
+                            .put("status", "done")
+                            .put("resultSnippet", result.take(120).replace("\n", " "))
+                            .toString()
+                        repository.updateToolMeta(msgId, updated)
                     },
                 ).collect { chunk ->
                     sb.append(chunk)
@@ -172,11 +166,13 @@ class ConversationViewModel @Inject constructor(
                 val finalText = sb.toString().trim()
                 _streamingResponse.value = null
                 if (finalText.isNotEmpty()) {
+                    // Assistant message always has a timestamp AFTER all tool calls
                     repository.saveMessage(
                         Message(
                             conversationId = convId,
-                            role    = MessageRole.ASSISTANT,
-                            content = finalText,
+                            role           = MessageRole.ASSISTANT,
+                            content        = finalText,
+                            timestamp      = clock.getAndIncrement(),
                         )
                     )
                     repository.touchConversation(convId)
@@ -187,8 +183,9 @@ class ConversationViewModel @Inject constructor(
                 repository.saveMessage(
                     Message(
                         conversationId = convId,
-                        role    = MessageRole.ASSISTANT,
-                        content = "Error: ${e.message?.take(200) ?: "unknown"}",
+                        role           = MessageRole.ASSISTANT,
+                        content        = "Error: ${e.message?.take(200) ?: "unknown"}",
+                        timestamp      = clock.getAndIncrement(),
                     )
                 )
             } finally {
@@ -196,8 +193,6 @@ class ConversationViewModel @Inject constructor(
             }
         }
     }
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private suspend fun createAndActivate(conv: Conversation) {
         repository.createConversation(conv)
@@ -210,12 +205,6 @@ class ConversationViewModel @Inject constructor(
             .put("displayName", displayName).put("icon", icon)
             .put("summary", summary).put("status", status)
             .toString()
-
-    private fun metaStatus(toolMeta: String?) =
-        runCatching { JSONObject(toolMeta ?: "{}").optString("status", "") }.getOrDefault("")
-
-    private fun metaField(toolMeta: String?, field: String) =
-        runCatching { JSONObject(toolMeta ?: "{}").optString(field, "") }.getOrDefault("")
 
     private fun extractSummary(name: String, argsJson: String) = try {
         val obj = JSONObject(argsJson)
