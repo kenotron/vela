@@ -60,7 +60,7 @@
             ) {
                 Text("📦 Download AI Model", style = MaterialTheme.typography.headlineSmall)
                 Text(
-                    text = "Vela needs to download Gemma 3 4B (~2.5 GB) to run AI locally on your device. " +
+                    text = "Vela needs to download Gemma 4 E2B (~3.5 GB) to run AI locally on your device. " +
                            "This is a one-time download. Wi-Fi recommended.",
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,

@@ -11,8 +11,8 @@
     /**
      * Manages download of a GGUF model file from HuggingFace.
      *
-     * Default: Gemma 3 4B IT Q4_K_M (~2.5 GB).
-     *   URL: https://huggingface.co/bartowski/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf
+     * Default: Gemma 4 E2B IT Q4_K_M (~3.5 GB) — matches the ML Kit AICore build.
+     *   URL: https://huggingface.co/bartowski/google_gemma-4-E2B-it-GGUF/resolve/main/google_gemma-4-E2B-it-Q4_K_M.gguf
      *
      * The model is written to [modelsDir]/[fileName] via a temp file (renamed on completion)
      * so a partial download never leaves a corrupt model file at the final path.
@@ -32,11 +32,12 @@
         private val fileName: String    = DEFAULT_FILE_NAME,
     ) {
         companion object {
-            // bartowski's GGUF pack — well maintained, Gemma 3 4B IT Q4_K_M
+            // bartowski's GGUF pack — Gemma 4 E2B IT Q4_K_M (same model family as ML Kit's AICore build)
+            // E2B = ~2B effective parameters (5B total, MoE architecture) — fits 6 GB+ RAM devices
             const val DEFAULT_URL =
-                "https://huggingface.co/bartowski/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf"
-            const val DEFAULT_FILE_NAME = "gemma-3-4b-it-Q4_K_M.gguf"
-            const val EXPECTED_SIZE_BYTES = 2_490_000_000L   // ~2.49 GB (approximate)
+                "https://huggingface.co/bartowski/google_gemma-4-E2B-it-GGUF/resolve/main/google_gemma-4-E2B-it-Q4_K_M.gguf"
+            const val DEFAULT_FILE_NAME = "google_gemma-4-E2B-it-Q4_K_M.gguf"
+            const val EXPECTED_SIZE_BYTES = 3_460_000_000L   // ~3.46 GB
         }
 
         /** The final destination of the model file. */
