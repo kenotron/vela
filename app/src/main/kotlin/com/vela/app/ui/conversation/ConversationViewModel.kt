@@ -3,213 +3,178 @@ package com.vela.app.ui.conversation
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.vela.app.ai.AmplifierSession
-import com.vela.app.ai.tools.ToolRegistry
-import com.vela.app.data.repository.ConversationRepository
+import com.vela.app.data.db.ConversationDao
+import com.vela.app.data.db.ConversationEntity
+import com.vela.app.data.db.TurnDao
+import com.vela.app.data.db.TurnEventDao
+import com.vela.app.data.db.TurnEventEntity
+import com.vela.app.data.db.TurnEntity
 import com.vela.app.domain.model.Conversation
-import com.vela.app.domain.model.Message
-import com.vela.app.domain.model.MessageRole
+import com.vela.app.engine.InferenceEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import org.json.JSONObject
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ConversationViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val session: AmplifierSession,
-    private val repository: ConversationRepository,
-    private val toolRegistry: ToolRegistry,
+    private val inferenceEngine: InferenceEngine,
+    private val conversationDao: ConversationDao,
+    private val turnDao: TurnDao,
+    private val turnEventDao: TurnEventDao,
 ) : ViewModel() {
 
     companion object {
-        private const val PREFS = "amplifier_prefs"
-        private const val KEY_ACTIVE_SESSION = "active_session_id"
+        private const val PREFS          = "amplifier_prefs"
+        private const val KEY_ACTIVE_ID  = "active_conversation_id"
     }
 
     private val prefs get() = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    private val _activeConversationId = MutableStateFlow<String?>(null)
-    val activeConversationId: StateFlow<String?> = _activeConversationId.asStateFlow()
+    // ── Active conversation ───────────────────────────────────────────────────
 
-    val messages: StateFlow<List<Message>> = _activeConversationId
-        .filterNotNull()
-        .flatMapLatest { convId -> repository.getMessages(convId) }
+    private val _activeConvId = MutableStateFlow<String?>(null)
+    val activeConversationId: StateFlow<String?> = _activeConvId.asStateFlow()
+
+    val conversations: StateFlow<List<Conversation>> = conversationDao.getAllConversations()
+        .map { list -> list.map { it.toDomain() } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val conversations: StateFlow<List<Conversation>> = repository.getAllConversations()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    val activeTitle: StateFlow<String> = _activeConversationId
+    val activeTitle: StateFlow<String> = _activeConvId
         .filterNotNull()
         .flatMapLatest { id ->
-            repository.getAllConversations().map { list ->
+            conversationDao.getAllConversations().map { list ->
                 list.firstOrNull { it.id == id }?.title ?: "New Chat"
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "New Chat")
 
-    private val _isProcessing     = MutableStateFlow(false)
-    val isProcessing: StateFlow<Boolean> = _isProcessing.asStateFlow()
+    // ── Turns for the active conversation ─────────────────────────────────────
 
-    private val _streamingResponse = MutableStateFlow<String?>(null)
-    val streamingResponse: StateFlow<String?> = _streamingResponse.asStateFlow()
+    /** All turns for the active conversation, live from Room. */
+    val turns: StateFlow<List<TurnEntity>> = _activeConvId
+        .filterNotNull()
+        .flatMapLatest { convId -> turnDao.getTurnsForConversation(convId) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val isConfigured: Boolean get() = session.isConfigured()
+    /** Events for the most recent running turn — shown as the "live" turn. */
+    private val _activeTurnId = MutableStateFlow<String?>(null)
+    val activeTurnId: StateFlow<String?> = _activeTurnId.asStateFlow()
+
+    val activeTurnEvents: StateFlow<List<TurnEventEntity>> = _activeTurnId
+        .flatMapLatest { id ->
+            if (id == null) flowOf(emptyList())
+            else turnEventDao.getEventsForTurn(id)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // ── Streaming text (in-memory, from InferenceEngine) ─────────────────────
+
+    private val _streamingText = MutableStateFlow<String?>(null)
+    val streamingText: StateFlow<String?> = _streamingText.asStateFlow()
+
+    val isProcessing: StateFlow<Boolean> = _activeTurnId
+        .map { id -> id != null && inferenceEngine.isRunning(id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    val isConfigured: Boolean get() = context
+        .getSharedPreferences("amplifier_prefs", Context.MODE_PRIVATE)
+        .getString("anthropic_api_key", "").orEmpty().isNotBlank()
 
     init {
+        // Restore active conversation or create first one
         viewModelScope.launch {
-            val savedId = prefs.getString(KEY_ACTIVE_SESSION, null)
-            if (savedId != null) _activeConversationId.value = savedId
-            else createAndActivate(Conversation(title = "New Chat"))
+            val savedId = prefs.getString(KEY_ACTIVE_ID, null)
+            if (savedId != null) _activeConvId.value = savedId
+            else newSession()
+        }
+
+        // Collect streaming tokens from the engine's SharedFlow
+        viewModelScope.launch {
+            inferenceEngine.streamingText.collect { (turnId, token) ->
+                if (turnId == _activeTurnId.value) {
+                    _streamingText.value = (_streamingText.value ?: "") + token
+                }
+            }
+        }
+
+        // Clear streaming indicator when a turn completes
+        viewModelScope.launch {
+            inferenceEngine.turnComplete.collect { turnId ->
+                if (turnId == _activeTurnId.value) {
+                    _streamingText.value = null
+                    _activeTurnId.value  = null
+                }
+            }
         }
     }
 
+    // ── Public actions ────────────────────────────────────────────────────────
+
     fun onTextInput(text: String)  = processInput(text)
     fun onVoiceInput(text: String) = processInput(text)
-    fun setApiKey(key: String)     = session.setApiKey(key)
+
+    fun setApiKey(key: String) {
+        context.getSharedPreferences("amplifier_prefs", Context.MODE_PRIVATE)
+            .edit().putString("anthropic_api_key", key).apply()
+    }
 
     fun newSession() {
-        viewModelScope.launch { createAndActivate(Conversation(title = "New Chat")) }
+        viewModelScope.launch {
+            val conv = ConversationEntity(
+                id        = UUID.randomUUID().toString(),
+                title     = "New Chat",
+                createdAt = System.currentTimeMillis(),
+                updatedAt = System.currentTimeMillis(),
+            )
+            conversationDao.insert(conv)
+            _activeConvId.value = conv.id
+            prefs.edit().putString(KEY_ACTIVE_ID, conv.id).apply()
+        }
     }
 
     fun switchSession(id: String) {
-        _activeConversationId.value = id
-        prefs.edit().putString(KEY_ACTIVE_SESSION, id).apply()
+        _activeConvId.value = id
+        _streamingText.value = null
+        prefs.edit().putString(KEY_ACTIVE_ID, id).apply()
     }
 
     fun deleteSession(id: String) {
         viewModelScope.launch {
-            repository.deleteConversation(id)
-            if (_activeConversationId.value == id) newSession()
+            turnDao.deleteForConversation(id)
+            conversationDao.delete(id)
+            if (_activeConvId.value == id) newSession()
         }
     }
+
+    // ── Inference ─────────────────────────────────────────────────────────────
 
     private fun processInput(input: String) {
-        val convId = _activeConversationId.value ?: return
+        val convId = _activeConvId.value ?: return
+
+        // Auto-title from first message
         viewModelScope.launch {
-            // Save user message
-            val turnStart = System.currentTimeMillis()
-            repository.saveMessage(
-                Message(conversationId = convId, role = MessageRole.USER, content = input,
-                        timestamp = turnStart)
-            )
-            repository.touchConversation(convId)
-
-            if (messages.value.count { it.role == MessageRole.USER } == 0) {
+            val isFirst = turnDao.getTurnsForConversation(convId).first().isEmpty()
+            if (isFirst) {
                 val title = input.take(40).trim() + if (input.length > 40) "…" else ""
-                repository.updateConversationTitle(convId, title)
-            }
-
-            _isProcessing.value = true
-            val sb = StringBuilder()
-
-            // Monotonic counter so tool calls and assistant message have
-            // strictly increasing timestamps even if all arrive within 1ms.
-            val clock = AtomicLong(turnStart + 1)
-
-            // Track pending tool calls: toolName → (messageId, metaJson)
-            // Carry the metaJson from onToolStart so onToolEnd never needs to
-            // read from messages.value (which may not have the row yet).
-            val pendingToolIds = mutableMapOf<String, Pair<String, String>>()
-
-            try {
-                val prior = messages.value
-
-                session.runTurn(
-                    priorMessages = prior,
-                    userInput     = input,
-                    onToolStart   = { name, argsJson ->
-                        val tool    = toolRegistry.find(name)
-                        val summary = extractSummary(name, argsJson)
-                        val msgId   = UUID.randomUUID().toString()
-                        val meta    = toolMeta(
-                            displayName = tool?.displayName ?: name,
-                            icon        = tool?.icon ?: "🔧",
-                            summary     = summary,
-                            status      = "in_progress",
-                        )
-                        // Store (id, meta) so onToolEnd never touches messages.value
-                        pendingToolIds[name] = Pair(msgId, meta)
-
-                        repository.saveMessage(
-                            Message(
-                                id             = msgId,
-                                conversationId = convId,
-                                role           = MessageRole.TOOL_CALL,
-                                content        = summary,
-                                // Strictly-increasing timestamp — tool calls always before assistant
-                                timestamp      = clock.getAndIncrement(),
-                                toolMeta       = meta,
-                            )
-                        )
-                    },
-                    onToolEnd = { name, result ->
-                        val (msgId, existingMeta) = pendingToolIds.remove(name) ?: return@runTurn
-                        val updated = JSONObject(existingMeta)
-                            .put("status", "done")
-                            .put("resultSnippet", result.take(120).replace("\n", " "))
-                            .toString()
-                        repository.updateToolMeta(msgId, updated)
-                    },
-                ).collect { chunk ->
-                    sb.append(chunk)
-                    _streamingResponse.value = sb.toString()
-                }
-
-                val finalText = sb.toString().trim()
-                _streamingResponse.value = null
-                if (finalText.isNotEmpty()) {
-                    // Assistant message always has a timestamp AFTER all tool calls
-                    repository.saveMessage(
-                        Message(
-                            conversationId = convId,
-                            role           = MessageRole.ASSISTANT,
-                            content        = finalText,
-                            timestamp      = clock.getAndIncrement(),
-                        )
-                    )
-                    repository.touchConversation(convId)
-                }
-
-            } catch (e: Exception) {
-                _streamingResponse.value = null
-                repository.saveMessage(
-                    Message(
-                        conversationId = convId,
-                        role           = MessageRole.ASSISTANT,
-                        content        = "Error: ${e.message?.take(200) ?: "unknown"}",
-                        timestamp      = clock.getAndIncrement(),
-                    )
-                )
-            } finally {
-                _isProcessing.value = false
+                conversationDao.updateTitle(convId, title, System.currentTimeMillis())
             }
         }
+
+        // Reset streaming state
+        _streamingText.value = null
+
+        // Delegate to InferenceEngine — runs in its own scope, survives ViewModel
+        val turnId = inferenceEngine.startTurn(convId, input)
+        _activeTurnId.value = turnId
     }
 
-    private suspend fun createAndActivate(conv: Conversation) {
-        repository.createConversation(conv)
-        _activeConversationId.value = conv.id
-        prefs.edit().putString(KEY_ACTIVE_SESSION, conv.id).apply()
-    }
+    // ── Mappers ───────────────────────────────────────────────────────────────
 
-    private fun toolMeta(displayName: String, icon: String, summary: String, status: String) =
-        JSONObject()
-            .put("displayName", displayName).put("icon", icon)
-            .put("summary", summary).put("status", status)
-            .toString()
-
-    private fun extractSummary(name: String, argsJson: String) = try {
-        val obj = JSONObject(argsJson)
-        sequenceOf("query", "url", "location", "expression", "command")
-            .mapNotNull { obj.optString(it).takeIf { v -> v.isNotBlank() } }
-            .firstOrNull() ?: name
-    } catch (e: Exception) { name }
+    private fun ConversationEntity.toDomain() = Conversation(id, title, createdAt, updatedAt)
 }
