@@ -6,7 +6,7 @@ Design the information architecture, orchestration model, and multi-user authori
 
 ## Background
 
-AI assistants today are either cloud-dependent, monolithic, or siloed. Vela separates intelligence (always local, always available via Gemma 4 on-device) from capability (distributed across Amplifier nodes on the user's network). The phone does thinking. Nodes do doing.
+AI assistants today are either cloud-dependent, monolithic, or siloed. Vela separates orchestration (always on-device — routing, queuing, history, UI) from intelligence and capability (provided by Amplifier nodes running Claude on the user's network). Amplifier does the thinking. Vela does the routing.
 
 But raw orchestration is not enough. A user directing a fleet of remote agents through a phone needs more than a chat interface. They need:
 
@@ -34,7 +34,7 @@ Vela is three layers: personal assistants, the node network, and the authorizati
 │  │  (root)   │ │           │ │           │ │ Vela      │   │
 │  └─────┬─────┘ └─────┬─────┘ └─────┬─────┘ └─────┬─────┘   │
 │        │              │              │              │        │
-│  On-device: Gemma 4, profile, memory, job registry          │
+│  On-device: Vela client, profile, history, job registry     │
 └────────┼──────────────┼──────────────┼──────────────┼────────┘
          │              │              │              │
          └──────────┬───┘──────────────┘──────────┬───┘
@@ -65,13 +65,13 @@ Vela is three layers: personal assistants, the node network, and the authorizati
 
 Each family member runs a Vela instance on their phone. Each instance is named, personalized, and independent. It carries:
 
-- **Gemma 4 (2B–4B)** on-device for intent extraction, planning, rubric compilation, and output synthesis
-- **Private memory** — semantic vector store, conversation history, never shared
+- **Amplifier node connections** — intent extraction, planning, rubric compilation, and output synthesis are handled by Claude on Amplifier nodes; the phone is the orchestration client, not the reasoning engine
+- **Private history** — conversation history and task records, stored on-device, never shared
 - **A user profile** — preferences, quality standards, correction history (see Section 5)
 - **A job registry** — persistent record of every delegated task (see Section 3)
 - **A capability map** — which nodes this instance is authorized to use and what they can do
 
-The assistant is fully functional offline. When nodes are unreachable, it can still reason, plan, remember, and queue tasks for later execution.
+When nodes are unreachable, the assistant can queue tasks, browse history, and navigate the app — but reasoning and generation require a connected node running Claude.
 
 ### Layer 2 — The Node Network
 
@@ -91,7 +91,7 @@ The glue between assistants and nodes. Each Vela instance has a cryptographic id
 
 ## A2UI Protocol
 
-A2UI (Agent-to-User Interface) is the typed event stream flowing from nodes back to each personal assistant. It is the nervous system of the entire architecture — the mechanism that transforms "something is happening on a remote machine" into something Gemma 4 can reason about and present.
+A2UI (Agent-to-User Interface) is the typed event stream flowing from nodes back to each personal assistant. It is the nervous system of the entire architecture — the mechanism that transforms "something is happening on a remote machine" into structured events that Vela's orchestration layer can reason about and present.
 
 ### Core Event Types
 
@@ -166,7 +166,7 @@ The detail is always available. It is never forced. Vela presents the surface by
 
 ### Proactive Highlights
 
-Gemma 4 watches the event stream continuously and surfaces anomalies without being asked:
+Vela (via a connected Amplifier node using Claude) watches the event stream continuously and surfaces anomalies without being asked:
 
 - An assertion failure that didn't stop the task (partial rubric miss)
 - A node running significantly longer than its capability hint suggested
@@ -185,7 +185,7 @@ This is the intelligence layer between voice input and any delegation. Nothing l
 
 ### The Five-Step Pipeline
 
-**Step 1 — Intent Extraction.** Gemma 4 processes the voice input and extracts structured intent: action, target capability, constraints, desired outcome. This is semantic parsing, not transcription — it identifies what the user wants accomplished, not just what words they said.
+**Step 1 — Intent Extraction.** The voice input is routed to an Amplifier node where Claude extracts structured intent: action, target capability, constraints, desired outcome. This is semantic parsing, not transcription — it identifies what the user wants accomplished, not just what words they said.
 
 **Step 2 — Clarity Gate.** Before compiling a rubric, Vela asks itself: *can I write verifiable assertions for this?* If not, the intent is not clear enough. The threshold is not "did I hear you correctly" but "do I know enough to prove success." A rubric that cannot be compiled is a signal to stop and ask.
 
@@ -206,7 +206,7 @@ Every assertion is evaluable. The node knows exactly what passing looks like. Th
 
 When a node sends its `task.complete` event with an evidence bundle, Vela evaluates each assertion in the rubric against the provided evidence:
 
-Vela evaluates evidence independently using Gemma 4 — it does not simply accept node self-assessments. A node's task.assertion events are claims with attached evidence, not verdicts. For each assertion, Vela reads the evidence payload and reaches its own conclusion against the rubric criterion. The three-outcome decision below applies to Vela's independent evaluation, not the node's claim.
+Vela evaluates evidence independently — via a dedicated Amplifier node running Claude — rather than simply accepting node self-assessments. A node's task.assertion events are claims with attached evidence, not verdicts. For each assertion, Vela reads the evidence payload and reaches its own conclusion against the rubric criterion. The three-outcome decision below applies to Vela's independent evaluation, not the node's claim.
 
 - **All assertions pass** — task is complete. Output synthesis decides what to surface.
 - **Minor failure, easy correction** — Vela re-delegates with corrective context. The user profile's correction history informs this threshold. If the user previously said "just retry once" for this failure type, Vela does so silently.
@@ -300,7 +300,7 @@ This authorization model is intentionally simple. It is designed for approximate
 
 ## Output Synthesis
 
-Every completed task — every incoming A2UI terminal event — passes through an editorial layer before it reaches the user. Gemma 4 makes a decision: what is the right way to surface this result, if at all?
+Every completed task — every incoming A2UI terminal event — passes through an editorial layer before it reaches the user. Vela (via Claude on an Amplifier node) makes a decision: what is the right way to surface this result, if at all?
 
 ### Four Output Modes
 
@@ -314,7 +314,7 @@ Every completed task — every incoming A2UI terminal event — passes through a
 
 ### The Editorial Algorithm
 
-Gemma 4 applies this decision sequence for every terminal event:
+Claude (via an Amplifier node) applies this decision sequence for every terminal event:
 
 1. Did the rubric fail? → **Audio alert** with enough context to understand the failure
 2. Is the result a visual artifact? → **Show it** directly
@@ -326,7 +326,7 @@ Gemma 4 applies this decision sequence for every terminal event:
 
 ### Multi-Task Roll-Ups
 
-When several nodes complete in a window, Gemma 4 does not fire five separate notifications. It synthesizes across them into a single roll-up: *"Three background tasks finished while you were away — all passed. One thing worth knowing: the data node took twice as long as usual."*
+When several nodes complete in a window, Vela does not fire five separate notifications. Claude synthesizes across them into a single roll-up: *"Three background tasks finished while you were away — all passed. One thing worth knowing: the data node took twice as long as usual."*
 
 The roll-up is editorially compressed. Details are in the Task Console for anyone who wants to drill in.
 
@@ -432,7 +432,7 @@ Jethro's Vela needs to access a data node that belongs to Ken — it has researc
 
 2. **Profile portability.** If a family member gets a new phone, how does the profile migrate? On-device-only storage means a backup/restore mechanism is needed. Encrypted local backup to a trusted node is one option.
 
-3. **Rubric expressiveness vs. Gemma 4 capability.** Rubric compilation is Gemma 4's hardest job. The 2B–4B parameter range may struggle with complex multi-criteria rubrics. How much rubric complexity can Gemma 4 reliably handle on-device? This needs empirical testing once the model is available.
+3. ~~**Rubric expressiveness vs. Gemma 4 capability.**~~ **Resolved — no longer applicable.** Rubric compilation is now performed by Claude (via Anthropic) on Amplifier nodes. Claude's capability at rubric compilation is not a limiting factor; complex multi-criteria rubrics are well within its capability. The 2B–4B on-device model constraint no longer applies.
 
 4. **Node-to-node delegation.** The current design has Vela orchestrating every hop in a multi-node pipeline. For latency-sensitive chains, direct node-to-node handoff (with Vela informed via A2UI) may be more efficient. This adds complexity to the authorization model — nodes would need to trust each other, not just orchestrators.
 

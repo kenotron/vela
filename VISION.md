@@ -6,7 +6,7 @@
 
 ## The Core Idea
 
-Your phone carries more raw intelligence than anything that existed a decade ago — but it's still treated as a dumb terminal for cloud services. Vela flips this. It runs a capable-enough local model (Gemma 4, ~2B–4B range) that gives it genuine reasoning ability, memory, and planning capacity right on the device. But Vela's real power isn't what it knows — it's what it can **command**.
+Your phone is the most personal computer you own — but AI assistants still treat it as a dumb terminal, either routing everything to a cloud you don't control or running a local model too small to reason well. Vela takes a different path. Rather than compromising, it delegates intelligence to a network of **Amplifier nodes** — each powered by Claude (Anthropic) — while keeping orchestration and experience on your device where it belongs. Vela's power isn't what it knows. It's what it can **command**.
 
 Distributed across your network are **Amplifier nodes**: purpose-built AI agents with specialized tools, heavier models, and deep capabilities. Vela knows they exist, knows what they can do, and knows how to put them to work. You talk to Vela. Vela orchestrates the army.
 
@@ -22,20 +22,20 @@ Today, AI assistants are either:
 - **Too monolithic** — one model trying to do everything, poorly
 - **Siloed** — each service is its own island; nothing orchestrates them
 
-Vela solves this by separating **intelligence** (always local, always available) from **capability** (distributed, node-provided, discovered on demand). You get the offline resilience of a local model and the raw power of a fleet of specialized agents, without being forced to choose.
+Vela solves this by separating **orchestration** (always on-device — task routing, history, queuing, and UI) from **intelligence and capability** (provided by Amplifier nodes running Claude). You get a coherent orchestration experience in your pocket and genuine reasoning power from nodes that can grow without Android constraints.
 
 ---
 
 ## Principles
 
-**1. Offline-first, not offline-only**
-Vela is fully functional without a network. Research, planning, memory — all available on the device. When nodes come online, capabilities expand seamlessly. The transition is invisible to you.
+**1. Offline-capable, not offline-intelligent**
+Vela handles task queuing, conversation history, and UI with no network connection. Reasoning, planning, and generation require a connected Amplifier node. When nodes reconnect, queued tasks drain automatically. The transition is invisible to you.
 
 **2. Capability is advertised, not assumed**
 Nodes tell Vela what they can do. Vela never hardcodes a node's capabilities. Discovery is the protocol; capability maps are maintained locally and refreshed when connectivity allows. Stale capability data degrades gracefully — Vela routes around unavailable nodes.
 
-**3. The phone does thinking. Nodes do doing.**
-Vela's on-device model is optimized for orchestration, not execution. It understands intent, plans multi-step workflows, decomposes tasks, selects the right nodes, and synthesizes results. Heavy compute, long-running tasks, tool-heavy operations — those belong on nodes.
+**3. Amplifier does the thinking. Vela does the routing.**
+Claude-powered Amplifier nodes handle intent extraction, planning, task decomposition, and execution. Vela's job is knowing which nodes to engage, routing tasks intelligently based on the capability map, and synthesizing results into a coherent on-device experience. The intelligence lives on the network. The orchestration lives on the phone.
 
 **4. Local data stays local**
 Your memory, your plans, your conversation history — none of it leaves the device unless you explicitly route it to a node. The node network is a resource pool, not a surveillance layer.
@@ -52,9 +52,9 @@ Nodes can be on your LAN, on a VPN, on a home server, in a cloud VM, or on a tru
 │                  VELA (Android)                         │
 │                                                         │
 │  ┌──────────────┐   ┌──────────────┐  ┌─────────────┐  │
-│  │ Gemma 4 (2B) │   │ Local Memory │  │ Node Registry│  │
-│  │ Orchestrator │   │ + Vector DB  │  │ (Capability  │  │
-│  │ Planner      │   │              │  │  Map)        │  │
+│  │ Orchestration│   │ Local Storage│  │ Node Registry│  │
+│  │ Client       │   │ + History    │  │ (Capability  │  │
+│  │ Task Router  │   │              │  │  Map)        │  │
 │  └──────┬───────┘   └──────────────┘  └──────┬──────┘  │
 │         │                                     │         │
 │         └──────────── Routes tasks ───────────┘         │
@@ -99,15 +99,20 @@ Vela maintains a **persistent capability map** on-device. When a node goes offli
 
 ## What Vela Can Do Offline
 
-When disconnected, Vela is a fully capable personal AI. The on-device Gemma model handles:
+Without connected nodes, Vela's intelligence is limited — there is no local model doing reasoning on-device. What Vela can do offline:
 
-- **Research** — RAG over a local knowledge index (you seed it; Vela maintains it)
-- **Planning** — Task decomposition, project planning, scheduling
-- **Memory** — Semantic memory via a local vector store — *"what did we decide about X last month?"*
-- **Drafting** — Writing, thinking through problems, exploring ideas
-- **Task queuing** — *"Send this to the research node when I'm back on WiFi"* — tasks queue and execute automatically when connectivity returns
+- **Conversation history** — Browse and reference past exchanges
+- **Task queuing** — *"Send this to the research node when I'm back on WiFi"* — queued tasks execute automatically when connectivity returns
+- **Node registry browsing** — Review your fleet, capability maps, and connection status
+- **UI and navigation** — Full app experience
 
-When nodes come back online, queued tasks drain. Results sync. The experience is continuous.
+What requires a connected node (powered by Claude via Amplifier):
+
+- Reasoning, planning, and intent extraction
+- Research, drafting, and any generative output
+- Memory queries that need semantic search
+
+When nodes reconnect, queued tasks drain. Results sync. The experience is continuous.
 
 ---
 
@@ -115,11 +120,11 @@ When nodes come back online, queued tasks drain. Results sync. The experience is
 
 This is Vela's identity. When a request is complex or requires real capability:
 
-1. Vela's local model **decomposes** the request into a workflow
+1. Vela **routes** the request to an appropriate Amplifier node, which uses Claude to decompose it into a workflow
 2. It **selects** nodes based on the capability map (who has the right tools? who's available?)
 3. It **spawns** Amplifier sessions on those nodes — delegating each piece
 4. It **monitors** session progress, handles failures, re-routes if a node drops
-5. It **synthesizes** results back into a coherent response
+5. It **synthesizes** results back into a coherent response on-device
 
 This is exactly the `delegate()` pattern from Amplifier, elevated to a cross-device, cross-network primitive. Vela is a meta-orchestrator: **an orchestrator of orchestrators**.
 
@@ -149,7 +154,7 @@ Every node is just an Amplifier instance with a purpose-built bundle. Adding a n
 
 A minimal but complete first version:
 
-- Android app ships with Gemma 4 integrated, runs fully offline
+- Android app ships as a working orchestration client — node discovery, task routing, and result delivery working end-to-end
 - Local memory persists across sessions and is semantically searchable
 - Node discovery works on LAN (mDNS) and for explicitly registered remote nodes
 - Capability manifest protocol is defined and implemented

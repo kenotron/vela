@@ -8,9 +8,9 @@ A mobile-first AI orchestration hub for your personal Amplifier node network.
 
 ## The Core Idea
 
-Vela runs a capable-enough local model (Gemma 4, ~2B–4B range) on Android — giving it genuine reasoning ability, memory, and planning capacity right on the device. But Vela's real power isn't what it knows. It's what it can **command**.
+Vela is a mobile-first orchestration interface backed by a network of **Amplifier nodes** — each powered by Claude (Anthropic). Rather than squeezing a local inference model onto the phone, Vela delegates intelligence to purpose-built agents that have the tools, compute, and model capacity to act. Vela's real power isn't any single node. It's knowing which ones to call, when, and how to stitch their outputs into something coherent.
 
-Distributed across your network are **Amplifier nodes**: purpose-built AI agents with specialized tools, heavier models, and deep capabilities. Vela knows they exist, knows what they can do, and knows how to put them to work. You talk to Vela. Vela orchestrates the army.
+Distributed across your network are Amplifier nodes: specialized AI agents with deep capabilities and Claude under the hood. Vela knows they exist, knows what they can do, and knows how to put them to work. You talk to Vela. Vela orchestrates the army.
 
 **Vela is the general. The nodes are the battalions.**
 
@@ -18,11 +18,11 @@ Distributed across your network are **Amplifier nodes**: purpose-built AI agents
 
 ## Principles
 
-1. **Offline-first, not offline-only** — Fully functional without a network. Research, planning, memory — all on device. When nodes come online, capabilities expand seamlessly.
+1. **Offline-capable, not offline-intelligent** — Vela handles task queuing, conversation history, and UI with no network. Reasoning and generation require nodes. When nodes reconnect, queued tasks drain automatically and the experience is continuous.
 
 2. **Capability is advertised, not assumed** — Nodes tell Vela what they can do. Discovery is the protocol. Stale capability data degrades gracefully.
 
-3. **The phone does thinking. Nodes do doing.** — Vela's on-device model is optimized for orchestration, not execution. Heavy compute and tool-heavy operations belong on nodes.
+3. **Amplifier does the thinking. Vela does the routing.** — Claude-powered Amplifier nodes handle reasoning, planning, and execution. Vela decides which nodes to engage and orchestrates their outputs into a coherent on-device experience.
 
 4. **Local data stays local** — Your memory, plans, and conversation history never leave the device unless you explicitly route them to a node.
 
@@ -37,9 +37,9 @@ Distributed across your network are **Amplifier nodes**: purpose-built AI agents
 │                  VELA (Android)                         │
 │                                                         │
 │  ┌──────────────┐   ┌──────────────┐  ┌─────────────┐  │
-│  │ Gemma 4 (2B) │   │ Local Memory │  │ Node Registry│  │
-│  │ Orchestrator │   │ + Vector DB  │  │ (Capability  │  │
-│  │ Planner      │   │              │  │  Map)        │  │
+│  │ Orchestration│   │ Local Storage│  │ Node Registry│  │
+│  │ Client       │   │ + History    │  │ (Capability  │  │
+│  │ Task Router  │   │              │  │  Map)        │  │
 │  └──────┬───────┘   └──────────────┘  └──────┬──────┘  │
 │         │                                     │         │
 │         └──────────── Routes tasks ───────────┘         │
@@ -71,11 +71,12 @@ Vela maintains a persistent capability map on-device. Offline nodes are marked s
 
 ## What Vela Can Do Offline
 
-- **Research** — RAG over a local knowledge index
-- **Planning** — Task decomposition, project planning, scheduling
-- **Memory** — Semantic memory via local vector store
-- **Drafting** — Writing, thinking, exploring ideas
+- **Conversation history** — Browse and reference past exchanges
 - **Task queuing** — Tasks queue and execute automatically when nodes reconnect
+- **Node registry browsing** — Review your fleet, capability maps, and connection status
+- **UI and navigation** — Full app experience
+
+What requires a connected node: reasoning, planning, drafting, memory queries, and any generative output (all powered by Claude on Amplifier nodes).
 
 ---
 

@@ -5,11 +5,25 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface TurnDao {
+    /**
+     * Primary query used by the UI — returns every turn WITH its events,
+     * ordered by turn.timestamp. Events are joined via @Relation and
+     * sorted by seq in [TurnWithEvents.sortedEvents].
+     *
+     * This is a single reactive Flow: any INSERT or UPDATE to turns or
+     * turn_events will re-emit the full list. Compose re-renders only the
+     * items whose key changed.
+     */
+    @Transaction
     @Query("SELECT * FROM turns WHERE conversationId = :convId ORDER BY timestamp ASC")
-    fun getTurnsForConversation(convId: String): Flow<List<TurnEntity>>
+    fun getTurnsWithEvents(convId: String): Flow<List<TurnWithEvents>>
 
+    /**
+     * Completed turns only, for building the Anthropic history context.
+     */
+    @Transaction
     @Query("SELECT * FROM turns WHERE conversationId = :convId AND status = 'complete' ORDER BY timestamp ASC")
-    suspend fun getCompletedTurns(convId: String): List<TurnEntity>
+    suspend fun getCompletedTurnsWithEvents(convId: String): List<TurnWithEvents>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(turn: TurnEntity)

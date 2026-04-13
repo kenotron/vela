@@ -1,7 +1,7 @@
 package com.vela.app.engine
 
 import android.util.Log
-import com.vela.app.ai.AmplifierSession
+import com.vela.app.engine.InferenceSession
 import com.vela.app.ai.tools.ToolRegistry
 import com.vela.app.data.db.TurnDao
 import com.vela.app.data.db.TurnEventDao
@@ -42,7 +42,7 @@ private const val TAG = "InferenceEngine"
  */
 @Singleton
 class InferenceEngine @Inject constructor(
-    private val session: AmplifierSession,
+    private val session: InferenceSession,
     private val toolRegistry: ToolRegistry,
     private val turnDao: TurnDao,
     private val turnEventDao: TurnEventDao,
@@ -171,15 +171,14 @@ class InferenceEngine @Inject constructor(
      */
     private suspend fun buildHistory(conversationId: String): String {
         val arr = JSONArray()
-        val completedTurns = turnDao.getCompletedTurns(conversationId)
+        val completedTurns = turnDao.getCompletedTurnsWithEvents(conversationId)
 
-        for (turn in completedTurns) {
+        for (turnWithEvents in completedTurns) {
             // User message
-            arr.put(JSONObject().put("role", "user").put("content", turn.userMessage))
+            arr.put(JSONObject().put("role", "user").put("content", turnWithEvents.turn.userMessage))
 
-            // Collect the text events from this turn to form the assistant message
-            val events = turnEventDao.getEventsForTurn(turn.id).first()
-            val assistantText = events
+            // Assistant content: all text events from this turn, in seq order
+            val assistantText = turnWithEvents.sortedEvents
                 .filter { it.type == "text" && !it.text.isNullOrBlank() }
                 .joinToString("\n") { it.text!! }
 

@@ -1,6 +1,8 @@
-# Vela: Harness Refactor + llama.cpp JNI — Implementation Plan
+# Vela: Harness Refactor — Implementation Plan
 
-**Goal**: Phase 1 = clean Kotlin harness (InferenceProvider abstraction, AgentOrchestrator extracted from ViewModel). Phase 2 = llama.cpp via NDK as primary provider with Gemma 3 4B IT GGUF, download-on-first-launch, tool calling preserved.
+**Goal**: Phase 1 = clean Kotlin harness (InferenceProvider abstraction, AgentOrchestrator extracted from ViewModel). ~~Phase 2 = llama.cpp via NDK as primary provider with Gemma 3 4B IT GGUF~~ **Phase 2 superseded** — see note below.
+
+> **Architecture update (2026-04):** Vela no longer targets a local on-device inference model. The intelligence layer is Claude via Amplifier nodes on the network. Phase 1's `InferenceProvider` abstraction remains valid architecture — the primary implementation becomes `AmplifierNodeProvider` (delegates to an Amplifier node running Claude) rather than a local GGUF model. `MlKitInferenceProvider` is retained as a legacy fallback. Phase 2 (llama.cpp NDK integration, Gemma GGUF download) is cancelled.
 
 **Package**: `com.vela.app`
 **Source root**: `app/src/main/kotlin/com/vela/app`
@@ -138,8 +140,8 @@ import com.vela.app.ai.tools.Tool
  * Builds prompts for the agentic loop. Provider-agnostic — uses the plain-text
  * JSON-in-prompt format that works for both ML Kit and Gemma GGUF models.
  *
- * For llama.cpp the LlamaCppProvider wraps this output in the Gemma chat template
- * before calling the model.
+ * For AmplifierNodeProvider this output is forwarded to the Amplifier node,
+ * which applies its own prompt formatting before calling Claude.
  */
 object PromptBuilder {
     private const val MAX_USER_CHARS = 800
@@ -181,15 +183,17 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * InferenceProvider backed by ML Kit Gemma 4 via AICore.
- * Wraps the existing MlKitGemma4Engine — no duplication of ML Kit logic.
+ * InferenceProvider backed by ML Kit Gemma via AICore.
+ * LEGACY: Retained as a fallback only. Primary inference is now handled by
+ * AmplifierNodeProvider (Claude via Amplifier nodes). This provider is not
+ * expected to be the active implementation in production.
  */
 @Singleton
 class MlKitInferenceProvider @Inject constructor(
     private val engine: MlKitGemma4Engine,
 ) : InferenceProvider {
 
-    override val name = "mlkit-gemma4"
+    override val name = "mlkit-gemma-legacy"
 
     override suspend fun isAvailable(): Boolean =
         engine.checkReadiness() == ReadinessState.Available
@@ -324,7 +328,9 @@ fun provideAgentOrchestrator(
 
 ---
 
-## PHASE 2: llama.cpp JNI Integration
+## ~~PHASE 2: llama.cpp JNI Integration~~ — SUPERSEDED
+
+> **This phase is cancelled.** Vela's architecture has shifted from local on-device inference (Gemma 3/4 GGUF via llama.cpp) to Claude via Amplifier nodes on the network. The `InferenceProvider` abstraction from Phase 1 is the extension point — implement `AmplifierNodeProvider` instead of `LlamaCppProvider` as the primary backend. The implementation below is preserved for reference only.
 
 ### P2-T1 — Add llama.cpp submodule + CMakeLists.txt
 
@@ -505,7 +511,7 @@ class LlamaCppProvider(
 ### P2-T5 — Create `ModelDownloadManager.kt`
 **New file**: `app/src/main/kotlin/com/vela/app/ai/llama/ModelDownloadManager.kt`
 
-Downloads Gemma 3 4B IT Q4_K_M GGUF from HuggingFace.
+~~Downloads Gemma 3 4B IT Q4_K_M GGUF from HuggingFace.~~ **SUPERSEDED** — local model download is no longer part of the architecture. See Phase 2 header.
 URL: `https://huggingface.co/bartowski/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf`
 Dest: `{filesDir}/models/gemma-3-4b-it-Q4_K_M.gguf`
 
@@ -532,7 +538,7 @@ sealed class DownloadState {
 Shown on first launch when `modelManager.isDownloaded()` is false and `LlamaCppProvider` is configured as primary.
 
 UI states:
-1. **Confirmation**: "Gemma 3 4B (~2.5 GB) needs to be downloaded to run locally. Download now? [Download] [Cancel]"
+1. **Confirmation**: ~~"Gemma 3 4B (~2.5 GB) needs to be downloaded to run locally."~~ **SUPERSEDED** — no local model download. This screen is no longer needed.
 2. **Downloading**: Progress bar + "2.1 GB / 2.5 GB"
 3. **Done**: Dismissed, app proceeds normally
 

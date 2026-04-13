@@ -6,6 +6,7 @@ import com.vela.app.ai.tools.ToolRegistry
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
+import com.vela.app.engine.InferenceSession
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -25,7 +26,7 @@ private const val TAG = "AmplifierSession"
 class AmplifierSession @Inject constructor(
     private val context: Context,
     private val toolRegistry: ToolRegistry,
-) {
+) : InferenceSession {
     companion object {
         private const val PREFS_NAME  = "amplifier_prefs"
         private const val KEY_API_KEY = "anthropic_api_key"
@@ -38,7 +39,7 @@ class AmplifierSession @Inject constructor(
     fun getApiKey(): String = prefs.getString(KEY_API_KEY, "") ?: ""
     fun getModel(): String  = prefs.getString(KEY_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL
     fun setApiKey(k: String) { prefs.edit().putString(KEY_API_KEY, k).apply() }
-    fun isConfigured(): Boolean = getApiKey().isNotBlank()
+    override fun isConfigured(): Boolean = getApiKey().isNotBlank()
 
     /**
      * Run one user turn.
@@ -55,7 +56,7 @@ class AmplifierSession @Inject constructor(
      * @param onToken      Called for each streamed text token (currently the full response
      *                     arrives at once, but this API is forward-compatible with SSE).
      */
-    suspend fun runTurn(
+    override suspend fun runTurn(
         historyJson: String,
         userInput: String,
         onToolStart: (suspend (name: String, argsJson: String) -> String),

@@ -3,6 +3,7 @@ package com.vela.app.di
 import android.content.Context
 import androidx.room.Room
 import com.vela.app.ai.AmplifierSession
+import com.vela.app.engine.InferenceSession
 import com.vela.app.ai.tools.*
 import com.vela.app.data.db.*
 import com.vela.app.data.repository.ConversationRepository
@@ -76,8 +77,11 @@ object AppModule {
     ): AmplifierSession = AmplifierSession(ctx, toolRegistry)
 
     @Provides @Singleton
+    fun provideInferenceSession(session: AmplifierSession): InferenceSession = session
+
+    @Provides @Singleton
     fun provideInferenceEngine(
-        session: AmplifierSession,
+        session: InferenceSession,
         toolRegistry: ToolRegistry,
         turnDao: TurnDao,
         turnEventDao: TurnEventDao,

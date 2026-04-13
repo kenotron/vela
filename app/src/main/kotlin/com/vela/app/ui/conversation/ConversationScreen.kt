@@ -10,7 +10,6 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -41,8 +40,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.vela.app.data.db.TurnEntity
 import com.vela.app.data.db.TurnEventEntity
+import com.vela.app.data.db.TurnWithEvents
 import com.vela.app.domain.model.Conversation
 import com.vela.app.ui.components.MarkdownText
 import com.vela.app.ui.components.VoiceButton
@@ -55,8 +54,6 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 private enum class Page { CHAT, SESSIONS, NODES }
-
-// ---- Root -------------------------------------------------------------------
 
 @Composable
 fun ConversationRoot(
@@ -76,8 +73,8 @@ fun ConversationRoot(
             }
         },
         label = "page-swap",
-    ) { current ->
-        when (current) {
+    ) { p ->
+        when (p) {
             Page.CHAT     -> ConversationScreen(speechTranscriber, viewModel, { page = Page.SESSIONS }, { page = Page.NODES })
             Page.SESSIONS -> SessionsPage(viewModel, onBack = { page = Page.CHAT }, onSelect = { page = Page.CHAT })
             Page.NODES    -> NodesScreen(onBack = { page = Page.CHAT })
@@ -101,15 +98,15 @@ private fun SessionsPage(viewModel: ConversationViewModel, onBack: () -> Unit, o
             TopAppBar(
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 title = { Text("Chats", style = MaterialTheme.typography.titleLarge) },
-                actions = { FilledTonalIconButton(onClick = { viewModel.newSession(); onSelect() }) { Icon(Icons.Default.Add, "New chat") } },
+                actions = { FilledTonalIconButton(onClick = { viewModel.newSession(); onSelect() }) { Icon(Icons.Default.Add, null) } },
             )
         },
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad)) {
-            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(16.dp), placeholder = { Text("Search chats\u2026") }, leadingIcon = { Icon(Icons.Default.Search, null) }, singleLine = true, shape = RoundedCornerShape(28.dp), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
+            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(16.dp), placeholder = { Text("Search\u2026") }, leadingIcon = { Icon(Icons.Default.Search, null) }, singleLine = true, shape = RoundedCornerShape(28.dp), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
             if (filtered.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(if (query.isBlank()) "No chats yet \u2014 tap + to start." else "No chats matching \u201c$query\u201d", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (query.isBlank()) "No chats yet \u2014 tap + to start." else "No results", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
                 LazyColumn(contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -140,7 +137,7 @@ private fun SessionCard(conv: Conversation, isActive: Boolean, onClick: () -> Un
                 Text(conv.title, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal), color = if (isActive) cs.primary else cs.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(dateStr, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
             }
-            IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.Delete, "Delete", tint = cs.onSurfaceVariant.copy(alpha = 0.6f), modifier = Modifier.size(18.dp)) }
+            IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.Delete, null, tint = cs.onSurfaceVariant.copy(alpha=0.6f), modifier = Modifier.size(18.dp)) }
         }
     }
 }
@@ -153,14 +150,13 @@ fun ConversationScreen(
     speechTranscriber: SpeechTranscriber? = null,
     viewModel: ConversationViewModel = hiltViewModel(),
     onOpenSessions: () -> Unit = {},
-    onOpenNodes: () -> Unit = {},
+    onOpenNodes:    () -> Unit = {},
 ) {
-    val context       = LocalContext.current
-    val turns         by viewModel.turns.collectAsState()
-    val activeTitle   by viewModel.activeTitle.collectAsState()
-    val activeTurnId  by viewModel.activeTurnId.collectAsState()
-    val streamingText by viewModel.streamingText.collectAsState()
-    val activeEvents  by viewModel.activeTurnEvents.collectAsState()
+    val context          = LocalContext.current
+    val turnsWithEvents  by viewModel.turnsWithEvents.collectAsState()
+    val activeTitle      by viewModel.activeTitle.collectAsState()
+    val activeTurnId     by viewModel.activeTurnId.collectAsState()
+    val streamingTextMap by viewModel.streamingText.collectAsState()
 
     var textInput by remember { mutableStateOf("") }
     val voiceCapture = remember(speechTranscriber) { speechTranscriber?.let { VoiceCapture(it) } }
@@ -179,21 +175,21 @@ fun ConversationScreen(
         else permLauncher.launch(Manifest.permission.RECORD_AUDIO)
     }
 
-    // Count displayed items for auto-scroll
-    val totalItems = turns.size + if (activeTurnId != null) 1 else 0
     val listState = rememberLazyListState()
-    LaunchedEffect(totalItems, activeEvents.size, streamingText) {
-        if (totalItems > 0) listState.animateScrollToItem(listState.layoutInfo.totalItemsCount.coerceAtLeast(1) - 1)
+    LaunchedEffect(turnsWithEvents.size, streamingTextMap.size) {
+        if (turnsWithEvents.isNotEmpty()) {
+            listState.animateScrollToItem(turnsWithEvents.size - 1)
+        }
     }
 
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                navigationIcon = { IconButton(onClick = onOpenSessions) { Icon(Icons.Default.ChatBubbleOutline, "All chats") } },
+                navigationIcon = { IconButton(onClick = onOpenSessions) { Icon(Icons.Default.ChatBubbleOutline, null) } },
                 title = { Text(activeTitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium) },
                 actions = {
-                    IconButton(onClick = onOpenNodes) { Icon(Icons.Default.Hub, "Nodes", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    IconButton(onClick = { viewModel.newSession() }) { Icon(Icons.Default.Add, "New chat", tint = MaterialTheme.colorScheme.primary) }
+                    IconButton(onClick = onOpenNodes) { Icon(Icons.Default.Hub, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    IconButton(onClick = { viewModel.newSession() }) { Icon(Icons.Default.Add, null, tint = MaterialTheme.colorScheme.primary) }
                 },
             )
         },
@@ -205,80 +201,79 @@ fun ConversationScreen(
             }
         },
     ) { pad ->
-        if (turns.isEmpty() && activeTurnId == null) {
-            Box(Modifier.fillMaxSize().padding(pad), Alignment.Center) { Text("Start a conversation", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (turnsWithEvents.isEmpty()) {
+            Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) {
+                Text("Start a conversation", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         } else {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(pad), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                // Completed turns
-                items(turns.filter { it.status == "complete" || it.status == "error" }, key = { it.id }) { turn ->
-                    TurnRow(turn = turn, events = emptyList(), streamingText = null, isLive = false)
-                }
-                // Active (running) turn — shown live with streaming events
-                if (activeTurnId != null) {
-                    item(key = "active-turn") {
-                        val liveTurn = TurnEntity(
-                            id = activeTurnId!!, conversationId = "",
-                            userMessage = "", status = "running", timestamp = 0L,
-                        )
-                        TurnRow(turn = liveTurn, events = activeEvents, streamingText = streamingText, isLive = true)
-                    }
+            LazyColumn(
+                state          = listState,
+                modifier       = Modifier.fillMaxSize().padding(pad),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                // ONE rendering path for ALL turns — live or complete, events always present.
+                // TurnWithEvents.sortedEvents gives us seq-ordered events from @Relation.
+                items(turnsWithEvents, key = { it.turn.id }) { twe ->
+                    TurnRow(
+                        twe           = twe,
+                        streamingText = streamingTextMap[twe.turn.id],
+                        isLive        = twe.turn.id == activeTurnId,
+                    )
                 }
             }
         }
     }
 }
 
-// ---- Turn row — user message + all events in seq order ----------------------
+// ---- Turn row ---------------------------------------------------------------
+
+private val AssistantShape = RoundedCornerShape(4.dp, 18.dp, 18.dp, 18.dp)
+private val UserShape      = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp)
 
 @Composable
-private fun TurnRow(
-    turn: TurnEntity,
-    events: List<TurnEventEntity>,
-    streamingText: String?,
-    isLive: Boolean,
-) {
+private fun TurnRow(twe: TurnWithEvents, streamingText: String?, isLive: Boolean) {
     val maxW = (LocalConfiguration.current.screenWidthDp * 0.85).dp
     val cs   = MaterialTheme.colorScheme
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        // User bubble (not shown for the synthetic live-turn item with empty message)
-        if (turn.userMessage.isNotBlank()) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Box(Modifier.widthIn(max = maxW).background(cs.surfaceContainerHighest, RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp)).padding(horizontal = 14.dp, vertical = 10.dp)) {
-                    Text(turn.userMessage, style = MaterialTheme.typography.bodyMedium, color = cs.onSurface)
-                }
+
+        // User bubble
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Box(Modifier.widthIn(max = maxW).background(cs.surfaceContainerHighest, UserShape).padding(horizontal = 14.dp, vertical = 10.dp)) {
+                Text(twe.turn.userMessage, style = MaterialTheme.typography.bodyMedium, color = cs.onSurface)
             }
         }
 
-        // Events in strict seq order — tool events and text events interleaved
-        events.sortedBy { it.seq }.forEach { event ->
+        // Events in seq order — tool events and text events interleaved
+        // Uses @Relation-loaded events, sorted in Kotlin. Stable key = event.id.
+        twe.sortedEvents.forEach { event ->
             key(event.id) {
                 when (event.type) {
                     "tool" -> ToolEventRow(event, maxW)
                     "text" -> if (!event.text.isNullOrBlank()) {
-                        TextEventRow(text = event.text, streaming = false, maxW = maxW)
+                        TextEventRow(event.text, streaming = false, maxW = maxW)
                     }
                 }
             }
         }
 
-        // Live streaming text (in-memory, not yet a DB row)
-        if (isLive && !streamingText.isNullOrEmpty()) {
-            TextEventRow(text = streamingText, streaming = true, maxW = maxW)
-        } else if (isLive && streamingText.isNullOrEmpty() && events.none { it.type == "text" }) {
-            // Show pulsing indicator while waiting for first content
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
-                val inf   = rememberInfiniteTransition(label = "p")
-                val alpha by inf.animateFloat(0.3f, 1f, infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "a")
-                Box(Modifier.size(8.dp).alpha(alpha).background(cs.onSurface.copy(alpha = 0.25f), CircleShape))
+        // In-memory streaming text for the live turn (not yet committed as a text TurnEvent)
+        if (isLive) {
+            val hasStreamingContent = !streamingText.isNullOrEmpty()
+            val hasNoTextEvents     = twe.sortedEvents.none { it.type == "text" }
+
+            if (hasStreamingContent) {
+                TextEventRow(streamingText!!, streaming = true, maxW = maxW)
+            } else if (hasNoTextEvents) {
+                // Waiting for first content — show a pulsing indicator
+                val inf   = rememberInfiniteTransition(label = "wait")
+                val alpha by inf.animateFloat(0.2f, 0.7f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "a")
+                Box(Modifier.size(8.dp).alpha(alpha).background(cs.onSurface.copy(alpha = 0.3f), CircleShape))
             }
         }
     }
 }
-
-// ---- Text event bubble ------------------------------------------------------
-
-private val AssistantShape = RoundedCornerShape(4.dp, 18.dp, 18.dp, 18.dp)
 
 @Composable
 private fun TextEventRow(text: String, streaming: Boolean, maxW: androidx.compose.ui.unit.Dp) {
@@ -299,25 +294,19 @@ private fun TextEventRow(text: String, streaming: Boolean, maxW: androidx.compos
     }
 }
 
-// ---- Tool event row — in-place update, never moves -------------------------
-
 @Composable
 private fun ToolEventRow(event: TurnEventEntity, maxW: androidx.compose.ui.unit.Dp) {
-    val cs      = MaterialTheme.colorScheme
-    val isDone  = event.toolStatus == "done"
-    val isErr   = event.toolStatus == "error"
+    val cs     = MaterialTheme.colorScheme
+    val isDone = event.toolStatus == "done"
+    val isErr  = event.toolStatus == "error"
     val running = !isDone && !isErr
 
-    val bgColor     = when { isDone -> cs.surfaceContainerLow; isErr -> cs.errorContainer.copy(alpha=0.25f); else -> cs.surfaceVariant.copy(alpha=0.4f) }
-    val borderColor = when { isDone -> cs.outlineVariant; isErr -> cs.error.copy(alpha=0.4f); else -> cs.outline.copy(alpha=0.3f) }
+    val bg     = when { isDone -> cs.surfaceContainerLow; isErr -> cs.errorContainer.copy(alpha=0.25f); else -> cs.surfaceVariant.copy(alpha=0.4f) }
+    val border = when { isDone -> cs.outlineVariant; isErr -> cs.error.copy(alpha=0.4f); else -> cs.outline.copy(alpha=0.3f) }
 
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
         Row(
-            modifier = Modifier
-                .widthIn(max = maxW)
-                .background(bgColor, RoundedCornerShape(10.dp))
-                .border(1.dp, borderColor, RoundedCornerShape(10.dp))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.widthIn(max = maxW).background(bg, RoundedCornerShape(10.dp)).border(1.dp, border, RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
