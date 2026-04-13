@@ -24,11 +24,11 @@ keystore.properties
 androidx/
 
     # Rust build artifacts
-    app/src/main/rust/amplifier-android/target/
-    app/src/main/jniLibs/
+app/src/main/rust/amplifier-android/target/
+app/src/main/jniLibs/
 
     # Android NDK CMake cache
-    app/.cxx/
+app/.cxx/
     EOF
     echo "gitignore updated"
     
