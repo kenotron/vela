@@ -53,6 +53,16 @@
     }
 
     // ─── Completion ───────────────────────────────────────────────────────────────
+    //
+    // The prompt is a fully-formatted Gemma 4 native chat string built by
+    // GemmaPromptBuilder.kt. It includes:
+    //   <bos><|turn>system\n...<|tool>...<tool|>\n<turn|>\n
+    //   <|turn>user\n...<turn|>\n
+    //   <|turn>model\n<|channel>thought\n<channel|>   <- generation continues here
+    //
+    // We tokenise with:
+    //   add_special   = false  — BOS is already in the string as "<bos>"
+    //   parse_special = true   — the vocab contains all Gemma 4 special tokens
 
     JNIEXPORT jstring JNICALL
     Java_com_vela_app_ai_llama_LlamaBridge_nativeCompletion(
@@ -62,12 +72,6 @@
         auto* lctx = reinterpret_cast<LlamaCtx*>(ctxPtr);
         if (!lctx || !lctx->ctx) return env->NewStringUTF("Error: model not loaded");
 
-        // ── Use the raw prompt directly — no chat template ────────────────────────
-        // PromptBuilder already produces a structured role-based text prompt that
-        // works exactly like the ML Kit path. Applying llama_chat_apply_template on
-        // top wraps the entire growing history (including "Vela:" role markers and
-        // tool exchange lines) as a single <user> turn, which confuses the model and
-        // breaks tool call detection. Tokenise the raw text instead.
         const char* rawPrompt = env->GetStringUTFChars(jPrompt, nullptr);
         std::string prompt(rawPrompt);
         env->ReleaseStringUTFChars(jPrompt, rawPrompt);
@@ -75,15 +79,18 @@
         // ── Tokenise ──────────────────────────────────────────────────────────────
         const llama_vocab* vocab = llama_model_get_vocab(lctx->model);
 
-        // First pass: measure required token count
+        // Measure token count first
         int nTok = llama_tokenize(vocab, prompt.c_str(), (int)prompt.size(),
-                                  nullptr, 0, /*add_special=*/true, /*parse_special=*/true);
-        if (nTok < 0) nTok = -nTok;  // negative return = required buffer size
+                                  nullptr, 0,
+                                  /*add_special=*/false,   // BOS is in the string as <bos>
+                                  /*parse_special=*/true); // <|turn>, <|tool>, <bos> etc.
+        if (nTok < 0) nTok = -nTok;
 
         std::vector<llama_token> tokens(nTok);
         nTok = llama_tokenize(vocab, prompt.c_str(), (int)prompt.size(),
                               tokens.data(), (int)tokens.size(),
-                              /*add_special=*/true, /*parse_special=*/true);
+                              /*add_special=*/false,
+                              /*parse_special=*/true);
         if (nTok <= 0) {
             LOGE("Tokenisation failed");
             return env->NewStringUTF("Error: tokenisation failed");
@@ -96,7 +103,7 @@
 
         llama_batch batch = llama_batch_get_one(tokens.data(), (int)tokens.size());
         if (llama_decode(lctx->ctx, batch) != 0) {
-            LOGE("Prefill decode failed");
+            LOGE("Prefill failed");
             return env->NewStringUTF("Error: prefill failed");
         }
 
@@ -107,7 +114,7 @@
         llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.8f));
         llama_sampler_chain_add(sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
-        // ── Token callback (Kotlin streaming) ────────────────────────────────────
+        // ── Token callback ────────────────────────────────────────────────────────
         jclass    cbClass = env->GetObjectClass(tokenCallback);
         jmethodID onToken = env->GetMethodID(cbClass, "onToken", "(Ljava/lang/String;)V");
 
@@ -118,23 +125,23 @@
 
         for (int i = 0; i < (int)nPredict; ++i) {
             llama_token tok = llama_sampler_sample(sampler, lctx->ctx, -1);
+
+            // Stop on end-of-generation token
             if (llama_vocab_is_eog(vocab, tok)) break;
 
-            int pLen = llama_token_to_piece(vocab, tok, piece, (int)sizeof(piece) - 1,
-                                            0, false);
+            int pLen = llama_token_to_piece(vocab, tok, piece, (int)sizeof(piece) - 1, 0, true);
             if (pLen <= 0) break;
             piece[pLen] = '\0';
             result += piece;
 
+            // Emit to Kotlin streaming callback
             jstring jPiece = env->NewStringUTF(piece);
             env->CallVoidMethod(tokenCallback, onToken, jPiece);
             env->DeleteLocalRef(jPiece);
 
-            // Stop generating if we hit a newline after a JSON closing brace —
-            // that's the tool call complete, no need to generate further prose.
-            if (result.size() > 2 &&
-                result.back() == '\n' &&
-                result[result.size()-2] == '}') {
+            // Stop after <tool_call|> — tool call is complete, no need to continue
+            if (result.size() >= 13 &&
+                result.substr(result.size() - 13) == "<tool_call|>") {
                 break;
             }
 

@@ -1,26 +1,28 @@
     package com.vela.app.ai
 
+    import com.vela.app.ai.tools.Tool
     import kotlinx.coroutines.flow.Flow
 
     /**
-     * Unified inference abstraction for any model backend (ML Kit, llama.cpp, HTTP).
-     * The AgentOrchestrator talks only to InferenceProvider — never to backend-specific classes.
-     * Phase 1: MlKitInferenceProvider implements this.
-     * Phase 2: LlamaCppProvider implements this as primary.
+     * Unified inference abstraction over any model backend.
+     *
+     * Accepts a full multi-turn [messages] list and available [tools].
+     * Each provider converts these into its own native format:
+     *  - MlKitInferenceProvider: flattens to a prompt string, JSON-in-prompt tools
+     *  - LlamaCppProvider: builds Gemma 4 native prompt with <|tool> blocks, parses
+     *    <|tool_call> tags from the response
      */
     interface InferenceProvider {
         val name: String
-
-        /** True if this provider can handle inference right now. */
         suspend fun isAvailable(): Boolean
 
         /**
-         * Stream token chunks for [prompt]. Each emitted String is a raw text delta.
-         * The caller accumulates them into the full response.
+         * Stream a completion. Each emitted String is a raw token chunk.
+         * Caller accumulates into a full response, then passes to
+         * [GemmaToolCallParser.parse] to detect native tool calls.
          */
-        fun streamText(prompt: String): Flow<String>
+        fun complete(messages: List<ChatMessage>, tools: List<Tool>): Flow<String>
 
-        /** Release resources (close model, free native memory). No-op by default. */
         fun shutdown() {}
     }
     
