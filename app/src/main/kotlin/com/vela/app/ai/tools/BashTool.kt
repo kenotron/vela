@@ -50,30 +50,33 @@ class BashTool(
     }
 
     private suspend fun parseCommit(gitArgs: String, vaultId: String, vaultPath: File): String {
-        // Match: commit -m "msg", commit -am "msg", commit -m 'msg', commit -am 'msg', commit -m msg
-        val regex = Regex("""commit\s+(-[am]+)\s+["']?(.+?)["']?\s*$""")
+        // Balanced quote alternation: "msg", 'msg', or unquoted msg
+        val regex = Regex("""commit\s+(-[am]+)\s+(?:"([^"]+)"|'([^']+)'|(.+?)\s*$)""")
         val match = regex.find(gitArgs)
             ?: return "Error: could not parse commit message from: git $gitArgs"
         val flags = match.groupValues[1]
-        val message = match.groupValues[2].trim()
+        val message = (match.groupValues[2].ifEmpty { null }
+            ?: match.groupValues[3].ifEmpty { null }
+            ?: match.groupValues[4]).trim()
         val addAll = flags.contains('a')
         return gitSync.commit(vaultId, vaultPath, message, addAll)
     }
 
     private suspend fun parseLog(gitArgs: String, vaultPath: File): String {
-        val countRegex = Regex("""-(\d+)""")
-        val count = countRegex.find(gitArgs)?.groupValues?.get(1)?.toIntOrNull() ?: 10
+        val count = gitArgs.split(Regex("\\s+"))
+            .firstOrNull { it.matches(Regex("-\\d+")) }
+            ?.removePrefix("-")?.toIntOrNull() ?: 10
         return gitSync.log(vaultPath, count)
     }
 
     private fun routeLs(cmd: String): String {
         val parts = cmd.trim().split(Regex("\\s+"))
         val pathArg = parts.lastOrNull { !it.startsWith("-") && it != "ls" }
-        val dir = if (pathArg != null) File(pathArg) else null
-        if (dir != null && !dir.exists()) return "ls: $pathArg: No such file or directory"
-        return (dir?.listFiles() ?: emptyArray())
-            .joinToString("\n") { it.name }
-            .ifEmpty { "(empty)" }
+            ?: return "ls: no path specified (no working directory on mobile)"
+        val dir = File(pathArg)
+        if (!dir.exists()) return "ls: $pathArg: No such file or directory"
+        if (!dir.isDirectory) return "ls: $pathArg: Not a directory"
+        return dir.listFiles()?.joinToString("\n") { it.name } ?: "(empty)"
     }
 
     private fun routeMkdir(cmd: String): String {
