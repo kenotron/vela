@@ -15,7 +15,9 @@ class TodoTool : Tool {
     )
 
     private data class TodoItem(val content: String, val status: String, val activeForm: String)
-    private var todos: List<TodoItem> = emptyList()
+    
+    // Note: in-memory state is shared across all conversations (single-user mobile app, v1 limitation)
+    @Volatile private var todos: List<TodoItem> = emptyList()
 
     override suspend fun execute(args: Map<String, Any>): String {
         val action = args["action"] as? String ?: return "Error: action is required"
@@ -23,8 +25,9 @@ class TodoTool : Tool {
             "create", "update" -> {
                 val todosJson = args["todos"] as? String
                     ?: return "Error: todos is required for '$action'"
-                todos = parseTodos(todosJson)
-                    ?: return "Error: todos must be a valid JSON array"
+                todos = parseTodos(todosJson).getOrElse { e ->
+                    return "Error: todos must be a valid JSON array — ${e.message}"
+                }
                 val counts = todos.groupBy { it.status }.mapValues { it.value.size }
                 "Todo list updated: ${todos.size} items (${counts["pending"] ?: 0} pending, " +
                 "${counts["in_progress"] ?: 0} in progress, ${counts["completed"] ?: 0} completed)"
@@ -44,7 +47,7 @@ class TodoTool : Tool {
         }
     }
 
-    private fun parseTodos(json: String): List<TodoItem>? = runCatching {
+    private fun parseTodos(json: String): Result<List<TodoItem>> = runCatching {
         val arr = JSONArray(json)
         (0 until arr.length()).map { i ->
             val obj = arr.getJSONObject(i)
@@ -54,5 +57,5 @@ class TodoTool : Tool {
                 activeForm = obj.optString("activeForm", ""),
             )
         }
-    }.getOrNull()
+    }
 }

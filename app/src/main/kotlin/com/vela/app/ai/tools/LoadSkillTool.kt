@@ -1,5 +1,6 @@
 package com.vela.app.ai.tools
 
+// TODO(Phase 2): Replace stub — wire to real SkillsEngine for skill directory loading
 class LoadSkillTool : Tool {
     override val name = "load_skill"
     override val displayName = "Load Skill"
