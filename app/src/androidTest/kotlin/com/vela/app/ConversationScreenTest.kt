@@ -2,6 +2,7 @@ package com.vela.app
 
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -43,6 +44,23 @@ class ConversationScreenTest {
             ttsEngine = fakeTts,
             toolRegistry = ToolRegistry(emptyList()),
         )
+    }
+
+    @Test
+    fun micButtonIsEmbeddedAsLeadingIcon() {
+        // RED: fails before implementation because no node carries tag "mic_in_field".
+        // After implementation the IconButton inside OutlinedTextField.leadingIcon has
+        // Modifier.semantics { testTag = "mic_in_field" }, confirming the mic lives inside
+        // the text field rather than as a standalone FAB outside it.
+        composeTestRule.setContent {
+            VelaTheme {
+                ConversationScreen(
+                    speechTranscriber = fakeTranscriber,
+                    viewModel = viewModel,
+                )
+            }
+        }
+        composeTestRule.onNodeWithTag("mic_in_field").assertExists()
     }
 
     @Test

@@ -27,11 +27,16 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalConfiguration
@@ -47,7 +52,6 @@ import com.vela.app.data.db.TurnEventEntity
 import com.vela.app.data.db.TurnWithEvents
 import com.vela.app.domain.model.Conversation
 import com.vela.app.ui.components.MarkdownText
-import com.vela.app.ui.components.VoiceButton
 import com.vela.app.ui.nodes.NodesScreen
     import com.vela.app.ui.settings.SettingsScreen
     import com.vela.app.ui.settings.VaultDetailScreen
@@ -255,10 +259,47 @@ fun ConversationScreen(
             )
         },
         bottomBar = {
-            Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp).imePadding(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = textInput, onValueChange = { textInput = it }, modifier = Modifier.weight(1f), placeholder = { Text("Message\u2026") }, maxLines = 4, shape = RoundedCornerShape(24.dp), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { handleSend() }))
-                if (textInput.isNotBlank()) IconButton(onClick = { handleSend() }) { Icon(Icons.AutoMirrored.Filled.Send, null, tint = MaterialTheme.colorScheme.primary) }
-                VoiceButton(isListening = isListening, onToggle = { handleMic() })
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .imePadding(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                val micDesc = if (isListening) "Stop voice input" else "Start voice input"
+                OutlinedTextField(
+                    value = textInput,
+                    onValueChange = { textInput = it },
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("Message\u2026") },
+                    maxLines = 4,
+                    shape = RoundedCornerShape(24.dp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { handleSend() }),
+                    leadingIcon = {
+                        IconButton(
+                            onClick = { handleMic() },
+                            modifier = Modifier.size(36.dp).semantics {
+                                testTag = "mic_in_field"
+                                contentDescription = micDesc
+                            },
+                        ) {
+                            Icon(
+                                imageVector = if (isListening) Icons.Default.Stop else Icons.Default.Mic,
+                                contentDescription = null,
+                                tint = if (isListening) MaterialTheme.colorScheme.error
+                                       else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    },
+                )
+                if (textInput.isNotBlank()) {
+                    IconButton(onClick = { handleSend() }) {
+                        Icon(Icons.AutoMirrored.Filled.Send, null, tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
             }
         },
     ) { pad ->
