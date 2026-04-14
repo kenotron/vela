@@ -11,6 +11,11 @@ import com.vela.app.data.repository.RoomConversationRepository
 import com.vela.app.engine.InferenceEngine
 import com.vela.app.ssh.SshKeyManager
 import com.vela.app.ssh.SshNodeRegistry
+import com.vela.app.vault.SharedPrefsVaultSettings
+import com.vela.app.vault.VaultGitSync
+import com.vela.app.vault.VaultManager
+import com.vela.app.vault.VaultRegistry
+import com.vela.app.vault.VaultSettings
 import com.vela.app.voice.AndroidSpeechTranscriber
 import com.vela.app.voice.SpeechTranscriber
 import dagger.Module
@@ -19,6 +24,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import okhttp3.OkHttpClient
+import java.io.File
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 
@@ -56,16 +62,46 @@ object AppModule {
     fun provideSshNodeRegistry(dao: SshNodeDao): SshNodeRegistry = SshNodeRegistry(dao)
 
     @Provides @Singleton
+    fun provideVaultManager(@ApplicationContext ctx: Context): VaultManager =
+        VaultManager(File(ctx.filesDir, "vaults")).also { it.init() }
+
+    @Provides @Singleton
+    fun provideVaultSettings(@ApplicationContext ctx: Context): VaultSettings =
+        SharedPrefsVaultSettings(ctx)
+
+    @Provides @Singleton
+    fun provideVaultRegistry(dao: VaultDao, vaultManager: VaultManager): VaultRegistry =
+        VaultRegistry(dao, vaultManager)
+
+    @Provides @Singleton
+    fun provideVaultGitSync(vaultSettings: VaultSettings): VaultGitSync =
+        VaultGitSync(vaultSettings)
+
+    @Provides @Singleton
     fun provideTools(
         @ApplicationContext ctx: Context,
         client: OkHttpClient,
         sshNodeRegistry: SshNodeRegistry,
         sshKeyManager: SshKeyManager,
+        vaultManager: VaultManager,
+        vaultRegistry: VaultRegistry,
+        vaultGitSync: VaultGitSync,
     ): List<Tool> = listOf(
         GetTimeTool(), GetDateTool(), GetBatteryTool(ctx),
         SearchWebTool(client), FetchUrlTool(client),
         ListSshNodesTool(sshNodeRegistry),
         SshCommandTool(sshNodeRegistry, sshKeyManager),
+        // Vault file tools
+        ReadFileTool(vaultManager),
+        WriteFileTool(vaultManager),
+        EditFileTool(vaultManager),
+        GlobTool(vaultManager),
+        GrepTool(vaultManager),
+        // Bash command router — lambda provides the active vault for git operations
+        BashTool(vaultGitSync) { vaultRegistry.getEnabledVaults().firstOrNull() },
+        // Session tools
+        TodoTool(),
+        LoadSkillTool(),
     )
 
     @Provides @Singleton
