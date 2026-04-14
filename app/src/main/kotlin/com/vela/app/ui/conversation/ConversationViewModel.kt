@@ -136,21 +136,6 @@ class ConversationViewModel @Inject constructor(
         }
     }
 
-    fun newVaultSession() {
-        viewModelScope.launch {
-            val conv = ConversationEntity(
-                id        = UUID.randomUUID().toString(),
-                title     = "Vault Session",
-                createdAt = System.currentTimeMillis(),
-                updatedAt = System.currentTimeMillis(),
-                mode      = "vault",
-            )
-            conversationDao.insert(conv)
-            _activeConvId.value = conv.id
-            prefs.edit().putString(KEY_ACTIVE_ID, conv.id).apply()
-        }
-    }
-
     private fun processInput(input: String) {
         val convId = _activeConvId.value ?: return
         viewModelScope.launch {
@@ -160,7 +145,7 @@ class ConversationViewModel @Inject constructor(
                 conversationDao.updateTitle(convId, title, System.currentTimeMillis())
             }
         }
-        val turnId = inferenceEngine.startTurn(convId, input)
+        val turnId = inferenceEngine.startTurn(convId, input, activeVaultIds = _sessionActiveVaultIds.value)
         _activeTurnId.value = turnId
     }
 

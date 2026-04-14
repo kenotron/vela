@@ -79,7 +79,11 @@ class InferenceEngine @Inject constructor(
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    fun startTurn(conversationId: String, userMessage: String): String {
+    fun startTurn(
+        conversationId: String,
+        userMessage: String,
+        activeVaultIds: Set<String> = emptySet(),
+    ): String {
         val turnId = UUID.randomUUID().toString()
         val job = scope.launch {
             try {
@@ -90,7 +94,7 @@ class InferenceEngine @Inject constructor(
                     status         = "running",
                     timestamp      = System.currentTimeMillis(),
                 ))
-                processTurn(turnId, conversationId, userMessage)
+                processTurn(turnId, conversationId, userMessage, activeVaultIds)
                 turnDao.updateStatus(turnId, "complete")
             } catch (e: Exception) {
                 Log.e(TAG, "Turn $turnId failed", e)
@@ -116,7 +120,12 @@ class InferenceEngine @Inject constructor(
 
     // ── Inference ─────────────────────────────────────────────────────────────
 
-    private suspend fun processTurn(turnId: String, conversationId: String, userMessage: String) {
+    private suspend fun processTurn(
+        turnId: String,
+        conversationId: String,
+        userMessage: String,
+        activeVaultIds: Set<String> = emptySet(),
+    ) {
         val seq       = AtomicInteger(0)
         val textBuffer = StringBuilder()   // uncommitted text since last flush
 
@@ -141,7 +150,11 @@ class InferenceEngine @Inject constructor(
         val historyJson = buildHistory(conversationId)
 
         val systemPrompt = if (!harness.isInitialized(conversationId)) {
-            harness.buildSystemPrompt(conversationId, vaultRegistry.getEnabledVaults())
+            val allEnabled = vaultRegistry.getEnabledVaults()
+            // If caller specified active vaults, filter to those; otherwise use all enabled
+            val vaultsForSession = if (activeVaultIds.isEmpty()) allEnabled
+                                   else allEnabled.filter { it.id in activeVaultIds }
+            harness.buildSystemPrompt(conversationId, vaultsForSession)
         } else {
             ""
         }

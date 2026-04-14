@@ -22,6 +22,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
 
 /**
  * Verifies that InferenceEngine threads the correct systemPrompt through to
@@ -99,6 +100,18 @@ class InferenceEngineSystemPromptTest {
         vaultManager = VaultManager(tmp.newFolder("vaults")),
     )
 
+    private fun fakeVaultRegistryWithVaults(vaults: List<VaultEntity>) = VaultRegistry(
+        dao = object : VaultDao {
+            override fun observeAll(): Flow<List<VaultEntity>> = emptyFlow()
+            override suspend fun getEnabled(): List<VaultEntity> = vaults.filter { it.isEnabled }
+            override suspend fun getById(id: String): VaultEntity? = vaults.firstOrNull { it.id == id }
+            override suspend fun insert(vault: VaultEntity) {}
+            override suspend fun update(vault: VaultEntity) {}
+            override suspend fun delete(vault: VaultEntity) {}
+        },
+        vaultManager = VaultManager(tmp.newFolder("vaults-filtered")),
+    )
+
     private fun fakeHarness() = SessionHarness(HookRegistry(emptyList()))
 
     // ── Test helpers ──────────────────────────────────────────────────────────
@@ -164,6 +177,41 @@ class InferenceEngineSystemPromptTest {
         engine.startTurn("conv-default-multi", "second message")
         val secondPrompt = session.prompts.receive()
         assertThat(secondPrompt).isEmpty()
+    }
+
+    /**
+     * RED: Fails to compile until startTurn accepts activeVaultIds.
+     *
+     * When activeVaultIds is non-empty only the specified vaults should be passed to
+     * buildSystemPrompt.  Here vault-b has its own SYSTEM.md and vault-a does not —
+     * filtering to {vault-b} must yield vault-b's prompt, not vault-a's.
+     */
+    @Test
+    fun `startTurn with activeVaultIds filters vaults used for system prompt`() = runBlocking {
+        val dirA = tmp.newFolder("sysA")
+        // vault-a has no SYSTEM.md — would fall through to fallback if selected
+        val dirB = tmp.newFolder("sysB")
+        File(dirB, "SYSTEM.md").writeText("CONTENT_FROM_VAULT_B")
+
+        val entityA = VaultEntity(id = "vault-a", name = "A", localPath = dirA.absolutePath)
+        val entityB = VaultEntity(id = "vault-b", name = "B", localPath = dirB.absolutePath)
+
+        val session = FakeSession()
+        val engine = InferenceEngine(
+            session         = session,
+            toolRegistry    = ToolRegistry(emptyList()),
+            turnDao         = fakeTurnDao(),
+            turnEventDao    = fakeTurnEventDao(),
+            conversationDao = fakeConversationDao("default"),
+            vaultRegistry   = fakeVaultRegistryWithVaults(listOf(entityA, entityB)),
+            harness         = fakeHarness(),
+        )
+
+        // Only vault-b is active — vault-a should be excluded
+        engine.startTurn("conv-vault-filter", "hello", activeVaultIds = setOf("vault-b"))
+
+        val prompt = session.prompts.receive()
+        assertThat(prompt).contains("CONTENT_FROM_VAULT_B")
     }
 
     /**

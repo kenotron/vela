@@ -236,24 +236,8 @@ fun ConversationScreen(
                 title = { Text(activeTitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium) },
                 actions = {
                     IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    Box {
-                        var showMenu by remember { mutableStateOf(false) }
-                        IconButton(onClick = { showMenu = true }) {
-                            Icon(Icons.Default.Add, null, tint = MaterialTheme.colorScheme.primary)
-                        }
-                        DropdownMenu(
-                            expanded         = showMenu,
-                            onDismissRequest = { showMenu = false },
-                        ) {
-                            DropdownMenuItem(
-                                text    = { Text("New Chat") },
-                                onClick = { viewModel.newSession(); showMenu = false },
-                            )
-                            DropdownMenuItem(
-                                text    = { Text("New Vault Session") },
-                                onClick = { viewModel.newVaultSession(); showMenu = false },
-                            )
-                        }
+                    IconButton(onClick = { viewModel.newSession() }) {
+                        Icon(Icons.Default.Add, null, tint = MaterialTheme.colorScheme.primary)
                     }
                 },
             )
