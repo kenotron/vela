@@ -8,7 +8,7 @@ package com.vela.app.vault
     import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
     import java.io.File
 
-    class VaultGitSync(private val vaultSettings: VaultSettings) {
+    open class VaultGitSync(private val vaultSettings: VaultSettings) {
 
         private fun credProvider(vaultId: String) =
             UsernamePasswordCredentialsProvider("token", vaultSettings.getPat(vaultId))
@@ -38,7 +38,7 @@ package com.vela.app.vault
             }.getOrElse { "Error cloning: ${it.message}" }
         }
 
-        suspend fun addAll(vaultPath: File): String = withContext(Dispatchers.IO) {
+        open suspend fun addAll(vaultPath: File): String = withContext(Dispatchers.IO) {
             runCatching {
                 Git.open(vaultPath).use { git ->
                     git.add().addFilepattern(".").call()
@@ -47,7 +47,7 @@ package com.vela.app.vault
             }.getOrElse { "Error staging: ${it.message}" }
         }
 
-        suspend fun commit(
+        open suspend fun commit(
             vaultId: String,
             vaultPath: File,
             message: String,
@@ -66,7 +66,7 @@ package com.vela.app.vault
             }.getOrElse { "Error committing: ${it.message}" }
         }
 
-        suspend fun push(vaultId: String, vaultPath: File): String = withContext(Dispatchers.IO) {
+        open suspend fun push(vaultId: String, vaultPath: File): String = withContext(Dispatchers.IO) {
             runCatching {
                 Git.open(vaultPath).use { git ->
                     val results = git.push()
@@ -84,7 +84,7 @@ package com.vela.app.vault
             }.getOrElse { "Error pushing: ${it.message}" }
         }
 
-        suspend fun pull(vaultId: String, vaultPath: File): String = withContext(Dispatchers.IO) {
+        open suspend fun pull(vaultId: String, vaultPath: File): String = withContext(Dispatchers.IO) {
             runCatching {
                 Git.open(vaultPath).use { git ->
                     val result = git.pull()
@@ -96,7 +96,7 @@ package com.vela.app.vault
             }.getOrElse { "Error pulling: ${it.message}" }
         }
 
-        suspend fun status(vaultPath: File): String = withContext(Dispatchers.IO) {
+        open suspend fun status(vaultPath: File): String = withContext(Dispatchers.IO) {
             runCatching {
                 Git.open(vaultPath).use { git ->
                     val s = git.status().call()
@@ -111,7 +111,7 @@ package com.vela.app.vault
             }.getOrElse { "Error getting status: ${it.message}" }
         }
 
-        suspend fun log(vaultPath: File, count: Int = 10): String = withContext(Dispatchers.IO) {
+        open suspend fun log(vaultPath: File, count: Int = 10): String = withContext(Dispatchers.IO) {
             runCatching {
                 Git.open(vaultPath).use { git ->
                     git.log().setMaxCount(count).call()
