@@ -220,8 +220,8 @@ package com.vela.app.ui.settings
         if (showAddSheet) {
             AddVaultSheet(
                 onDismiss = { showAddSheet = false },
-                onConfirm = { name, remoteUrl, pat ->
-                    viewModel.addVault(name, remoteUrl, pat)
+                onConfirm = { name, remoteUrl, pat, branch ->
+                    viewModel.addVault(name, remoteUrl, pat, branch)
                     showAddSheet = false
                 },
             )
@@ -269,11 +269,12 @@ package com.vela.app.ui.settings
     @Composable
     internal fun AddVaultSheet(
         onDismiss: () -> Unit,
-        onConfirm: (name: String, remoteUrl: String, pat: String) -> Unit,
+        onConfirm: (name: String, remoteUrl: String, pat: String, branch: String) -> Unit,
     ) {
         var name       by remember { mutableStateOf("") }
         var remoteUrl  by remember { mutableStateOf("") }
         var pat        by remember { mutableStateOf("") }
+        var branch     by remember { mutableStateOf("") }
         var showGitHub by remember { mutableStateOf(false) }
         var nameError  by remember { mutableStateOf(false) }
 
@@ -302,6 +303,15 @@ package com.vela.app.ui.settings
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(value = pat, onValueChange = { pat = it }, label = { Text("Personal Access Token") }, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
                     Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value         = branch,
+                        onValueChange = { branch = it },
+                        label         = { Text("Branch (optional)") },
+                        placeholder   = { Text("main, master — leave blank to auto-detect") },
+                        singleLine    = true,
+                        modifier      = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
                 }
 
                 Spacer(Modifier.height(8.dp))
@@ -310,7 +320,7 @@ package com.vela.app.ui.settings
                     Spacer(Modifier.width(8.dp))
                     Button(onClick = {
                         if (name.isBlank()) { nameError = true; return@Button }
-                        onConfirm(name.trim(), remoteUrl.trim(), pat.trim())
+                        onConfirm(name.trim(), remoteUrl.trim(), pat.trim(), branch.trim())
                     }) { Text("Create Vault") }
                 }
             }

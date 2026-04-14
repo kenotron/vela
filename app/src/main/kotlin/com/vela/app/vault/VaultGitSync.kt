@@ -87,10 +87,12 @@ package com.vela.app.vault
             if (!File(vaultPath, ".git").exists()) return@withContext "Not cloned yet — configure sync in Settings"
             runCatching {
                 Git.open(vaultPath).use { git ->
-                    val result = git.pull()
+                    val cmd = git.pull()
                         .setCredentialsProvider(credProvider(vaultId))
                         .setRebase(true)
-                        .call()
+                    val branch = vaultSettings.getBranch(vaultId)
+                    if (branch.isNotBlank()) cmd.setRemoteBranchName(branch)
+                    val result = cmd.call()
                     if (result.isSuccessful) "Pulled successfully." else "Pull failed: ${result.rebaseResult?.status}"
                 }
             }.getOrElse { "Error pulling: ${it.message}" }

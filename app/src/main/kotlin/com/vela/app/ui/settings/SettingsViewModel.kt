@@ -79,12 +79,13 @@ package com.vela.app.ui.settings
             _selectedModel.value = model
         }
 
-        fun addVault(name: String, remoteUrl: String = "", pat: String = "") {
+        fun addVault(name: String, remoteUrl: String = "", pat: String = "", branch: String = "") {
             viewModelScope.launch {
                 val entity = vaultRegistry.addVault(name)
                 if (remoteUrl.isNotBlank()) {
                     vaultSettings.setRemoteUrl(entity.id, normalizeRemoteUrl(remoteUrl))
                     if (pat.isNotBlank()) vaultSettings.setPat(entity.id, pat)
+                    if (branch.isNotBlank()) vaultSettings.setBranch(entity.id, branch)
                     // Immediately clone so content is available in the current session
                     val vaultPath = File(entity.localPath)
                     _syncMessage.value = "Cloning vault…"
@@ -102,10 +103,13 @@ package com.vela.app.ui.settings
             viewModelScope.launch { vaultRegistry.setEnabled(vaultId, enabled) }
         }
 
-        fun setVaultRemote(vaultId: String, remoteUrl: String, pat: String) {
+        fun setVaultRemote(vaultId: String, remoteUrl: String, pat: String, branch: String = "") {
             vaultSettings.setRemoteUrl(vaultId, normalizeRemoteUrl(remoteUrl))
             if (pat.isNotBlank()) vaultSettings.setPat(vaultId, pat)
+            if (branch.isNotBlank()) vaultSettings.setBranch(vaultId, branch)
         }
+
+        fun getVaultBranch(vaultId: String): String = vaultSettings.getBranch(vaultId)
 
         fun getVaultRemoteUrl(vaultId: String): String = vaultSettings.getRemoteUrl(vaultId)
 

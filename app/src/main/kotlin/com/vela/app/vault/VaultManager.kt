@@ -32,18 +32,23 @@ class VaultManager(val root: File) {
      *   (traversal protection against "../../etc/passwd" style inputs).
      */
     fun resolve(path: String): File? {
-        val sanitized = path.trimStart('/')
-        val candidate = File(root, sanitized)
+        // Absolute path that already points inside the vault tree
+        if (path.startsWith("/")) {
+            val absFile = File(path)
+            return try {
+                val canonical = absFile.canonicalPath
+                val rootCanonical = root.canonicalPath
+                if (canonical.startsWith(rootCanonical + File.separator) || canonical == rootCanonical) absFile
+                else null   // outside vault — block it
+            } catch (_: Exception) { null }
+        }
+        // Relative path — resolve against root (existing behaviour)
+        val candidate = File(root, path)
         return try {
             val canonical = candidate.canonicalPath
             val rootCanonical = root.canonicalPath
-            if (canonical.startsWith(rootCanonical + File.separator) || canonical == rootCanonical) {
-                candidate
-            } else {
-                null
-            }
-        } catch (_: Exception) {
-            null
-        }
+            if (canonical.startsWith(rootCanonical + File.separator) || canonical == rootCanonical) candidate
+            else null
+        } catch (_: Exception) { null }
     }
 }

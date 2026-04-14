@@ -27,6 +27,7 @@ package com.vela.app.ui.settings
 
         var remoteUrl         by remember(vaultId) { mutableStateOf(viewModel.getVaultRemoteUrl(vaultId)) }
         var pat               by remember { mutableStateOf("") }
+        var branch            by remember(vaultId) { mutableStateOf(viewModel.getVaultBranch(vaultId)) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
 
         Scaffold(
@@ -47,10 +48,18 @@ package com.vela.app.ui.settings
             ) {
                 OutlinedTextField(value = remoteUrl, onValueChange = { remoteUrl = it }, label = { Text("GitHub remote URL") }, placeholder = { Text("https://github.com/user/vault.git") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = pat, onValueChange = { pat = it }, label = { Text("Personal Access Token (leave blank to keep existing)") }, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    value         = branch,
+                    onValueChange = { branch = it },
+                    label         = { Text("Branch (optional)") },
+                    placeholder   = { Text("main, master — leave blank to auto-detect") },
+                    singleLine    = true,
+                    modifier      = Modifier.fillMaxWidth(),
+                )
 
                 Spacer(Modifier.height(8.dp))
 
-                Button(onClick = { viewModel.setVaultRemote(vaultId, remoteUrl.trim(), pat.trim()) }, modifier = Modifier.fillMaxWidth()) { Text("Save Changes") }
+                Button(onClick = { viewModel.setVaultRemote(vaultId, remoteUrl.trim(), pat.trim(), branch.trim()) }, modifier = Modifier.fillMaxWidth()) { Text("Save Changes") }
                 OutlinedButton(onClick = { viewModel.syncVault(vaultId) }, modifier = Modifier.fillMaxWidth()) { Text("Sync Now") }
 
                 syncMessage?.let { msg ->
