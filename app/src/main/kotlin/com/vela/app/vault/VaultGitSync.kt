@@ -31,7 +31,6 @@ package com.vela.app.vault
                 Git.cloneRepository()
                     .setURI(remote)
                     .setDirectory(vaultPath)
-                    .setBranch(vaultSettings.getBranch(vaultId))
                     .setCredentialsProvider(credProvider(vaultId))
                     .call().close()
                 "Cloned $remote into ${vaultPath.path}"
