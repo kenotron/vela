@@ -49,6 +49,8 @@ class AmplifierSession @Inject constructor(
      *
      * @param historyJson  Anthropic-format JSON array of prior messages (built by caller).
      * @param userInput    The user's new message.
+     * @param systemPrompt Optional system prompt to inject into the request.
+     *                     Pass blank string (default) to use no system prompt.
      * @param onToolStart  Called when a tool call starts. Returns a stable ID the caller
      *                     assigns (e.g., a UUID for the TurnEvent row). The same ID is
      *                     passed back to [onToolEnd] for in-place DB update.

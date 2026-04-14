@@ -25,6 +25,7 @@
          * @param historyJson JSON array of prior messages in Anthropic format
          *                    [{"role":"user","content":"..."},{"role":"assistant","content":"..."},...]
          * @param userInput   The user's current message.
+         * @param systemPrompt System prompt text, or empty string for none.
          * @param tokenCb     Called with each text chunk as it arrives (streaming UX).
          * @param toolCb      Called when the model invokes a tool; must return the tool result string.
          * @return            Final assistant response text.
