@@ -23,10 +23,24 @@ class VaultSyncHookTest {
         override fun setBranch(vaultId: String, branch: String) {}
     }
 
+    @Test fun `cloneIfNeeded called before pull for sync-configured vault`() = runBlocking {
+        val callOrder = mutableListOf<String>()
+        val hook = VaultSyncHook(
+            cloneIfNeeded = { id, _ -> callOrder.add("clone:$id") },
+            pull          = { id, _ -> callOrder.add("pull:$id") },
+            vaultSettings = fakeSettings,
+        )
+        val ctx = HookContext("conv", listOf(vaultA), HookEvent.SESSION_START)
+        hook.execute(ctx)
+
+        assertThat(callOrder).containsExactly("clone:a", "pull:a").inOrder()
+    }
+
     @Test fun `pull called only for vault configured for sync`() = runBlocking {
         val pulledIds = mutableListOf<String>()
         val hook = VaultSyncHook(
-            pull = { id, _ -> pulledIds.add(id) },
+            cloneIfNeeded = { _, _ -> },
+            pull          = { id, _ -> pulledIds.add(id) },
             vaultSettings = fakeSettings,
         )
         val ctx = HookContext("conv", listOf(vaultA, vaultB), HookEvent.SESSION_START)
@@ -39,7 +53,8 @@ class VaultSyncHookTest {
     @Test fun `no active vaults — pull never called`() = runBlocking {
         var pullCalled = false
         val hook = VaultSyncHook(
-            pull = { _, _ -> pullCalled = true },
+            cloneIfNeeded = { _, _ -> },
+            pull          = { _, _ -> pullCalled = true },
             vaultSettings = fakeSettings,
         )
         hook.execute(HookContext("conv", emptyList(), HookEvent.SESSION_START))
@@ -48,7 +63,8 @@ class VaultSyncHookTest {
 
     @Test fun `pull throwing returns HookResult_Error`() = runBlocking {
         val hook = VaultSyncHook(
-            pull = { _, _ -> throw IOException("network unreachable") },
+            cloneIfNeeded = { _, _ -> },
+            pull          = { _, _ -> throw IOException("network unreachable") },
             vaultSettings = fakeSettings,
         )
         val result = hook.execute(HookContext("conv", listOf(vaultA), HookEvent.SESSION_START))

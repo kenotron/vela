@@ -146,6 +146,7 @@ object AppModule {
         vaultGitSync: VaultGitSync,
     ): @JvmSuppressWildcards List<Hook> = listOf(
         VaultSyncHook(
+            cloneIfNeeded = { id, path -> vaultGitSync.cloneIfNeeded(id, path) },
             pull          = { id, path -> vaultGitSync.pull(id, path) },
             vaultSettings = vaultSettings,
         ),

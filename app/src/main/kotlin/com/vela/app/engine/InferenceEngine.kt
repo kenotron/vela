@@ -140,8 +140,7 @@ class InferenceEngine @Inject constructor(
 
         val historyJson = buildHistory(conversationId)
 
-        val conversation  = conversationDao.getById(conversationId)
-        val systemPrompt  = if (conversation?.mode == "vault" && !harness.isInitialized(conversationId)) {
+        val systemPrompt = if (!harness.isInitialized(conversationId)) {
             harness.buildSystemPrompt(conversationId, vaultRegistry.getEnabledVaults())
         } else {
             ""

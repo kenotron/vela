@@ -135,17 +135,35 @@ class InferenceEngineSystemPromptTest {
     }
 
     /**
-     * Non-vault conversation → systemPrompt must always be empty string.
+     * Non-vault conversation, first turn → harness not yet initialized →
+     * systemPrompt must be non-empty (lifeos context injected for ALL conversations).
      */
     @Test
-    fun `non-vault conversation receives empty systemPrompt`() = runBlocking {
+    fun `non-vault conversation first turn receives non-empty systemPrompt`() = runBlocking {
         val session = FakeSession()
         val engine  = makeEngine(session = session, mode = "default")
 
-        engine.startTurn("conv-default", "hello")
+        engine.startTurn("conv-default-first", "hello")
 
         val prompt = session.prompts.receive()
-        assertThat(prompt).isEmpty()
+        assertThat(prompt).isNotEmpty()
+    }
+
+    /**
+     * Any conversation, second turn → harness already initialized →
+     * systemPrompt must be empty string (no duplicate injection).
+     */
+    @Test
+    fun `any conversation second turn receives empty systemPrompt`() = runBlocking {
+        val session = FakeSession()
+        val engine  = makeEngine(session = session, mode = "default")
+
+        engine.startTurn("conv-default-multi", "first message")
+        session.prompts.receive() // consume first prompt
+
+        engine.startTurn("conv-default-multi", "second message")
+        val secondPrompt = session.prompts.receive()
+        assertThat(secondPrompt).isEmpty()
     }
 
     /**

@@ -37,6 +37,20 @@ package com.vela.app.ui.settings
                 "claude-opus-4-5",
                 "claude-haiku-4-5",
             )
+
+            /** Exposed as internal so it can be unit-tested without Android. */
+            internal fun normalizeRemoteUrl(input: String): String {
+                val trimmed = input.trim()
+                if (trimmed.isBlank()) return ""
+                if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("git@")) {
+                    return trimmed
+                }
+                // username/repo shorthand → full HTTPS GitHub URL
+                if (trimmed.matches(Regex("[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+"))) {
+                    return "https://github.com/$trimmed.git"
+                }
+                return trimmed
+            }
         }
 
         private val prefs get() = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -69,8 +83,11 @@ package com.vela.app.ui.settings
             viewModelScope.launch {
                 val entity = vaultRegistry.addVault(name)
                 if (remoteUrl.isNotBlank()) {
-                    vaultSettings.setRemoteUrl(entity.id, remoteUrl)
+                    vaultSettings.setRemoteUrl(entity.id, normalizeRemoteUrl(remoteUrl))
                     if (pat.isNotBlank()) vaultSettings.setPat(entity.id, pat)
+                    // Immediately clone so content is available in the current session
+                    val vaultPath = File(entity.localPath)
+                    vaultGitSync.cloneIfNeeded(entity.id, vaultPath)
                 }
             }
         }
@@ -84,7 +101,7 @@ package com.vela.app.ui.settings
         }
 
         fun setVaultRemote(vaultId: String, remoteUrl: String, pat: String) {
-            vaultSettings.setRemoteUrl(vaultId, remoteUrl)
+            vaultSettings.setRemoteUrl(vaultId, normalizeRemoteUrl(remoteUrl))
             if (pat.isNotBlank()) vaultSettings.setPat(vaultId, pat)
         }
 
