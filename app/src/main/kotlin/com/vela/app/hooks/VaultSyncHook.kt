@@ -30,9 +30,7 @@ class VaultSyncHook(
                 val vaultPath = File(vault.localPath)
                 runCatching {
                     cloneIfNeeded(vault.id, vaultPath)
-                    if (File(vaultPath, ".git").exists()) {
-                        pull(vault.id, vaultPath)
-                    }
+                    pull(vault.id, vaultPath)
                 }.onFailure { e ->
                     return HookResult.Error("Vault sync failed for ${vault.name}: ${e.message}")
                 }

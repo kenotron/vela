@@ -10,8 +10,9 @@ class PersonalizationHook : Hook {
 
     override suspend fun execute(ctx: HookContext): HookResult = withContext(Dispatchers.IO) {
         runCatching {
-            buildString {
-                appendLine("<vault_context>")
+            // Build the inner content first (without wrapper tags) so we can detect
+            // an empty result before deciding whether to emit the <vault_context> block.
+            val inner = buildString {
                 ctx.activeVaults.forEach { vault ->
                     val dir = File(vault.localPath, "_personalization")
                     if (dir.exists() && dir.isDirectory) {
@@ -25,8 +26,8 @@ class PersonalizationHook : Hook {
                             }
                     }
                 }
-                append("</vault_context>")
             }.trim()
+            if (inner.isBlank()) "" else "<vault_context>\n$inner\n</vault_context>"
         }.fold(
             onSuccess = { text ->
                 if (text.isBlank()) HookResult.Continue
