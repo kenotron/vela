@@ -47,4 +47,18 @@ class PersonalizationHookTest {
         // a-profile (sorted first) must appear before b-prefs
         assertThat(result.text.indexOf("Profile A")).isLessThan(result.text.indexOf("Pref B"))
     }
+
+    @Test fun `unreadable personalization file returns Error`() = runBlocking<Unit> {
+        val vaultDir = tmp.newFolder("locked-vault")
+        val personDir = File(vaultDir, "_personalization").also { it.mkdirs() }
+        val file = File(personDir, "profile.md").also { it.writeText("secret") }
+        file.setReadable(false)
+        try {
+            val vault  = VaultEntity(id = "v4", name = "Locked", localPath = vaultDir.absolutePath)
+            val result = hook.execute(HookContext("conv", listOf(vault), HookEvent.SESSION_START))
+            assertThat(result).isInstanceOf(HookResult.Error::class.java)
+        } finally {
+            file.setReadable(true) // restore so TemporaryFolder can clean up
+        }
+    }
 }
