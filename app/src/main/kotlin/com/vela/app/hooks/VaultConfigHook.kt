@@ -2,7 +2,7 @@ package com.vela.app.hooks
 
 class VaultConfigHook : Hook {
     override val event    = HookEvent.SESSION_START
-    override val priority = 20
+    override val priority = 5
 
     override suspend fun execute(ctx: HookContext): HookResult {
         if (ctx.activeVaults.isEmpty()) return HookResult.Continue

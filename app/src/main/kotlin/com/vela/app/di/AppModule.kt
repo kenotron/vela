@@ -14,6 +14,7 @@ import com.vela.app.hooks.Hook
 import com.vela.app.hooks.HookRegistry
 import com.vela.app.hooks.PersonalizationHook
 import com.vela.app.hooks.VaultConfigHook
+import com.vela.app.hooks.VaultIndexHook
 import com.vela.app.hooks.VaultSyncHook
 import com.vela.app.ssh.SshKeyManager
 import com.vela.app.ssh.SshNodeRegistry
@@ -150,8 +151,9 @@ object AppModule {
             pull          = { id, path -> vaultGitSync.pull(id, path) },
             vaultSettings = vaultSettings,
         ),
-        PersonalizationHook(),
         VaultConfigHook(),
+        VaultIndexHook(),
+        PersonalizationHook(),
     )
 
     @Provides @Singleton
