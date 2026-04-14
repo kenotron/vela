@@ -12,6 +12,7 @@ import com.vela.app.engine.InferenceEngine
 import com.vela.app.ssh.SshKeyManager
 import com.vela.app.ssh.SshNodeRegistry
 import com.vela.app.vault.SharedPrefsVaultSettings
+import com.vela.app.skills.SkillsEngine
 import com.vela.app.vault.VaultGitSync
 import com.vela.app.vault.VaultManager
 import com.vela.app.vault.VaultRegistry
@@ -78,6 +79,19 @@ object AppModule {
         VaultGitSync(vaultSettings)
 
     @Provides @Singleton
+    fun provideSkillsEngine(
+        @ApplicationContext ctx: Context,
+        vaultRegistry: VaultRegistry,
+    ): SkillsEngine = SkillsEngine(
+        getVaultSkillDirs = {
+            vaultRegistry.getEnabledVaults()
+                .map { java.io.File(it.localPath, "skills") }
+                .filter { it.exists() }
+        },
+        bundledSkillsDir = java.io.File(ctx.cacheDir, "skills"),
+    )
+
+    @Provides @Singleton
     fun provideTools(
         @ApplicationContext ctx: Context,
         client: OkHttpClient,
@@ -86,6 +100,7 @@ object AppModule {
         vaultManager: VaultManager,
         vaultRegistry: VaultRegistry,
         vaultGitSync: VaultGitSync,
+        skillsEngine: SkillsEngine,
     ): List<Tool> = listOf(
         GetTimeTool(), GetDateTool(), GetBatteryTool(ctx),
         SearchWebTool(client), FetchUrlTool(client),
@@ -101,7 +116,7 @@ object AppModule {
         BashTool(vaultGitSync) { vaultRegistry.getEnabledVaults().firstOrNull() },
         // Session tools
         TodoTool(),
-        LoadSkillTool(),
+        LoadSkillTool(skillsEngine),
     )
 
     @Provides @Singleton
