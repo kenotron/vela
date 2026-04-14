@@ -86,16 +86,19 @@ object AppModule {
 
     @Provides @Singleton
     fun provideSkillsEngine(
+        vaultRegistry:     VaultRegistry,
         @ApplicationContext ctx: Context,
-        vaultRegistry: VaultRegistry,
-    ): SkillsEngine = SkillsEngine(
-        getVaultSkillDirs = {
-            vaultRegistry.getEnabledVaults()
-                .map { java.io.File(it.localPath, "skills") }
-                .filter { it.exists() }
-        },
-        bundledSkillsDir = java.io.File(ctx.cacheDir, "skills"),
-    )
+    ): SkillsEngine {
+        val bundledDir = extractBundledSkills(ctx)
+        return SkillsEngine(
+            getVaultSkillDirs = {
+                vaultRegistry.getEnabledVaults()
+                    .map { java.io.File(it.localPath, "skills") }
+                    .filter { it.exists() }
+            },
+            bundledSkillsDir = bundledDir,
+        )
+    }
 
     @Provides @Singleton
     fun provideTools(
@@ -179,4 +182,20 @@ object AppModule {
     @Provides @Singleton
     fun provideSpeechTranscriber(@ApplicationContext ctx: Context): SpeechTranscriber =
         AndroidSpeechTranscriber(ctx)
+
+    private fun extractBundledSkills(context: Context): java.io.File {
+        val cache = java.io.File(context.cacheDir, "bundled_skills")
+        cache.mkdirs()
+        runCatching {
+            context.assets.list("skills")?.forEach { skillName ->
+                val dest = java.io.File(cache, skillName).also { it.mkdirs() }
+                context.assets.list("skills/$skillName")?.forEach { fileName ->
+                    context.assets.open("skills/$skillName/$fileName").use { input ->
+                        java.io.File(dest, fileName).outputStream().use(input::copyTo)
+                    }
+                }
+            }
+        }
+        return cache
+    }
 }
