@@ -16,6 +16,7 @@
         model: String,
         /// Tools in **Anthropic** format (converted from OpenAI on construction).
         tools: Vec<Value>,
+        system_prompt: String,
         client: Client,
     }
 
@@ -23,19 +24,22 @@
         /// Create a provider.
         ///
         /// # Arguments
-        /// * `api_key`      – Anthropic API key (`sk-ant-…`).
-        /// * `model`        – Model identifier, e.g. `"claude-3-5-haiku-20241022"`.
-        /// * `openai_tools` – OpenAI-format tool schemas from Kotlin:
+        /// * `api_key`       – Anthropic API key (`sk-ant-…`).
+        /// * `model`         – Model identifier, e.g. `"claude-3-5-haiku-20241022"`.
+        /// * `openai_tools`  – OpenAI-format tool schemas from Kotlin:
         ///   `[{"type":"function","function":{"name":…,"description":…,"parameters":{…}}}]`
+        /// * `system_prompt` – Optional system prompt. When non-empty the Anthropic
+        ///   request body will include a top-level `"system"` field.
         ///
         /// Tool schemas are converted to Anthropic format in place:
         ///   `{"name":…,"description":…,"input_schema":{…}}`
-        pub fn new(api_key: String, model: String, openai_tools: Vec<Value>) -> Self {
+        pub fn new(api_key: String, model: String, openai_tools: Vec<Value>, system_prompt: String) -> Self {
             let tools = Self::convert_tools(openai_tools);
             Self {
                 api_key,
                 model,
                 tools,
+                system_prompt,
                 client: Client::new(),
             }
         }
@@ -85,13 +89,16 @@
         /// JSON parse failure.  The caller treats errors as final and surfaces
         /// them to the user as `"Error: …"` strings.
         pub async fn complete(&self, messages: Vec<Value>) -> Result<Value, String> {
-            let body = json!({
+            let mut body = json!({
                 "model": self.model,
                 "max_tokens": 4096,
                 "messages": messages,
                 "tools": self.tools,
                 "stream": false,
             });
+            if !self.system_prompt.is_empty() {
+                body["system"] = Value::String(self.system_prompt.clone());
+            }
 
             debug!(
                 "AnthropicProvider: POST /v1/messages model={} messages={}",
@@ -151,7 +158,7 @@
                 }
             })];
 
-            let provider = AnthropicProvider::new("key".into(), "model".into(), openai);
+            let provider = AnthropicProvider::new("key".into(), "model".into(), openai, "".into());
             let tool = &provider.tools[0];
 
             assert_eq!(tool["name"], "search_web");
@@ -172,14 +179,30 @@
                 "input_schema": {"type": "object", "properties": {}}
             })];
             let provider =
-                AnthropicProvider::new("key".into(), "model".into(), already_anthropic.clone());
+                AnthropicProvider::new("key".into(), "model".into(), already_anthropic.clone(), "".into());
             assert_eq!(provider.tools[0]["name"], "do_thing");
         }
 
         #[test]
         fn empty_tool_list_passes_through() {
-            let provider = AnthropicProvider::new("key".into(), "model".into(), vec![]);
+            let provider = AnthropicProvider::new("key".into(), "model".into(), vec![], "".into());
             assert!(provider.tools.is_empty());
         }
+
+        #[test]
+        fn system_prompt_stored_when_non_empty() {
+            let provider = AnthropicProvider::new(
+                "key".into(),
+                "model".into(),
+                vec![],
+                "You are a helpful assistant.".into(),
+            );
+            assert_eq!(provider.system_prompt, "You are a helpful assistant.");
+        }
+
+        #[test]
+        fn system_prompt_empty_by_default_variant() {
+            let provider = AnthropicProvider::new("key".into(), "model".into(), vec![], "".into());
+            assert!(provider.system_prompt.is_empty());
+        }
     }
-    

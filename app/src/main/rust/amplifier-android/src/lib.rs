@@ -8,7 +8,7 @@
 //!
 //! | Kotlin signature | Description |
 //! |---|---|
-//! | `nativeRun(apiKey, model, toolsJson, historyJson, userInput, tokenCb, toolCb): String` | Run one user turn through the full agent loop |
+//! | `nativeRun(apiKey, model, toolsJson, historyJson, userInput, systemPrompt, tokenCb, toolCb): String` | Run one user turn through the full agent loop |
 //!
 //! ## Threading model
 //!
@@ -45,7 +45,7 @@ use context::SimpleContext;
 use orchestrator::SimpleOrchestrator;
 use provider::AnthropicProvider;
 
-// ─────────────────────────── Shared Tokio runtime ─────────────────────────
+// ─────────────────────────────── Shared Tokio runtime ─────────────────────────────────────
 
 /// A single multi-thread `tokio` runtime that persists for the lifetime of
 /// the process.  Creating a runtime is expensive; sharing one avoids overhead
@@ -57,7 +57,7 @@ static RT: Lazy<Runtime> = Lazy::new(|| {
         .expect("failed to build tokio runtime")
 });
 
-// ─────────────────────────────── JNI entry points ─────────────────────────
+// ─────────────────────────────────────────── JNI entry points ─────────────────────────────
 
 /// Run one full user turn through the Anthropic agent loop.
 ///
@@ -65,22 +65,23 @@ static RT: Lazy<Runtime> = Lazy::new(|| {
 ///
 /// ## Parameters (all non-null; pass `""` / `"[]"` for empty)
 ///
-/// * `api_key`      – Anthropic API key (`sk-ant-…`).
-/// * `model`        – Model name, e.g. `"claude-3-5-haiku-20241022"`.
-/// * `tools_json`   – JSON array of OpenAI-format tool schemas.
+/// * `api_key`       – Anthropic API key (`sk-ant-…`).
+/// * `model`         – Model name, e.g. `"claude-3-5-haiku-20241022"`.
+/// * `tools_json`    – JSON array of OpenAI-format tool schemas.
 ///   ```json
 ///   [{"type":"function","function":{"name":"search_web","description":"…","parameters":{…}}}]
 ///   ```
-/// * `history_json` – JSON array of Anthropic-format prior-turn messages.
+/// * `history_json`  – JSON array of Anthropic-format prior-turn messages.
 ///   ```json
 ///   [{"role":"user","content":"Hi"},{"role":"assistant","content":"Hello!"}]
 ///   ```
-/// * `user_input`   – The user's current message text.
-/// * `token_cb`     – Kotlin `TokenCallback` instance:
+/// * `user_input`    – The user's current message text.
+/// * `system_prompt` – Optional system prompt. Pass `""` to omit the field.
+/// * `token_cb`      – Kotlin `TokenCallback` instance:
 ///   ```kotlin
 ///   interface TokenCallback { fun onToken(text: String) }
 ///   ```
-/// * `tool_cb`      – Kotlin `ToolCallback` instance:
+/// * `tool_cb`       – Kotlin `ToolCallback` instance:
 ///   ```kotlin
 ///   interface ToolCallback { fun executeTool(name: String, inputJson: String): String }
 ///   ```
@@ -102,6 +103,7 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
     tools_json: JString,
     history_json: JString,
     user_input: JString,
+    system_prompt: JString,
     token_cb: JObject,
     tool_cb: JObject,
 ) -> jstring {
@@ -112,21 +114,23 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
             .with_tag("amplifier"),
     );
 
-    // ── Extract Kotlin strings ─────────────────────────────────────────────
+    // ── Extract Kotlin strings ──────────────────────────────────────────────────────────────
     let api_key = jni_string(&mut env, &api_key, "api_key");
     let model = jni_string(&mut env, &model, "model");
     let tools_json = jni_string(&mut env, &tools_json, "tools_json");
     let history_json = jni_string(&mut env, &history_json, "history_json");
     let user_input = jni_string(&mut env, &user_input, "user_input");
+    let system_prompt = jni_string(&mut env, &system_prompt, "system_prompt");
 
     info!(
-        "nativeRun: model={model} user_input_len={} history_json_len={} tools_json_len={}",
+        "nativeRun: model={model} user_input_len={} history_json_len={} tools_json_len={} has_system_prompt={}",
         user_input.len(),
         history_json.len(),
         tools_json.len(),
+        !system_prompt.is_empty(),
     );
 
-    // ── Promote callbacks to global refs (safe across async threads) ───────
+    // ── Promote callbacks to global refs (safe across async threads) ───────────
     let jvm = match env.get_java_vm() {
         Ok(jvm) => Arc::new(jvm),
         Err(e) => {
@@ -160,7 +164,7 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
         }
     };
 
-    // ── Run agent loop on the shared tokio runtime ─────────────────────────
+    // ── Run agent loop on the shared tokio runtime ─────────────────────────────────────────
     let result = RT.block_on(async move {
         let tools: Vec<serde_json::Value> =
             serde_json::from_str(&tools_json).unwrap_or_else(|e| {
@@ -175,7 +179,7 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
             });
 
         // Build the three components and wire them together.
-        let provider = AnthropicProvider::new(api_key, model, tools);
+        let provider = AnthropicProvider::new(api_key, model, tools, system_prompt);
         let orchestrator = SimpleOrchestrator::new(jvm, token_cb_global, tool_cb_global);
         let ctx = SimpleContext::new(history, user_input);
 
@@ -192,7 +196,7 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
         .unwrap_or(std::ptr::null_mut())
 }
 
-// ─────────────────────────────── Helpers ──────────────────────────────────
+// ─────────────────────────────────────────── Helpers ──────────────────────────────────────
 
 /// Extract a Rust `String` from a JNI `JString`.
 ///
