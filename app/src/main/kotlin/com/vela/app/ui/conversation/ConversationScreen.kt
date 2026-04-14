@@ -10,6 +10,8 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -303,6 +305,15 @@ fun ConversationScreen(
     }
 }
 
+// ---- Turn item model --------------------------------------------------------
+
+private data class ToolGroup(val events: List<TurnEventEntity>)
+private data class TextEvt(val event: TurnEventEntity)
+private sealed class TurnItem {
+    data class Tools(val group: ToolGroup) : TurnItem()
+    data class Text(val evt: TextEvt) : TurnItem()
+}
+
 // ---- Turn row ---------------------------------------------------------------
 
 private val AssistantShape = RoundedCornerShape(4.dp, 18.dp, 18.dp, 18.dp)
@@ -322,15 +333,38 @@ private fun TurnRow(twe: TurnWithEvents, streamingText: String?, isLive: Boolean
             }
         }
 
-        // Events in seq order — tool events and text events interleaved
-        // Uses @Relation-loaded events, sorted in Kotlin. Stable key = event.id.
-        twe.sortedEvents.forEach { event ->
-            key(event.id) {
+        // Group consecutive tool events; text events break groups.
+        val items: List<TurnItem> = buildList {
+            val pending = mutableListOf<TurnEventEntity>()
+            twe.sortedEvents.forEach { event ->
                 when (event.type) {
-                    "tool" -> ToolEventRow(event, maxW)
-                    "text" -> if (!event.text.isNullOrBlank()) {
-                        TextEventRow(event.text, streaming = false, maxW = maxW)
+                    "tool" -> pending.add(event)
+                    else   -> {
+                        if (pending.isNotEmpty()) {
+                            add(TurnItem.Tools(ToolGroup(pending.toList())))
+                            pending.clear()
+                        }
+                        if (!event.text.isNullOrBlank()) {
+                            add(TurnItem.Text(TextEvt(event)))
+                        }
                     }
+                }
+            }
+            if (pending.isNotEmpty()) add(TurnItem.Tools(ToolGroup(pending.toList())))
+        }
+
+        items.forEach { item ->
+            key(when (item) {
+                is TurnItem.Tools -> item.group.events.first().id
+                is TurnItem.Text  -> item.evt.event.id
+            }) {
+                when (item) {
+                    is TurnItem.Tools -> ToolGroupRow(item.group.events)
+                    is TurnItem.Text  -> TextEventRow(
+                        text      = item.evt.event.text ?: "",
+                        streaming = false,
+                        maxW      = maxW,
+                    )
                 }
             }
         }
@@ -372,36 +406,107 @@ private fun TextEventRow(text: String, streaming: Boolean, maxW: androidx.compos
 }
 
 @Composable
-private fun ToolEventRow(event: TurnEventEntity, maxW: androidx.compose.ui.unit.Dp) {
-    val cs     = MaterialTheme.colorScheme
-    val isDone = event.toolStatus == "done"
-    val isErr  = event.toolStatus == "error"
-    val running = !isDone && !isErr
+private fun ToolGroupRow(events: List<TurnEventEntity>) {
+    if (events.isEmpty()) return
 
-    val bg     = when { isDone -> cs.surfaceContainerLow; isErr -> cs.errorContainer.copy(alpha=0.25f); else -> cs.surfaceVariant.copy(alpha=0.4f) }
-    val border = when { isDone -> cs.outlineVariant; isErr -> cs.error.copy(alpha=0.4f); else -> cs.outline.copy(alpha=0.3f) }
+    var expanded by remember { mutableStateOf(false) }
+    val last      = events.last()
+    val isRunning = last.toolStatus == null || last.toolStatus == "running"
+    val isError   = events.any { it.toolStatus == "error" }
 
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+    val borderColor = when {
+        isError   -> MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+        isRunning -> MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+        else      -> MaterialTheme.colorScheme.outlineVariant
+    }
+    val textColor = MaterialTheme.colorScheme.onSurfaceVariant
+
+    Column(modifier = Modifier.padding(start = 16.dp, end = 32.dp)) {
+        // Left-border strip + single summary row
         Row(
-            modifier = Modifier.widthIn(max = maxW).background(bg, RoundedCornerShape(10.dp)).border(1.dp, border, RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(
+                    enabled = events.size > 1,
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                ) { expanded = !expanded },
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(event.toolIcon ?: "\uD83D\uDD27", fontSize = 16.sp)
-            Column(Modifier.weight(1f)) {
-                Text(event.toolDisplayName ?: event.toolName ?: "", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold), color = cs.onSurface)
-                if (!event.toolSummary.isNullOrBlank()) Text("\u201c${event.toolSummary}\u201d", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (running) {
-                        val inf = rememberInfiniteTransition(label = "spin")
-                        val a by inf.animateFloat(0.4f, 1f, infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "b")
-                        Box(Modifier.size(5.dp).alpha(a).background(cs.onSurfaceVariant, CircleShape))
-                    } else {
-                        Text(if (isDone) "\u2713" else "\u2717", fontSize = 10.sp, color = if (isDone) cs.primary else cs.error)
-                    }
-                    Text(when(event.toolStatus) { "done"->"Done"; "error"->"Failed"; else->"Working\u2026" }, style = MaterialTheme.typography.labelSmall, color = if (isDone) cs.primary else if (isErr) cs.error else cs.onSurfaceVariant)
+            // Left border
+            Box(
+                modifier = Modifier
+                    .width(2.dp)
+                    .height(IntrinsicSize.Min)
+                    .defaultMinSize(minHeight = 20.dp)
+                    .background(borderColor, shape = RoundedCornerShape(1.dp))
+            )
+            Spacer(Modifier.width(8.dp))
+            // Icon + label
+            Text(
+                text     = (last.toolIcon ?: "🔧") + "  " + smartLabel(last),
+                style    = MaterialTheme.typography.labelSmall,
+                color    = textColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (events.size > 1) {
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text  = if (expanded) "▲" else "+${events.size - 1}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+            }
+        }
+
+        // Expanded: show all events
+        if (expanded && events.size > 1) {
+            Spacer(Modifier.height(2.dp))
+            events.forEach { event ->
+                Row(
+                    modifier = Modifier.padding(start = 10.dp, top = 1.dp, bottom = 1.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(1.dp)
+                            .height(IntrinsicSize.Min)
+                            .defaultMinSize(minHeight = 16.dp)
+                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    val doneAlpha = if (event.toolStatus == "done") 0.6f else 1f
+                    Text(
+                        text     = (event.toolIcon ?: "🔧") + "  " + smartLabel(event),
+                        style    = MaterialTheme.typography.labelSmall,
+                        color    = textColor.copy(alpha = doneAlpha),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
+        }
+    }
+}
+
+private fun smartLabel(event: TurnEventEntity): String {
+    val s = event.toolSummary
+    return when (event.toolName) {
+        "read_file"   -> if (!s.isNullOrBlank()) "Reading $s"      else "Reading file"
+        "write_file"  -> if (!s.isNullOrBlank()) "Writing $s"      else "Writing file"
+        "edit_file"   -> if (!s.isNullOrBlank()) "Editing $s"      else "Editing file"
+        "glob"        -> if (!s.isNullOrBlank()) "Finding $s"      else "Finding files"
+        "grep"        -> if (!s.isNullOrBlank()) "Searching: $s"   else "Searching content"
+        "bash"        -> if (!s.isNullOrBlank()) "$ $s"            else "Running command"
+        "search_web"  -> if (!s.isNullOrBlank()) "Web: $s"         else "Web search"
+        "fetch_url"   -> if (!s.isNullOrBlank()) "Fetching $s"     else "Fetching URL"
+        "todo"        -> if (!s.isNullOrBlank()) "Todos: $s"       else "Updating todos"
+        "load_skill"  -> if (!s.isNullOrBlank()) "Skill: $s"       else "Loading skill"
+        else          -> buildString {
+            append(event.toolDisplayName ?: event.toolName ?: "Tool")
+            if (!s.isNullOrBlank()) { append(": "); append(s) }
         }
     }
 }

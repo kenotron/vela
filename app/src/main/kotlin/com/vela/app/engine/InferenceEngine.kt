@@ -223,7 +223,7 @@ class InferenceEngine @Inject constructor(
 
     private fun extractSummary(name: String, argsJson: String) = try {
         val obj = JSONObject(argsJson)
-        sequenceOf("query", "url", "location", "command", "expression")
+        sequenceOf("query", "url", "location", "command", "expression", "file_path", "pattern", "action", "skill_name")
             .mapNotNull { obj.optString(it).takeIf { v -> v.isNotBlank() } }
             .firstOrNull() ?: name
     } catch (e: Exception) { name }
