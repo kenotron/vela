@@ -15,7 +15,7 @@ class VaultSyncHook(
     private val pull: suspend (vaultId: String, vaultPath: File) -> Unit,
     private val vaultSettings: VaultSettings,
 ) : Hook {
-    override val event    = HookEvent.SESSION_START
+    override val event = HookEvent.SESSION_START
     override val priority = 0
 
     override suspend fun execute(ctx: HookContext): HookResult {
