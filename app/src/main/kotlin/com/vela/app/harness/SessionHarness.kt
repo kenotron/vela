@@ -27,7 +27,6 @@ class SessionHarness(
         conversationId: String,
         activeVaults: List<VaultEntity>,
     ): String = withContext(Dispatchers.IO) {
-        initialized.add(conversationId)
         val hookCtx = HookContext(conversationId, activeVaults, HookEvent.SESSION_START)
         val addenda = hookRegistry.collectAddenda(HookEvent.SESSION_START, hookCtx)
         buildString {
@@ -36,7 +35,7 @@ class SessionHarness(
                 append("\n\n")
                 append(addenda)
             }
-        }
+        }.also { initialized.add(conversationId) }
     }
 
     private fun loadSystemMd(activeVaults: List<VaultEntity>): String {

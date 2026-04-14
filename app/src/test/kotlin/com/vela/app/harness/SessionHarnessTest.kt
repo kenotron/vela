@@ -75,4 +75,16 @@ class SessionHarnessTest {
         assertThat(harness.isInitialized("conv-a")).isTrue()
         assertThat(harness.isInitialized("conv-b")).isFalse()
     }
+
+    @Test fun `isInitialized remains false when buildSystemPrompt throws`() = runBlocking {
+        val throwingHook = object : Hook {
+            override val event = HookEvent.SESSION_START
+            override suspend fun execute(ctx: HookContext): HookResult =
+                throw RuntimeException("hook failure")
+        }
+        val harness = SessionHarness(HookRegistry(listOf(throwingHook)), "FALLBACK")
+        assertThat(harness.isInitialized("conv-fail")).isFalse()
+        runCatching { harness.buildSystemPrompt("conv-fail", emptyList()) }
+        assertThat(harness.isInitialized("conv-fail")).isFalse()
+    }
 }
