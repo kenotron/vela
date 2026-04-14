@@ -42,24 +42,26 @@ class GlobTool(private val vault: VaultManager) : Tool {
 
         val results = mutableListOf<String>()
         val basePath2 = base.toPath()
-        Files.walk(basePath2)
-            .filter { path ->
-                val relative = basePath2.relativize(path)
-                val relStr = relative.toString()
-                if (relStr.isEmpty()) return@filter false  // skip base dir itself
-                // Java's glob: "**/*.md" requires a path separator, so "notes.md" won't match.
-                // Fix: also try with a dummy prefix so patterns like "**/*.md" match root-level files.
-                val normPath = basePath2.fileSystem.getPath("_/$relStr")
-                relative.none { it.toString() == ".git" } &&
-                (matcher.matches(relative) || matcher.matches(normPath)) &&
-                when (typeFilter) {
-                    "dir" -> Files.isDirectory(path)
-                    "file" -> Files.isRegularFile(path)
-                    else -> true
+        Files.walk(basePath2).use { stream ->
+            stream
+                .filter { path ->
+                    val relative = basePath2.relativize(path)
+                    val relStr = relative.toString()
+                    if (relStr.isEmpty()) return@filter false  // skip base dir itself
+                    // Java's glob: "**/*.md" requires a path separator, so "notes.md" won't match.
+                    // Fix: also try with a dummy prefix so patterns like "**/*.md" match root-level files.
+                    val normPath = basePath2.fileSystem.getPath("_/$relStr")
+                    relative.none { it.toString() == ".git" } &&
+                    (matcher.matches(relative) || matcher.matches(normPath)) &&
+                    when (typeFilter) {
+                        "dir" -> Files.isDirectory(path)
+                        "file" -> Files.isRegularFile(path)
+                        else -> true
+                    }
                 }
-            }
-            .limit(limit.toLong())
-            .forEach { results.add(basePath2.relativize(it).toString()) }
+                .limit(limit.toLong())
+                .forEach { results.add(basePath2.relativize(it).toString()) }
+        }
 
         if (results.isEmpty()) "(no matches for pattern: $pattern)"
         else results.joinToString("\n")
@@ -144,12 +146,14 @@ class GrepTool(private val vault: VaultManager) : Tool {
         if (base.isFile) {
             searchFile(base)
         } else {
-            Files.walk(base.toPath())
-                .filter { path ->
-                    Files.isRegularFile(path) && path.none { it.toString() == ".git" }
-                }
-                .limit(200)
-                .forEach { searchFile(it.toFile()) }
+            Files.walk(base.toPath()).use { stream ->
+                stream
+                    .filter { path ->
+                        Files.isRegularFile(path) && path.none { it.toString() == ".git" }
+                    }
+                    .limit(200)
+                    .forEach { searchFile(it.toFile()) }
+            }
         }
 
         when (outputMode) {
