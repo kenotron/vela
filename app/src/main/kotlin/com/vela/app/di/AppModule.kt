@@ -195,6 +195,8 @@ object AppModule {
                     }
                 }
             }
+        }.onFailure { e ->
+            android.util.Log.e("AppModule", "Failed to extract bundled skills from assets", e)
         }
         return cache
     }
