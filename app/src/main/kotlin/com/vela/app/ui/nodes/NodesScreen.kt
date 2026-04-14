@@ -109,7 +109,7 @@ fun NodesScreen(
 // ── Device identity key card ──────────────────────────────────────────────────
 
 @Composable
-private fun DeviceKeyCard(publicKey: String, context: Context) {
+internal fun DeviceKeyCard(publicKey: String, context: Context) {
     val cs = MaterialTheme.colorScheme
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -155,7 +155,7 @@ private fun DeviceKeyCard(publicKey: String, context: Context) {
 // ── Node card with multiple IPs ───────────────────────────────────────────────
 
 @Composable
-private fun NodeCard(
+internal fun NodeCard(
     node: SshNode,
     onDelete: () -> Unit,
     onAddHost: (String) -> Unit,
@@ -296,7 +296,7 @@ private fun IpChip(host: String, isPrimary: Boolean, canRemove: Boolean, onRemov
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddNodeSheet(
+internal fun AddNodeSheet(
     onDismiss: () -> Unit,
     onAdd:     (label: String, host: String, port: String, username: String) -> Unit,
     error:     String?,

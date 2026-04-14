@@ -24,7 +24,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -46,6 +46,8 @@ import com.vela.app.domain.model.Conversation
 import com.vela.app.ui.components.MarkdownText
 import com.vela.app.ui.components.VoiceButton
 import com.vela.app.ui.nodes.NodesScreen
+    import com.vela.app.ui.settings.SettingsScreen
+    import com.vela.app.ui.settings.VaultDetailScreen
 import com.vela.app.voice.SpeechTranscriber
 import com.vela.app.voice.TranscriptState
 import com.vela.app.voice.VoiceCapture
@@ -53,15 +55,22 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import java.text.SimpleDateFormat
 import java.util.*
 
-private enum class Page { CHAT, SESSIONS, NODES }
+private enum class Page { CHAT, SESSIONS, NODES, SETTINGS, VAULT_DETAIL }
 
 @Composable
 fun ConversationRoot(
     speechTranscriber: SpeechTranscriber? = null,
     viewModel: ConversationViewModel = hiltViewModel(),
 ) {
-    var page by remember { mutableStateOf(Page.CHAT) }
-    BackHandler(enabled = page != Page.CHAT) { page = Page.CHAT }
+    var page          by remember { mutableStateOf(Page.CHAT) }
+    var prevPage      by remember { mutableStateOf(Page.CHAT) }
+    var detailVaultId by remember { mutableStateOf<String?>(null) }
+
+    BackHandler(enabled = page != Page.CHAT) {
+        val dest = prevPage
+        prevPage = Page.CHAT
+        page = dest
+    }
 
     AnimatedContent(
         targetState = page,
@@ -75,9 +84,38 @@ fun ConversationRoot(
         label = "page-swap",
     ) { p ->
         when (p) {
-            Page.CHAT     -> ConversationScreen(speechTranscriber, viewModel, { page = Page.SESSIONS }, { page = Page.NODES })
-            Page.SESSIONS -> SessionsPage(viewModel, onBack = { page = Page.CHAT }, onSelect = { page = Page.CHAT })
-            Page.NODES    -> NodesScreen(onBack = { page = Page.CHAT })
+            Page.CHAT     -> ConversationScreen(
+                speechTranscriber,
+                viewModel,
+                onOpenSessions = { prevPage = page; page = Page.SESSIONS },
+                onOpenSettings = { prevPage = page; page = Page.SETTINGS },
+            )
+            Page.SESSIONS -> SessionsPage(
+                viewModel,
+                onBack   = { prevPage = Page.CHAT; page = Page.CHAT },
+                onSelect = { prevPage = Page.CHAT; page = Page.CHAT },
+            )
+            Page.NODES    -> NodesScreen(onBack = {
+                val dest = prevPage; prevPage = Page.CHAT; page = dest
+            })
+            Page.SETTINGS -> SettingsScreen(
+                onNavigateBack          = { prevPage = Page.CHAT; page = Page.CHAT },
+                onNavigateToNodes       = { prevPage = page; page = Page.NODES },
+                onNavigateToVaultDetail = { vaultId ->
+                    detailVaultId = vaultId
+                    prevPage = page
+                    page = Page.VAULT_DETAIL
+                },
+            )
+            Page.VAULT_DETAIL -> {
+                val vaultId = detailVaultId
+                if (vaultId != null) {
+                    VaultDetailScreen(
+                        vaultId        = vaultId,
+                        onNavigateBack = { val dest = prevPage; prevPage = Page.CHAT; page = dest },
+                    )
+                }
+            }
         }
     }
 }
@@ -150,7 +188,7 @@ fun ConversationScreen(
     speechTranscriber: SpeechTranscriber? = null,
     viewModel: ConversationViewModel = hiltViewModel(),
     onOpenSessions: () -> Unit = {},
-    onOpenNodes:    () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
 ) {
     val context          = LocalContext.current
     val turnsWithEvents  by viewModel.turnsWithEvents.collectAsState()
@@ -188,7 +226,7 @@ fun ConversationScreen(
                 navigationIcon = { IconButton(onClick = onOpenSessions) { Icon(Icons.Default.ChatBubbleOutline, null) } },
                 title = { Text(activeTitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium) },
                 actions = {
-                    IconButton(onClick = onOpenNodes) { Icon(Icons.Default.Hub, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                     IconButton(onClick = { viewModel.newSession() }) { Icon(Icons.Default.Add, null, tint = MaterialTheme.colorScheme.primary) }
                 },
             )
