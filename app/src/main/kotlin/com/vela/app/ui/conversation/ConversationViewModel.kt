@@ -7,8 +7,10 @@ import com.vela.app.data.db.ConversationDao
 import com.vela.app.data.db.ConversationEntity
 import com.vela.app.data.db.TurnDao
 import com.vela.app.data.db.TurnWithEvents
+import com.vela.app.data.db.VaultEntity
 import com.vela.app.domain.model.Conversation
 import com.vela.app.engine.InferenceEngine
+import com.vela.app.vault.VaultRegistry
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -24,6 +26,7 @@ class ConversationViewModel @Inject constructor(
     private val inferenceEngine: InferenceEngine,
     private val conversationDao: ConversationDao,
     private val turnDao: TurnDao,
+    private val vaultRegistry: VaultRegistry,
 ) : ViewModel() {
 
     companion object {
@@ -67,6 +70,14 @@ class ConversationViewModel @Inject constructor(
     val isConfigured: Boolean
         get() = prefs.getString("anthropic_api_key", "").orEmpty().isNotBlank()
 
+    /** All currently-enabled vaults — shown as chips in ConversationScreen. */
+    val allVaults: StateFlow<List<VaultEntity>> = vaultRegistry.observeAll()
+        .map { it.filter { v -> v.isEnabled } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _sessionActiveVaultIds = MutableStateFlow<Set<String>>(emptySet())
+    val sessionActiveVaultIds: StateFlow<Set<String>> = _sessionActiveVaultIds.asStateFlow()
+
     init {
         viewModelScope.launch {
             val savedId = prefs.getString(KEY_ACTIVE_ID, null)
@@ -76,6 +87,13 @@ class ConversationViewModel @Inject constructor(
         viewModelScope.launch {
             inferenceEngine.turnComplete.collect { turnId ->
                 if (_activeTurnId.value == turnId) _activeTurnId.value = null
+            }
+        }
+
+        // Reset session vault selection when active conversation changes
+        viewModelScope.launch {
+            _activeConvId.filterNotNull().collect {
+                _sessionActiveVaultIds.value = allVaults.value.map { v -> v.id }.toSet()
             }
         }
     }
@@ -109,6 +127,27 @@ class ConversationViewModel @Inject constructor(
             turnDao.deleteForConversation(id)
             conversationDao.delete(id)
             if (_activeConvId.value == id) newSession()
+        }
+    }
+
+    fun toggleVaultForSession(vaultId: String) {
+        _sessionActiveVaultIds.update { current ->
+            if (vaultId in current) current - vaultId else current + vaultId
+        }
+    }
+
+    fun newVaultSession() {
+        viewModelScope.launch {
+            val conv = ConversationEntity(
+                id        = UUID.randomUUID().toString(),
+                title     = "Vault Session",
+                createdAt = System.currentTimeMillis(),
+                updatedAt = System.currentTimeMillis(),
+                mode      = "vault",
+            )
+            conversationDao.insert(conv)
+            _activeConvId.value = conv.id
+            prefs.edit().putString(KEY_ACTIVE_ID, conv.id).apply()
         }
     }
 

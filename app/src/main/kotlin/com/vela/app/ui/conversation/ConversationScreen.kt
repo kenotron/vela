@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -195,6 +196,8 @@ fun ConversationScreen(
     val activeTitle      by viewModel.activeTitle.collectAsState()
     val activeTurnId     by viewModel.activeTurnId.collectAsState()
     val streamingTextMap by viewModel.streamingText.collectAsState()
+    val allVaults             by viewModel.allVaults.collectAsState()
+    val sessionActiveVaultIds by viewModel.sessionActiveVaultIds.collectAsState()
 
     var textInput by remember { mutableStateOf("") }
     val voiceCapture = remember(speechTranscriber) { speechTranscriber?.let { VoiceCapture(it) } }
@@ -227,7 +230,25 @@ fun ConversationScreen(
                 title = { Text(activeTitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium) },
                 actions = {
                     IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    IconButton(onClick = { viewModel.newSession() }) { Icon(Icons.Default.Add, null, tint = MaterialTheme.colorScheme.primary) }
+                    Box {
+                        var showMenu by remember { mutableStateOf(false) }
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(Icons.Default.Add, null, tint = MaterialTheme.colorScheme.primary)
+                        }
+                        DropdownMenu(
+                            expanded         = showMenu,
+                            onDismissRequest = { showMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text    = { Text("New Chat") },
+                                onClick = { viewModel.newSession(); showMenu = false },
+                            )
+                            DropdownMenuItem(
+                                text    = { Text("New Vault Session") },
+                                onClick = { viewModel.newVaultSession(); showMenu = false },
+                            )
+                        }
+                    }
                 },
             )
         },
@@ -239,25 +260,43 @@ fun ConversationScreen(
             }
         },
     ) { pad ->
-        if (turnsWithEvents.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) {
-                Text("Start a conversation", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(Modifier.fillMaxSize().padding(pad)) {
+            // Vault chips row — hidden when no vaults
+            if (allVaults.isNotEmpty()) {
+                LazyRow(
+                    modifier              = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(allVaults, key = { it.id }) { vault ->
+                        FilterChip(
+                            selected = vault.id in sessionActiveVaultIds,
+                            onClick  = { viewModel.toggleVaultForSession(vault.id) },
+                            label    = { Text(vault.name, style = MaterialTheme.typography.labelMedium) },
+                        )
+                    }
+                }
             }
-        } else {
-            LazyColumn(
-                state          = listState,
-                modifier       = Modifier.fillMaxSize().padding(pad),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                // ONE rendering path for ALL turns — live or complete, events always present.
-                // TurnWithEvents.sortedEvents gives us seq-ordered events from @Relation.
-                items(turnsWithEvents, key = { it.turn.id }) { twe ->
-                    TurnRow(
-                        twe           = twe,
-                        streamingText = streamingTextMap[twe.turn.id],
-                        isLive        = twe.turn.id == activeTurnId,
-                    )
+
+            if (turnsWithEvents.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Start a conversation", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else {
+                LazyColumn(
+                    state          = listState,
+                    modifier       = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    // ONE rendering path for ALL turns — live or complete, events always present.
+                    // TurnWithEvents.sortedEvents gives us seq-ordered events from @Relation.
+                    items(turnsWithEvents, key = { it.turn.id }) { twe ->
+                        TurnRow(
+                            twe           = twe,
+                            streamingText = streamingTextMap[twe.turn.id],
+                            isLive        = twe.turn.id == activeTurnId,
+                        )
+                    }
                 }
             }
         }
