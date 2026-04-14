@@ -42,10 +42,9 @@ class LoadSkillTool(private val engine: SkillsEngine) : Tool {
                 } ?: "Skill '$info' not found"
             }
             skillName != null -> when (val r = engine.load(skillName)) {
-                is SkillLoadResult.Content    -> "${r.body}\n\nskill_directory: ${r.skillDirectory}"
-                is SkillLoadResult.NotFound   -> "Skill '$skillName' not found"
-                is SkillLoadResult.ForkResult -> r.response
-                is SkillLoadResult.Error      -> "Error: ${r.message}"
+                is SkillLoadResult.Content  -> "${r.body}\n\nskill_directory: ${r.skillDirectory}"
+                is SkillLoadResult.NotFound -> "Skill '$skillName' not found"
+                is SkillLoadResult.Error    -> "Error: ${r.message}"
             }
             else -> "Error: specify list=true, search=\"<query>\", info=\"<name>\", or skill_name=\"<name>\""
         }

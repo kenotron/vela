@@ -5,6 +5,7 @@ import com.vela.app.data.db.VaultEntity
 import com.vela.app.vault.VaultSettings
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
+import java.io.IOException
 
 class VaultSyncHookTest {
 
@@ -43,5 +44,14 @@ class VaultSyncHookTest {
         )
         hook.execute(HookContext("conv", emptyList(), HookEvent.SESSION_START))
         assertThat(pullCalled).isFalse()
+    }
+
+    @Test fun `pull throwing returns HookResult_Error`() = runBlocking {
+        val hook = VaultSyncHook(
+            pull = { _, _ -> throw IOException("network unreachable") },
+            vaultSettings = fakeSettings,
+        )
+        val result = hook.execute(HookContext("conv", listOf(vaultA), HookEvent.SESSION_START))
+        assertThat(result).isInstanceOf(HookResult.Error::class.java)
     }
 }
