@@ -9,6 +9,12 @@ import com.vela.app.data.db.*
 import com.vela.app.data.repository.ConversationRepository
 import com.vela.app.data.repository.RoomConversationRepository
 import com.vela.app.engine.InferenceEngine
+import com.vela.app.harness.SessionHarness
+import com.vela.app.hooks.Hook
+import com.vela.app.hooks.HookRegistry
+import com.vela.app.hooks.PersonalizationHook
+import com.vela.app.hooks.VaultConfigHook
+import com.vela.app.hooks.VaultSyncHook
 import com.vela.app.ssh.SshKeyManager
 import com.vela.app.ssh.SshNodeRegistry
 import com.vela.app.vault.SharedPrefsVaultSettings
@@ -132,12 +138,43 @@ object AppModule {
     fun provideInferenceSession(session: AmplifierSession): InferenceSession = session
 
     @Provides @Singleton
+    fun provideHooks(
+        vaultSettings: VaultSettings,
+        vaultGitSync: VaultGitSync,
+    ): @JvmSuppressWildcards List<Hook> = listOf(
+        VaultSyncHook(
+            pull          = { id, path -> vaultGitSync.pull(id, path) },
+            vaultSettings = vaultSettings,
+        ),
+        PersonalizationHook(),
+        VaultConfigHook(),
+    )
+
+    @Provides @Singleton
+    fun provideSessionHarness(
+        hookRegistry: HookRegistry,
+        @ApplicationContext ctx: Context,
+    ): SessionHarness {
+        val fallback = try {
+            ctx.assets.open("lifeos/SYSTEM.md").bufferedReader().readText()
+        } catch (_: Exception) {
+            SessionHarness.DEFAULT_FALLBACK
+        }
+        return SessionHarness(hookRegistry, fallback)
+    }
+
+    @Provides @Singleton
     fun provideInferenceEngine(
         session: InferenceSession,
         toolRegistry: ToolRegistry,
         turnDao: TurnDao,
         turnEventDao: TurnEventDao,
-    ): InferenceEngine = InferenceEngine(session, toolRegistry, turnDao, turnEventDao)
+        conversationDao: ConversationDao,
+        vaultRegistry: VaultRegistry,
+        harness: SessionHarness,
+    ): InferenceEngine = InferenceEngine(
+        session, toolRegistry, turnDao, turnEventDao, conversationDao, vaultRegistry, harness,
+    )
 
     @Provides @Singleton
     fun provideSpeechTranscriber(@ApplicationContext ctx: Context): SpeechTranscriber =
