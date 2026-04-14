@@ -67,9 +67,10 @@ class WriteFileTool(private val vault: VaultManager) : Tool {
 
         val file = vault.resolve(path)
             ?: return@withContext "Error: path '$path' is outside the vault"
+        if (file.isDirectory) return@withContext "Error: '$path' is a directory, not a file"
         file.parentFile?.mkdirs()
         file.writeText(content)
-        val lineCount = content.lines().size
+        val lineCount = content.trimEnd('\n', '\r').lines().size
         "Wrote $lineCount lines to $path"
     }
 }
@@ -98,6 +99,7 @@ class EditFileTool(private val vault: VaultManager) : Tool {
         val file = vault.resolve(path)
             ?: return@withContext "Error: path '$path' is outside the vault"
         if (!file.exists()) return@withContext "Error: '$path' not found"
+        if (file.isDirectory) return@withContext "Error: '$path' is a directory, not a file"
 
         val content = file.readText()
         val count = content.split(oldStr).size - 1
