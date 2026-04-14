@@ -58,6 +58,9 @@ class InferenceEngine @Inject constructor(
     private val toolRegistry: com.vela.app.ai.tools.ToolRegistry,
     private val turnDao: TurnDao,
     private val turnEventDao: TurnEventDao,
+    private val conversationDao: com.vela.app.data.db.ConversationDao,
+    private val vaultRegistry: com.vela.app.vault.VaultRegistry,
+    private val harness: com.vela.app.harness.SessionHarness,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -137,9 +140,17 @@ class InferenceEngine @Inject constructor(
 
         val historyJson = buildHistory(conversationId)
 
+        val conversation  = conversationDao.getById(conversationId)
+        val systemPrompt  = if (conversation?.mode == "vault" && !harness.isInitialized(conversationId)) {
+            harness.buildSystemPrompt(conversationId, vaultRegistry.getEnabledVaults())
+        } else {
+            ""
+        }
+
         session.runTurn(
-            historyJson = historyJson,
-            userInput   = userMessage,
+            historyJson  = historyJson,
+            userInput    = userMessage,
+            systemPrompt = systemPrompt,
 
             onToken = { token ->
                 textBuffer.append(token)
