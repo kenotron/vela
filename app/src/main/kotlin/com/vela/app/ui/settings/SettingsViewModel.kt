@@ -87,7 +87,9 @@ package com.vela.app.ui.settings
                     if (pat.isNotBlank()) vaultSettings.setPat(entity.id, pat)
                     // Immediately clone so content is available in the current session
                     val vaultPath = File(entity.localPath)
-                    vaultGitSync.cloneIfNeeded(entity.id, vaultPath)
+                    _syncMessage.value = "Cloning vault…"
+                    val result = vaultGitSync.cloneIfNeeded(entity.id, vaultPath)
+                    _syncMessage.value = result
                 }
             }
         }

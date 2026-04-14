@@ -85,6 +85,7 @@ package com.vela.app.vault
         }
 
         open suspend fun pull(vaultId: String, vaultPath: File): String = withContext(Dispatchers.IO) {
+            if (!File(vaultPath, ".git").exists()) return@withContext "Not cloned yet — configure sync in Settings"
             runCatching {
                 Git.open(vaultPath).use { git ->
                     val result = git.pull()
