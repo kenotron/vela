@@ -57,14 +57,15 @@ class AmplifierSession @Inject constructor(
      *                     arrives at once, but this API is forward-compatible with SSE).
      */
     override suspend fun runTurn(
-        historyJson: String,
-        userInput: String,
-        onToolStart: (suspend (name: String, argsJson: String) -> String),
-        onToolEnd:   (suspend (stableId: String, result: String) -> Unit),
-        onToken:     (suspend (token: String) -> Unit),
+        historyJson:  String,
+        userInput:    String,
+        systemPrompt: String,
+        onToolStart:  (suspend (name: String, argsJson: String) -> String),
+        onToolEnd:    (suspend (stableId: String, result: String) -> Unit),
+        onToken:      (suspend (token: String) -> Unit),
     ) {
         val toolsJson = buildToolsJson()
-        Log.d(TAG, "runTurn model=${getModel()} historyLen=${historyJson.length}")
+        Log.d(TAG, "runTurn model=${getModel()} historyLen=${historyJson.length} hasSystemPrompt=${systemPrompt.isNotBlank()}")
 
         // Antipattern guard: orchestrator.rs calls emit_token() AND returns the
         // same string. Without this flag the text would be emitted twice —
@@ -72,12 +73,13 @@ class AmplifierSession @Inject constructor(
         var tokenWasEmitted = false
 
         val finalText = AmplifierBridge.nativeRun(
-            apiKey      = getApiKey(),
-            model       = getModel(),
-            toolsJson   = toolsJson,
-            historyJson = historyJson,
-            userInput   = userInput,
-            tokenCb     = { token ->
+            apiKey       = getApiKey(),
+            model        = getModel(),
+            toolsJson    = toolsJson,
+            historyJson  = historyJson,
+            userInput    = userInput,
+            systemPrompt = systemPrompt,
+            tokenCb      = { token ->
                 tokenWasEmitted = true
                 runBlocking { onToken(token) }
             },
