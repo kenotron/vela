@@ -1,9 +1,11 @@
 package com.vela.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,9 +24,13 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var speechTranscriber: SpeechTranscriber
 
+    private val conversationViewModel: ConversationViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        handleOpenConversationIntent(intent)
+        addOnNewIntentListener { handleOpenConversationIntent(it) }
         setContent {
             VelaTheme {
                 val vm: ConversationViewModel = hiltViewModel()
@@ -40,6 +46,17 @@ class MainActivity : ComponentActivity() {
                 } else {
                     ConversationRoot(speechTranscriber = speechTranscriber)
                 }
+            }
+        }
+    }
+
+    private fun handleOpenConversationIntent(intent: Intent?) {
+        if (intent?.action == "com.vela.app.OPEN_CONVERSATION") {
+            val convId = intent.getStringExtra("conversationId") ?: return
+            val message = intent.getStringExtra("stagedMessage")
+            conversationViewModel.switchToConversation(convId)
+            if (!message.isNullOrBlank()) {
+                conversationViewModel.setPendingInput(message)
             }
         }
     }

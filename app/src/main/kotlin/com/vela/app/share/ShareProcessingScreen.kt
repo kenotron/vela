@@ -14,7 +14,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 
 @Composable
 fun ShareProcessingScreen(
-    onDone: (conversationId: String) -> Unit,
+    onDone: (conversationId: String, stagedMessage: String) -> Unit,
     onDismiss: () -> Unit,
     viewModel: ShareViewModel = hiltViewModel(),
 ) {
@@ -67,7 +67,7 @@ fun ShareProcessingScreen(
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(48.dp))
                     Text("Ready!", style = MaterialTheme.typography.titleMedium)
-                    Button(onClick = { onDone(s.conversationId) }) {
+                    Button(onClick = { onDone(s.conversationId, s.stagedMessage) }) {
                         Text("Open conversation")
                     }
                 }

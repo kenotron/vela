@@ -577,7 +577,9 @@ private fun ComposerBox(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                        .defaultMinSize(minHeight = 48.dp)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    contentAlignment = Alignment.CenterStart,
                 ) {
                     if (value.isEmpty()) {
                         Text(

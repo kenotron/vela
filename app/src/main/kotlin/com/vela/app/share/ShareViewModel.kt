@@ -22,7 +22,7 @@ sealed class ShareState {
     data object Idle : ShareState()
     data class Preview(val label: String, val contentSummary: String) : ShareState()
     data object Processing : ShareState()
-    data class Done(val conversationId: String) : ShareState()
+    data class Done(val conversationId: String, val stagedMessage: String) : ShareState()
     data class Error(val message: String) : ShareState()
 }
 
@@ -77,30 +77,26 @@ class ShareViewModel @Inject constructor(
         viewModelScope.launch {
             _state.value = ShareState.Processing
             try {
-                val enabledVaults = vaultRegistry.getEnabledVaults()
-                val vaultNote = if (enabledVaults.isEmpty()) ""
-                    else "\n\n[Vault: ${enabledVaults.first().name}]"
-
-                // Build the user message that lifeos will process
-                val userMessage = buildString {
+                val stagedMessage = buildString {
                     when {
                         pendingText != null -> {
-                            appendLine("Please process this shared content into the vault:")
+                            appendLine("Please process this shared content into my vault:")
                             appendLine()
                             append(pendingText)
                         }
                         pendingFilePath != null -> {
-                            val mime = pendingMimeType ?: "unknown"
-                            appendLine("Please process this shared file into the vault:")
-                            appendLine("File: $pendingFilePath")
-                            appendLine("Type: $mime")
+                            val mime = pendingMimeType ?: "file"
+                            appendLine("Please process this shared ${if (mime.startsWith("image/")) "image" else "file"} into my vault.")
+                            appendLine()
+                            appendLine("File path: $pendingFilePath")
                             if (mime.startsWith("image/")) {
-                                appendLine("Analyze the image and file it appropriately.")
+                                appendLine("Analyse the image and file it appropriately in the vault.")
+                            } else {
+                                appendLine("Extract the relevant content and file it appropriately in the vault.")
                             }
                         }
-                        else -> append("Process shared content into vault.")
+                        else -> append("Please process this shared content into my vault.")
                     }
-                    append(vaultNote)
                 }
 
                 val conv = ConversationEntity(
@@ -111,7 +107,7 @@ class ShareViewModel @Inject constructor(
                     mode      = "vault",
                 )
                 conversationDao.insert(conv)
-                _state.value = ShareState.Done(conv.id)
+                _state.value = ShareState.Done(conv.id, stagedMessage)
             } catch (e: Exception) {
                 _state.value = ShareState.Error("Could not create vault session: ${e.message}")
             }

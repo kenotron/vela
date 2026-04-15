@@ -23,10 +23,11 @@ class ShareReceiveActivity : ComponentActivity() {
         setContent {
             VelaTheme {
                 ShareProcessingScreen(
-                    onDone = { conversationId ->
+                    onDone = { conversationId, stagedMessage ->
                         val launch = Intent(this, MainActivity::class.java).apply {
                             action = "com.vela.app.OPEN_CONVERSATION"
                             putExtra("conversationId", conversationId)
+                            putExtra("stagedMessage", stagedMessage)
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                         }
                         startActivity(launch)
