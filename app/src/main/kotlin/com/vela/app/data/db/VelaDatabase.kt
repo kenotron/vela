@@ -14,7 +14,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TurnEventEntity::class,
         VaultEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class VelaDatabase : RoomDatabase() {
@@ -108,5 +108,14 @@ val MIGRATION_6_7 = object : Migration(6, 7) {
         database.execSQL(
             "ALTER TABLE conversations ADD COLUMN mode TEXT NOT NULL DEFAULT 'default'"
         )
+    }
+}
+/** v8→v9: clear old base64 content block data. */
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Clear old base64 content block data — these rows were stored before
+        // the ref-based approach. Old attachments on those turns are lost but
+        // the app stops crashing.
+        db.execSQL("UPDATE turns SET userContentJson = NULL")
     }
 }

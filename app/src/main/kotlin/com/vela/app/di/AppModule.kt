@@ -50,7 +50,7 @@ object AppModule {
     @Provides @Singleton
     fun provideDatabase(@ApplicationContext ctx: Context): VelaDatabase =
         Room.databaseBuilder(ctx, VelaDatabase::class.java, "vela_database")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
             .build()
 
     @Provides fun provideMessageDao(db: VelaDatabase): MessageDao          = db.messageDao()
@@ -160,6 +160,8 @@ object AppModule {
         transcribeAudioTool,
         // Git operations
         gitTool,
+        // Code mode — execute a shell script in one shot without token-heavy round-trips
+        RunScriptTool(ctx, vaultRegistry),
     )
 
     @Provides @Singleton
