@@ -166,9 +166,18 @@ class InferenceEngine @Inject constructor(
             ""
         }
 
+        // If the user sent only attachments with no text, userMessage is "".
+        // Pass a non-empty placeholder so the Rust bridge / API layer never
+        // sees an empty content string — the actual content is in apiContentJson.
+        val effectiveUserInput = if (userMessage.isBlank() && !apiContentJson.isNullOrBlank()) {
+            "(see attached)"
+        } else {
+            userMessage
+        }
+
         session.runTurn(
             historyJson     = historyJson,
-            userInput       = userMessage,
+            userInput       = effectiveUserInput,
             userContentJson = apiContentJson,   // resolved base64 version — not the stored refs
             systemPrompt    = systemPrompt,
 

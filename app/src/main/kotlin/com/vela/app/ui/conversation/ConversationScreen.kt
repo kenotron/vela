@@ -59,6 +59,8 @@ import com.vela.app.data.db.TurnEventEntity
 import com.vela.app.data.db.TurnWithEvents
 import com.vela.app.data.db.VaultEntity
 import com.vela.app.domain.model.Conversation
+import com.vela.app.engine.ContentBlockRef
+import com.vela.app.engine.parseContentBlockRefs
 import com.vela.app.ui.components.MarkdownText
 import com.vela.app.ui.nodes.NodesScreen
     import com.vela.app.ui.settings.AiSettingsScreen
@@ -453,10 +455,71 @@ private fun TurnRow(twe: TurnWithEvents, streamingText: String?, isLive: Boolean
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
 
-        // User bubble
+        // User bubble — text + attachment chips (images / files)
+        val attachmentRefs = remember(twe.turn.userContentJson) {
+            twe.turn.userContentJson
+                ?.let { runCatching { parseContentBlockRefs(it) }.getOrNull() }
+                ?.filterNot { it is ContentBlockRef.Text }
+                ?: emptyList()
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            Box(Modifier.widthIn(max = maxW).background(cs.surfaceContainerHighest, UserShape).padding(horizontal = 14.dp, vertical = 10.dp)) {
-                Text(twe.turn.userMessage, style = MaterialTheme.typography.bodyMedium, color = cs.onSurface)
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                // Attachment chips (images / files)
+                if (attachmentRefs.isNotEmpty()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        attachmentRefs.forEach { ref ->
+                            val isImage = ref is ContentBlockRef.ImageRef
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 56.dp, height = 48.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (isImage) cs.primaryContainer
+                                        else cs.secondaryContainer
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center,
+                                ) {
+                                    Icon(
+                                        imageVector = if (isImage) Icons.Default.Image
+                                                      else Icons.Default.InsertDriveFile,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = if (isImage) cs.onPrimaryContainer
+                                               else cs.onSecondaryContainer,
+                                    )
+                                    Text(
+                                        text = if (isImage) "IMG" else "FILE",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (isImage) cs.onPrimaryContainer
+                                                else cs.onSecondaryContainer,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                // Text bubble — only rendered when there is text
+                if (twe.turn.userMessage.isNotBlank()) {
+                    Box(
+                        Modifier
+                            .widthIn(max = maxW)
+                            .background(cs.surfaceContainerHighest, UserShape)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                    ) {
+                        Text(
+                            twe.turn.userMessage,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = cs.onSurface,
+                        )
+                    }
+                }
             }
         }
 
