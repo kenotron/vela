@@ -70,8 +70,16 @@ class RecordingViewModel @Inject constructor(
         }
     }
 
-    fun createVaultSession(onCreated: (conversationId: String) -> Unit) {
-        val transcript = repository.state.value.transcript ?: return
+    fun createVaultSession(onCreated: (conversationId: String, message: String) -> Unit) {
+        val file = repository.state.value.outputFile ?: return
+        val duration = repository.formatElapsed(repository.state.value.elapsedSeconds)
+        val stagedMessage = """Please transcribe and process this voice recording into my vault.
+
+Audio file: ${file.absolutePath}
+Duration: $duration
+
+Transcribe the audio, then process the transcript according to the vault protocols — extract action items, identify people mentioned, note topics discussed, and file everything in the appropriate vault locations."""
+
         viewModelScope.launch {
             val conv = ConversationEntity(
                 id        = UUID.randomUUID().toString(),
@@ -81,8 +89,7 @@ class RecordingViewModel @Inject constructor(
                 mode      = "vault",
             )
             conversationDao.insert(conv)
-            // Store transcript as first message to process — the harness will pick it up
-            onCreated(conv.id)
+            onCreated(conv.id, stagedMessage)
         }
     }
 

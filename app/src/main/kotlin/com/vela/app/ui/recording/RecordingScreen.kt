@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
@@ -21,21 +22,15 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vela.app.recording.RecordingStatus
 import com.vela.app.recording.RecordingViewModel
-import com.vela.app.recording.TranscriptionProvider
-import com.vela.app.ui.settings.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RecordingScreen(
     onNavigateBack: () -> Unit,
-    onVaultSessionCreated: (conversationId: String) -> Unit,
+    onVaultSessionCreated: (conversationId: String, stagedMessage: String) -> Unit,
     viewModel: RecordingViewModel = hiltViewModel(),
-    settingsViewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.repository.state.collectAsState()
-    val googleApiKey by settingsViewModel.googleApiKey.collectAsState()
-    val openAiApiKey by settingsViewModel.openAiApiKey.collectAsState()
-    var selectedProvider by remember { mutableStateOf(TranscriptionProvider.GEMINI) }
     var showPermissionRationale by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -122,57 +117,31 @@ fun RecordingScreen(
                 )
             }
 
-            // Transcription controls — shown after recording stops
+            // Ready to send — shown after recording stops
             if (state.status == RecordingStatus.IDLE && state.outputFile != null && state.transcript == null) {
                 HorizontalDivider()
-                Text("Transcribe with:", style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = selectedProvider == TranscriptionProvider.GEMINI,
-                        onClick  = { selectedProvider = TranscriptionProvider.GEMINI },
-                        label    = { Text("Gemini") },
-                        enabled  = googleApiKey.isNotBlank(),
-                    )
-                    FilterChip(
-                        selected = selectedProvider == TranscriptionProvider.WHISPER,
-                        onClick  = { selectedProvider = TranscriptionProvider.WHISPER },
-                        label    = { Text("Whisper") },
-                        enabled  = openAiApiKey.isNotBlank(),
-                    )
-                }
-                if (googleApiKey.isBlank() && openAiApiKey.isBlank()) {
-                    Text("Add API keys in Settings → AI",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error)
-                }
-                Button(
-                    onClick = { viewModel.transcribe(selectedProvider, googleApiKey, openAiApiKey) },
-                    enabled = (selectedProvider == TranscriptionProvider.GEMINI && googleApiKey.isNotBlank()) ||
-                              (selectedProvider == TranscriptionProvider.WHISPER && openAiApiKey.isNotBlank()),
-                ) { Text("Transcribe") }
-            }
-
-            // Transcript preview + vault button
-            if (state.status == RecordingStatus.DONE && state.transcript != null) {
-                HorizontalDivider()
-                OutlinedCard(modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)) {
-                    Text(
-                        text = state.transcript!!,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(12.dp),
-                    )
-                }
-                Button(
-                    onClick = { viewModel.createVaultSession(onVaultSessionCreated) },
+                // File info
+                Text(
+                    text = "Saved: ${state.outputFile!!.name}  (${viewModel.repository.formatElapsed(state.elapsedSeconds)})",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Process into vault") }
-                TextButton(onClick = { viewModel.reset() }) { Text("Record again") }
-            }
-
-            // Transcribing spinner
-            if (state.status == RecordingStatus.TRANSCRIBING) {
-                CircularProgressIndicator()
+                )
+                Spacer(Modifier.height(4.dp))
+                Button(
+                    onClick = {
+                        viewModel.createVaultSession { convId, message ->
+                            onVaultSessionCreated(convId, message)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Send, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Send to vault")
+                }
+                TextButton(onClick = { viewModel.reset() }) { Text("Discard") }
             }
         }
     }

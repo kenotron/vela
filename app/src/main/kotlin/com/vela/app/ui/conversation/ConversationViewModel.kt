@@ -39,6 +39,17 @@ class ConversationViewModel @Inject constructor(
     private val _activeConvId = MutableStateFlow<String?>(null)
     val activeConversationId: StateFlow<String?> = _activeConvId.asStateFlow()
 
+    // Pending input — set by recording/share flows to pre-stage a message
+    private val _pendingInput = MutableStateFlow<String?>(null)
+    val pendingInput: StateFlow<String?> = _pendingInput.asStateFlow()
+
+    fun setPendingInput(text: String) { _pendingInput.value = text }
+    fun consumePendingInput(): String? {
+        val text = _pendingInput.value
+        _pendingInput.value = null
+        return text
+    }
+
     val conversations: StateFlow<List<Conversation>> = conversationDao.getAllConversations()
         .map { it.map { e -> e.toDomain() } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

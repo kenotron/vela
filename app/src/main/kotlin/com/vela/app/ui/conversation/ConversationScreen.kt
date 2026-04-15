@@ -130,8 +130,9 @@ fun ConversationRoot(
             )
             Page.RECORDING -> com.vela.app.ui.recording.RecordingScreen(
                 onNavigateBack = { prevPage = Page.SETTINGS; page = Page.SETTINGS },
-                onVaultSessionCreated = { convId ->
+                onVaultSessionCreated = { convId, stagedMessage ->
                     viewModel.switchToConversation(convId)
+                    viewModel.setPendingInput(stagedMessage)
                     prevPage = Page.CHAT
                     page = Page.CHAT
                 },
@@ -241,8 +242,16 @@ fun ConversationScreen(
     val streamingTextMap by viewModel.streamingText.collectAsState()
     val allVaults             by viewModel.allVaults.collectAsState()
     val sessionActiveVaultIds by viewModel.sessionActiveVaultIds.collectAsState()
+    val pendingInput          by viewModel.pendingInput.collectAsState()
 
     var textInput by remember { mutableStateOf("") }
+    LaunchedEffect(pendingInput) {
+        val text = pendingInput
+        if (!text.isNullOrBlank()) {
+            textInput = text
+            viewModel.consumePendingInput()
+        }
+    }
     val voiceCapture = remember(speechTranscriber) { speechTranscriber?.let { VoiceCapture(it) } }
     DisposableEffect(voiceCapture) { onDispose { voiceCapture?.destroy() } }
     val idleFlow = remember { MutableStateFlow<TranscriptState>(TranscriptState.Idle) }
