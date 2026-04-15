@@ -7,9 +7,10 @@ package com.vela.app.engine
 interface InferenceSession {
     fun isConfigured(): Boolean
     suspend fun runTurn(
-        historyJson:  String,
-        userInput:    String,
-        systemPrompt: String = "",
+        historyJson:     String,
+        userInput:       String,
+        userContentJson: String? = null,   // null = plain text; non-null = Anthropic content blocks JSON
+        systemPrompt:    String = "",
         onToolStart:  (suspend (name: String, argsJson: String) -> String),
         onToolEnd:    (suspend (stableId: String, result: String) -> Unit),
         onToken:      (suspend (token: String) -> Unit),

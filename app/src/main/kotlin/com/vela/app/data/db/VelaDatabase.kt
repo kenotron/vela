@@ -14,7 +14,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TurnEventEntity::class,
         VaultEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class VelaDatabase : RoomDatabase() {
@@ -83,6 +83,12 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
                 toolStatus TEXT
             )
         """.trimIndent())
+    }
+}
+/** v7→v8: add userContentJson column to turns table (multi-content-block messages). */
+val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE turns ADD COLUMN userContentJson TEXT")
     }
 }
 /** v6→v7: add vaults table; add mode column to conversations. */

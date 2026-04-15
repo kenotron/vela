@@ -9,7 +9,10 @@ import com.vela.app.data.db.TurnDao
 import com.vela.app.data.db.TurnWithEvents
 import com.vela.app.data.db.VaultEntity
 import com.vela.app.domain.model.Conversation
+import com.vela.app.engine.ContentBlock
 import com.vela.app.engine.InferenceEngine
+import com.vela.app.engine.buildContentBlocks
+import com.vela.app.engine.toApiJsonString
 import com.vela.app.vault.VaultRegistry
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -150,6 +153,44 @@ class ConversationViewModel @Inject constructor(
         _sessionActiveVaultIds.update { current ->
             if (vaultId in current) current - vaultId else current + vaultId
         }
+    }
+
+    /**
+     * Send a message with optional file/image attachments.
+     *
+     * When attachments are present the payload is encoded as Anthropic content blocks
+     * (image or document) and stored alongside the plain-text [text] in the TurnEntity.
+     * Plain text-only messages follow the existing code path (userContentJson = null).
+     */
+    fun sendMessage(
+        text: String,
+        attachments: List<Pair<android.net.Uri, String>> = emptyList(),  // uri + mimeType
+    ) {
+        val convId = _activeConvId.value ?: return
+        viewModelScope.launch {
+            val isFirst = turnDao.getTurnsWithEvents(convId).first().isEmpty()
+            if (isFirst) {
+                val title = text.take(40).trim() + if (text.length > 40) "…" else ""
+                conversationDao.updateTitle(convId, title, System.currentTimeMillis())
+            }
+        }
+
+        val contentBlocks = if (attachments.isNotEmpty()) {
+            com.vela.app.engine.buildContentBlocks(context, text, attachments)
+        } else emptyList()
+
+        val userContentJson: String? = if (contentBlocks.size > 1 ||
+            contentBlocks.any { it !is ContentBlock.Text }) {
+            contentBlocks.toApiJsonString()
+        } else null
+
+        val turnId = inferenceEngine.startTurn(
+            conversationId  = convId,
+            userMessage     = text,
+            userContentJson = userContentJson,
+            activeVaultIds  = _sessionActiveVaultIds.value,
+        )
+        _activeTurnId.value = turnId
     }
 
     private fun processInput(input: String) {

@@ -11,4 +11,5 @@ data class TurnEntity(
     val status: String,          // "running" | "complete" | "error"
     val timestamp: Long,
     val error: String? = null,
+    val userContentJson: String? = null,   // JSON array of content blocks; null = plain text
 )

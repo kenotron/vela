@@ -31,14 +31,15 @@ object AmplifierBridge {
      * @return            Final assistant response text.
      */
     external fun nativeRun(
-        apiKey:       String,
-        model:        String,
-        toolsJson:    String,
-        historyJson:  String,
-        userInput:    String,
-        systemPrompt: String,
-        tokenCb:      TokenCallback,
-        toolCb:       ToolCallback,
+        apiKey:          String,
+        model:           String,
+        toolsJson:       String,
+        historyJson:     String,
+        userInput:       String,
+        userContentJson: String?,          // null = plain text; non-null = content blocks JSON array
+        systemPrompt:    String,
+        tokenCb:         TokenCallback,
+        toolCb:          ToolCallback,
     ): String
 
     /** Per-token streaming callback — called from the Rust decode loop. */

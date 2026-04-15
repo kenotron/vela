@@ -178,7 +178,7 @@ impl Orchestrator for SimpleOrchestrator {
         context: Arc<dyn ContextManager>,
         providers: HashMap<String, Arc<dyn Provider>>,
         tools: HashMap<String, Arc<dyn Tool>>,
-        _hooks: Value,
+        hooks: Value,          // content blocks array when user sent images/docs, else Null
         _coordinator: Value,
     ) -> Pin<Box<dyn Future<Output = Result<String, AmplifierError>> + Send + '_>> {
         Box::pin(async move {
@@ -195,7 +195,10 @@ impl Orchestrator for SimpleOrchestrator {
             let tool_specs: Vec<ToolSpec> = tools.values().map(|t| t.get_spec()).collect();
 
             // ── Add user message to context ────────────────────────────────────
-            let user_msg = json!({"role": "user", "content": prompt});
+            // When hooks is a JSON array it contains Anthropic content blocks (image/document/text).
+            // Fall back to a plain text string when no rich content was provided.
+            let user_content = if hooks.is_array() { hooks } else { json!(prompt) };
+            let user_msg = json!({"role": "user", "content": user_content});
             context
                 .add_message(user_msg)
                 .await

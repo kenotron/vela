@@ -82,19 +82,21 @@ class InferenceEngine @Inject constructor(
     fun startTurn(
         conversationId: String,
         userMessage: String,
+        userContentJson: String? = null,
         activeVaultIds: Set<String> = emptySet(),
     ): String {
         val turnId = UUID.randomUUID().toString()
         val job = scope.launch {
             try {
                 turnDao.insert(TurnEntity(
-                    id             = turnId,
-                    conversationId = conversationId,
-                    userMessage    = userMessage,
-                    status         = "running",
-                    timestamp      = System.currentTimeMillis(),
+                    id              = turnId,
+                    conversationId  = conversationId,
+                    userMessage     = userMessage,
+                    userContentJson = userContentJson,
+                    status          = "running",
+                    timestamp       = System.currentTimeMillis(),
                 ))
-                processTurn(turnId, conversationId, userMessage, activeVaultIds)
+                processTurn(turnId, conversationId, userMessage, userContentJson, activeVaultIds)
                 turnDao.updateStatus(turnId, "complete")
             } catch (e: Exception) {
                 Log.e(TAG, "Turn $turnId failed", e)
@@ -124,6 +126,7 @@ class InferenceEngine @Inject constructor(
         turnId: String,
         conversationId: String,
         userMessage: String,
+        userContentJson: String? = null,
         activeVaultIds: Set<String> = emptySet(),
     ) {
         val seq       = AtomicInteger(0)
@@ -160,9 +163,10 @@ class InferenceEngine @Inject constructor(
         }
 
         session.runTurn(
-            historyJson  = historyJson,
-            userInput    = userMessage,
-            systemPrompt = systemPrompt,
+            historyJson     = historyJson,
+            userInput       = userMessage,
+            userContentJson = userContentJson,
+            systemPrompt    = systemPrompt,
 
             onToken = { token ->
                 textBuffer.append(token)
@@ -219,7 +223,12 @@ class InferenceEngine @Inject constructor(
         val completedTurns = turnDao.getCompletedTurnsWithEvents(conversationId)
 
         for (twe in completedTurns) {
-            arr.put(JSONObject().put("role", "user").put("content", twe.turn.userMessage))
+            val userContent: Any = if (!twe.turn.userContentJson.isNullOrBlank()) {
+                org.json.JSONArray(twe.turn.userContentJson)  // content blocks array
+            } else {
+                twe.turn.userMessage  // plain string (existing)
+            }
+            arr.put(JSONObject().put("role", "user").put("content", userContent))
 
             val assistantText = twe.sortedEvents
                 .filter { it.type == "text" && !it.text.isNullOrBlank() }

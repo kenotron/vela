@@ -120,6 +120,7 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
     tools_json: JString,
     history_json: JString,
     user_input: JString,
+    user_content_json: JObject,   // nullable String — Anthropic content blocks JSON array
     system_prompt: JString,
     token_cb: JObject,
     tool_cb: JObject,
@@ -137,14 +138,24 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
     let tools_json = jni_string(&mut env, &tools_json, "tools_json");
     let history_json = jni_string(&mut env, &history_json, "history_json");
     let user_input = jni_string(&mut env, &user_input, "user_input");
+
+    // user_content_json is nullable (String? in Kotlin) — use JObject to allow null check.
+    let user_content_json: Option<String> = if user_content_json.is_null() {
+        None
+    } else {
+        let jstr = JString::from(user_content_json);
+        Some(env.get_string(&jstr).map(|s| s.into()).unwrap_or_default())
+    };
+
     let system_prompt = jni_string(&mut env, &system_prompt, "system_prompt");
 
     info!(
-        "nativeRun: model={model} user_len={} history_len={} tools_len={} system={}",
+        "nativeRun: model={model} user_len={} history_len={} tools_len={} system={} has_content_json={}",
         user_input.len(),
         history_json.len(),
         tools_json.len(),
         !system_prompt.is_empty(),
+        user_content_json.is_some(),
     );
 
     // ── Promote callbacks to Arc<GlobalRef> (safe across async threads) ───────
@@ -200,6 +211,14 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
         let mut providers: HashMap<String, Arc<dyn Provider>> = HashMap::new();
         providers.insert("anthropic".to_string(), Arc::clone(&provider));
 
+        // Decode user_content_json (optional content-blocks array) into a Value.
+        // Passed as hooks so the orchestrator can build a rich user message (image/document
+        // blocks) instead of the plain-text fallback when content blocks are present.
+        let user_content_value: Value = match user_content_json {
+            Some(ref json_str) => serde_json::from_str(json_str).unwrap_or(Value::Null),
+            None => Value::Null,
+        };
+
         // Execute the agent loop via the amplifier-core Orchestrator trait.
         match orchestrator
             .execute(
@@ -207,8 +226,8 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
                 context,
                 providers,
                 tools,
-                Value::Null, // hooks  — not used in this integration
-                Value::Null, // coordinator — not used in this integration
+                user_content_value, // hooks — content blocks array, or Null for plain text
+                Value::Null,        // coordinator — not used in this integration
             )
             .await
         {

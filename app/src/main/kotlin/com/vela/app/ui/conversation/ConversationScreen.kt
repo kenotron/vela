@@ -316,12 +316,10 @@ fun ConversationScreen(
     }
 
     fun handleSend() {
-        val fullMessage = buildAttachedMessage(
-            text        = textInput.trim(),
-            attachments = attachments.map { it.displayName to it.uri.toString() },
-        )
-        if (fullMessage.isNotBlank()) {
-            viewModel.onTextInput(fullMessage)
+        val text     = textInput.trim()
+        val attPairs = attachments.map { Pair(it.uri, it.mimeType) }
+        if (text.isNotBlank() || attPairs.isNotEmpty()) {
+            viewModel.sendMessage(text, attPairs)
             textInput = ""
             attachments.clear()
         }

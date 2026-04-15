@@ -50,6 +50,7 @@ class InferenceEngineSystemPromptTest {
         override suspend fun runTurn(
             historyJson: String,
             userInput: String,
+            userContentJson: String?,
             systemPrompt: String,
             onToolStart: suspend (String, String) -> String,
             onToolEnd: suspend (String, String) -> Unit,
