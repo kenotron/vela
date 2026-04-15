@@ -2,6 +2,7 @@ package com.vela.app.ai.tools
 
 import com.google.common.truth.Truth.assertThat
 import com.vela.app.vault.VaultManager
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
 import org.junit.Test
@@ -12,7 +13,8 @@ class VaultToolsTest {
     @get:Rule
     val tmp = TemporaryFolder()
 
-    private val vault by lazy { VaultManager(tmp.newFolder("vault")) }
+    private val vaultRoot by lazy { tmp.newFolder("vault") }
+    private val vault by lazy { VaultManager(vaultRoot, MutableStateFlow(setOf(vaultRoot.canonicalPath))) }
 
     // ─────────────────────────── ReadFileTool ────────────────────────────────
 

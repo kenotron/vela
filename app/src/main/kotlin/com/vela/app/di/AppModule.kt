@@ -31,6 +31,13 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import okhttp3.OkHttpClient
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -70,16 +77,36 @@ object AppModule {
     fun provideSshNodeRegistry(dao: SshNodeDao): SshNodeRegistry = SshNodeRegistry(dao)
 
     @Provides @Singleton
-    fun provideVaultManager(@ApplicationContext ctx: Context): VaultManager =
-        VaultManager(File(ctx.filesDir, "vaults")).also { it.init() }
+    fun provideVaultManager(
+        @ApplicationContext ctx: Context,
+        @EnabledVaultPaths enabledVaultPaths: @JvmSuppressWildcards StateFlow<Set<String>>,
+    ): VaultManager = VaultManager(File(ctx.filesDir, "vaults"), enabledVaultPaths).also { it.init() }
 
     @Provides @Singleton
     fun provideVaultSettings(@ApplicationContext ctx: Context): VaultSettings =
         SharedPrefsVaultSettings(ctx)
 
     @Provides @Singleton
-    fun provideVaultRegistry(dao: VaultDao, vaultManager: VaultManager): VaultRegistry =
-        VaultRegistry(dao, vaultManager)
+    fun provideVaultRegistry(dao: VaultDao, @ApplicationContext ctx: Context): VaultRegistry =
+        VaultRegistry(dao, File(ctx.filesDir, "vaults"))
+
+    /**
+     * Derives the canonical paths of all currently-enabled vaults from [VaultRegistry].
+     * VaultManager reads this StateFlow on every resolve() call to gate file access.
+     *
+     * Provided separately (rather than injecting VaultRegistry into VaultManager directly)
+     * to break the DI cycle: VaultManager → enabledVaultPaths → VaultRegistry → root File,
+     * which now has no path back to VaultManager.
+     */
+    @Provides @Singleton @EnabledVaultPaths
+    fun provideEnabledVaultPaths(registry: VaultRegistry): @JvmSuppressWildcards StateFlow<Set<String>> =
+        registry.enabledVaults
+            .map { list ->
+                list.mapNotNull { vault ->
+                    runCatching { File(vault.localPath).canonicalPath }.getOrNull()
+                }.toSet()
+            }
+            .stateIn(CoroutineScope(SupervisorJob() + Dispatchers.IO), SharingStarted.Eagerly, emptySet())
 
     @Provides @Singleton
     fun provideVaultGitSync(vaultSettings: VaultSettings): VaultGitSync =

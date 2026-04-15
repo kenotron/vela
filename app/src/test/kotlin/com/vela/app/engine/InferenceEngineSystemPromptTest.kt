@@ -13,7 +13,6 @@ import com.vela.app.data.db.VaultDao
 import com.vela.app.data.db.VaultEntity
 import com.vela.app.harness.SessionHarness
 import com.vela.app.hooks.HookRegistry
-import com.vela.app.vault.VaultManager
 import com.vela.app.vault.VaultRegistry
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -97,7 +96,7 @@ class InferenceEngineSystemPromptTest {
             override suspend fun update(vault: VaultEntity) {}
             override suspend fun delete(vault: VaultEntity) {}
         },
-        vaultManager = VaultManager(tmp.newFolder("vaults")),
+        root = tmp.newFolder("vaults"),
     )
 
     private fun fakeVaultRegistryWithVaults(vaults: List<VaultEntity>) = VaultRegistry(
@@ -109,7 +108,7 @@ class InferenceEngineSystemPromptTest {
             override suspend fun update(vault: VaultEntity) {}
             override suspend fun delete(vault: VaultEntity) {}
         },
-        vaultManager = VaultManager(tmp.newFolder("vaults-filtered")),
+        root = tmp.newFolder("vaults-filtered"),
     )
 
     private fun fakeHarness() = SessionHarness(HookRegistry(emptyList()))

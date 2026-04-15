@@ -1,6 +1,7 @@
 package com.vela.app.vault
 
 import java.io.File
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Provides safe path resolution within a vault root directory.
@@ -8,12 +9,18 @@ import java.io.File
  * Any path that would resolve outside the vault root returns null, preventing
  * directory traversal attacks when the AI passes file paths.
  *
- * Designed for constructor injection — no Android Context dependency,
- * trivially testable with TemporaryFolder.
+ * Additionally gates access by enabled vaults: if [enabledVaultPaths] is non-empty,
+ * the resolved file must fall within one of those vault directories. If the set is
+ * empty (first launch — no vaults configured yet), all paths within root are allowed.
  *
- * AppModule wires: VaultManager(File(ctx.filesDir, "vaults")).also { it.init() }
+ * Designed for constructor injection — trivially testable with TemporaryFolder.
+ *
+ * AppModule wires: VaultManager(File(ctx.filesDir, "vaults"), enabledVaultPaths).also { it.init() }
  */
-class VaultManager(val root: File) {
+class VaultManager(
+    val root: File,
+    private val enabledVaultPaths: StateFlow<Set<String>>,
+) {
 
     /** Creates the vault root directory (and any parents) if not already present. */
     fun init() {
@@ -24,12 +31,14 @@ class VaultManager(val root: File) {
     fun isInitialized(): Boolean = root.exists()
 
     /**
-     * Resolves [path] to a [File] within [root].
+     * Resolves [path] to a [File] within [root], gated by [enabledVaultPaths].
      *
      * - Strips a leading "/" so AI-provided absolute-style paths like
      *   "/Personal/Notes/today.md" are treated as vault-relative.
      * - Returns null if the resolved canonical path would escape [root]
      *   (traversal protection against "../../etc/passwd" style inputs).
+     * - Returns null if the resolved file is not within an enabled vault
+     *   (access control — disabled vault = no file access).
      */
     fun resolve(path: String): File? {
         // Path starts with "/" — could be a genuine Android filesystem path already
@@ -45,7 +54,7 @@ class VaultManager(val root: File) {
                 val canonical = absFile.canonicalPath
                 val rootCanonical = root.canonicalPath
                 if (canonical.startsWith(rootCanonical + File.separator) || canonical == rootCanonical) {
-                    return absFile  // genuine absolute path already inside vault
+                    return if (isWithinEnabledVault(absFile)) absFile else null
                 }
             } catch (_: Exception) { /* fall through to vault-relative resolution */ }
             // Not inside vault when treated as absolute — treat as vault-relative
@@ -59,8 +68,24 @@ class VaultManager(val root: File) {
         return try {
             val canonical = candidate.canonicalPath
             val rootCanonical = root.canonicalPath
-            if (canonical.startsWith(rootCanonical + File.separator) || canonical == rootCanonical) candidate
-            else null
+            if (canonical.startsWith(rootCanonical + File.separator) || canonical == rootCanonical) {
+                if (isWithinEnabledVault(candidate)) candidate else null
+            } else null
         } catch (_: Exception) { null }
+    }
+
+    /**
+     * Returns true if [file] falls within at least one enabled vault.
+     *
+     * When [enabledVaultPaths] is empty (no vaults configured — first launch),
+     * all access is permitted so the user can set up their first vault.
+     */
+    private fun isWithinEnabledVault(file: File): Boolean {
+        val enabled = enabledVaultPaths.value
+        if (enabled.isEmpty()) return true  // no vaults configured — don't block
+        val canonical = runCatching { file.canonicalPath }.getOrNull() ?: return false
+        return enabled.any { vaultCanonical ->
+            canonical.startsWith(vaultCanonical + File.separator) || canonical == vaultCanonical
+        }
     }
 }

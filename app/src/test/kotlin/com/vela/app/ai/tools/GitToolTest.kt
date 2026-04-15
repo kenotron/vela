@@ -2,7 +2,6 @@ package com.vela.app.ai.tools
 
 import com.google.common.truth.Truth.assertThat
 import com.vela.app.data.db.VaultEntity
-import com.vela.app.vault.VaultManager
 import com.vela.app.vault.VaultRegistry
 import com.vela.app.vault.VaultSettings
 import com.vela.app.data.db.VaultDao
@@ -39,7 +38,7 @@ class GitToolTest {
             override suspend fun update(vault: VaultEntity) = Unit
             override suspend fun delete(vault: VaultEntity) = Unit
         }
-        return VaultRegistry(dao, VaultManager(tmp.newFolder("vaults")))
+        return VaultRegistry(dao, tmp.newFolder("vaults"))
     }
 
     private fun makeGitTool(vaults: List<VaultEntity>): GitTool =
