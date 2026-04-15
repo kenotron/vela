@@ -122,6 +122,11 @@ class ConversationViewModel @Inject constructor(
         prefs.edit().putString(KEY_ACTIVE_ID, id).apply()
     }
 
+    fun switchToConversation(convId: String) {
+        _activeConvId.value = convId
+        prefs.edit().putString(KEY_ACTIVE_ID, convId).apply()
+    }
+
     fun deleteSession(id: String) {
         viewModelScope.launch {
             turnDao.deleteForConversation(id)

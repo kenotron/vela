@@ -31,6 +31,7 @@ fun SettingsScreen(
     onNavigateToAi: () -> Unit,
     onNavigateToConnections: () -> Unit,
     onNavigateToVaults: () -> Unit,
+    onNavigateToRecording: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val apiKey by viewModel.apiKey.collectAsState()
@@ -79,8 +80,7 @@ fun SettingsScreen(
                     icon     = Icons.Default.Mic,
                     title    = "Recording",
                     subtitle = "Transcription settings",
-                    onClick  = { /* TODO: Phase 2 */ },
-                    enabled  = false,
+                    onClick  = onNavigateToRecording,
                 )
             }
         }

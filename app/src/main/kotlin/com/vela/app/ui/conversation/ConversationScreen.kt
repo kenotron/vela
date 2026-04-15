@@ -68,7 +68,7 @@ import java.util.*
 private enum class Page {
     CHAT, SESSIONS, NODES, SETTINGS,
     SETTINGS_AI, SETTINGS_CONNECTIONS, SETTINGS_VAULTS,
-    VAULT_DETAIL,
+    VAULT_DETAIL, RECORDING,
 }
 
 @Composable
@@ -117,6 +117,15 @@ fun ConversationRoot(
                 onNavigateToAi          = { prevPage = page; page = Page.SETTINGS_AI },
                 onNavigateToConnections = { prevPage = page; page = Page.SETTINGS_CONNECTIONS },
                 onNavigateToVaults      = { prevPage = page; page = Page.SETTINGS_VAULTS },
+                onNavigateToRecording   = { prevPage = page; page = Page.RECORDING },
+            )
+            Page.RECORDING -> com.vela.app.ui.recording.RecordingScreen(
+                onNavigateBack = { prevPage = Page.SETTINGS; page = Page.SETTINGS },
+                onVaultSessionCreated = { convId ->
+                    viewModel.switchToConversation(convId)
+                    prevPage = Page.CHAT
+                    page = Page.CHAT
+                },
             )
             Page.SETTINGS_AI -> AiSettingsScreen(
                 onNavigateBack = { prevPage = Page.SETTINGS; page = Page.SETTINGS }
