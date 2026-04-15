@@ -70,6 +70,12 @@ import com.vela.app.voice.SpeechTranscriber
 import com.vela.app.voice.TranscriptState
 import com.vela.app.voice.VoiceCapture
 import kotlinx.coroutines.flow.MutableStateFlow
+import android.provider.OpenableColumns
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.ui.draw.clip
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -78,6 +84,28 @@ private enum class Page {
     SETTINGS_AI, SETTINGS_CONNECTIONS, SETTINGS_VAULTS,
     VAULT_DETAIL, RECORDING,
 }
+
+private data class AttachmentItem(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val uri: android.net.Uri,
+    val displayName: String,
+    val mimeType: String,
+)
+
+/** Pure helper — testable without Android deps by accepting plain strings. */
+internal fun buildAttachedMessage(
+    text: String,
+    attachments: List<Pair<String, String>>,  // (displayName, uri.toString())
+): String = if (attachments.isEmpty()) text
+    else buildString {
+        append(text)
+        appendLine()
+        appendLine()
+        appendLine("Attached files:")
+        attachments.forEach { (name, uri) ->
+            appendLine("- $name ($uri)")
+        }
+    }
 
 @Composable
 fun ConversationRoot(
@@ -260,7 +288,44 @@ fun ConversationScreen(
     LaunchedEffect(transcriptState) { if (transcriptState is TranscriptState.Final) viewModel.onVoiceInput((transcriptState as TranscriptState.Final).text) }
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) voiceCapture?.startCapture() }
 
-    fun handleSend() { val t = textInput.trim(); if (t.isNotBlank()) { viewModel.onTextInput(t); textInput = "" } }
+    val attachments = remember { androidx.compose.runtime.mutableStateListOf<AttachmentItem>() }
+
+    val photoLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            attachments.add(AttachmentItem(
+                uri         = uri,
+                displayName = uri.lastPathSegment?.substringAfterLast('/') ?: "image",
+                mimeType    = "image/*",
+            ))
+        }
+    }
+
+    val fileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            val name = context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (cursor.moveToFirst() && idx >= 0) cursor.getString(idx) else null
+            } ?: uri.lastPathSegment ?: "file"
+            val mime = context.contentResolver.getType(uri) ?: "*/*"
+            attachments.add(AttachmentItem(uri = uri, displayName = name, mimeType = mime))
+        }
+    }
+
+    fun handleSend() {
+        val fullMessage = buildAttachedMessage(
+            text        = textInput.trim(),
+            attachments = attachments.map { it.displayName to it.uri.toString() },
+        )
+        if (fullMessage.isNotBlank()) {
+            viewModel.onTextInput(fullMessage)
+            textInput = ""
+            attachments.clear()
+        }
+    }
     fun handleMic() {
         if (voiceCapture == null) return
         if (isListening) voiceCapture.stopCapture()
@@ -290,16 +355,20 @@ fun ConversationScreen(
         },
         bottomBar = {
             ComposerBox(
-                value                = textInput,
-                onValueChange        = { textInput = it },
-                onSend               = { handleSend() },
-                onRecord             = onRecord,
-                allVaults            = allVaults,
+                value                 = textInput,
+                onValueChange         = { textInput = it },
+                onSend                = { handleSend() },
+                onRecord              = onRecord,
+                allVaults             = allVaults,
                 sessionActiveVaultIds = sessionActiveVaultIds,
-                onToggleVault        = { viewModel.toggleVaultForSession(it) },
-                speechTranscriber    = speechTranscriber,
-                isListening          = isListening,
-                onMicClick           = { handleMic() },
+                onToggleVault         = { viewModel.toggleVaultForSession(it) },
+                speechTranscriber     = speechTranscriber,
+                isListening           = isListening,
+                onMicClick            = { handleMic() },
+                attachments           = attachments,
+                onRemoveAttachment    = { id -> attachments.removeIf { it.id == id } },
+                onPickPhoto           = { photoLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                onPickFile            = { fileLauncher.launch(arrayOf("*/*")) },
             )
         },
     ) { pad ->
@@ -551,6 +620,10 @@ private fun ComposerBox(
     speechTranscriber: SpeechTranscriber?,
     isListening: Boolean,
     onMicClick: () -> Unit,
+    attachments: List<AttachmentItem>,
+    onRemoveAttachment: (String) -> Unit,
+    onPickPhoto: () -> Unit,
+    onPickFile: () -> Unit,
 ) {
     var showVaultPicker    by remember { mutableStateOf(false) }
     var showAttachmentSheet by remember { mutableStateOf(false) }
@@ -603,6 +676,21 @@ private fun ComposerBox(
                 }
             }
 
+            // ── Attachment chip row (between text input and action bar) ────────────
+            if (attachments.isNotEmpty()) {
+                LazyRow(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(attachments, key = { it.id }) { attachment ->
+                        AttachmentChip(
+                            attachment = attachment,
+                            onRemove   = { onRemoveAttachment(attachment.id) },
+                        )
+                    }
+                }
+            }
+
             // ── Row 2: action bar ─────────────────────────────────────────
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -648,12 +736,12 @@ private fun ComposerBox(
 
                 // [→ send] — animates in/out based on whether there is text
                 AnimatedVisibility(
-                    visible = value.isNotBlank(),
+                    visible = value.isNotBlank() || attachments.isNotEmpty(),
                     enter   = fadeIn() + scaleIn(initialScale = 0.8f),
                     exit    = fadeOut() + scaleOut(targetScale = 0.8f),
                 ) {
                     IconButton(
-                        onClick  = { if (value.isNotBlank()) onSend() },
+                        onClick  = { if (value.isNotBlank() || attachments.isNotEmpty()) onSend() },
                         modifier = Modifier.size(36.dp),
                     ) {
                         Icon(
@@ -689,8 +777,10 @@ private fun ComposerBox(
     // Attachment sheet
     if (showAttachmentSheet) {
         AttachmentSheet(
-            onDismiss = { showAttachmentSheet = false },
-            onRecord  = { showAttachmentSheet = false; onRecord() },
+            onDismiss   = { showAttachmentSheet = false },
+            onRecord    = { showAttachmentSheet = false; onRecord() },
+            onPickPhoto = { showAttachmentSheet = false; onPickPhoto() },
+            onPickFile  = { showAttachmentSheet = false; onPickFile() },
         )
     }
 
@@ -738,6 +828,8 @@ private fun ComposerBox(
 private fun AttachmentSheet(
     onDismiss: () -> Unit,
     onRecord: () -> Unit,
+    onPickPhoto: () -> Unit,
+    onPickFile: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -806,13 +898,13 @@ private fun AttachmentSheet(
                 AttachOption(
                     icon = Icons.Default.PhotoLibrary,
                     label = "Photos",
-                    onClick = { /* TODO */ onDismiss() },
+                    onClick = { onPickPhoto(); onDismiss() },
                     modifier = Modifier.weight(1f),
                 )
                 AttachOption(
                     icon = Icons.Default.InsertDriveFile,
                     label = "Files",
-                    onClick = { /* TODO */ onDismiss() },
+                    onClick = { onPickFile(); onDismiss() },
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -844,5 +936,55 @@ private fun AttachOption(
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+private fun AttachmentChip(attachment: AttachmentItem, onRemove: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(width = 64.dp, height = 56.dp)
+            .clip(RoundedCornerShape(8.dp))
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = if (attachment.mimeType.startsWith("image"))
+                MaterialTheme.colorScheme.primaryContainer
+            else
+                MaterialTheme.colorScheme.secondaryContainer,
+        ) {
+            Column(
+                modifier = Modifier.padding(4.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Icon(
+                    imageVector = if (attachment.mimeType.startsWith("image"))
+                        Icons.Default.Image
+                    else
+                        Icons.Default.InsertDriveFile,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    attachment.displayName.take(8),
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        IconButton(
+            onClick = onRemove,
+            modifier = Modifier
+                .size(20.dp)
+                .align(Alignment.TopEnd),
+        ) {
+            Icon(
+                Icons.Default.Close,
+                contentDescription = "Remove",
+                modifier = Modifier.size(14.dp),
+            )
+        }
     }
 }

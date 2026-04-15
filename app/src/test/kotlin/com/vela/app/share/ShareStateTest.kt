@@ -39,7 +39,7 @@ class ShareStateTest {
 
     @Test
     fun `Done carries conversationId`() {
-        val state = ShareState.Done("conv-abc-123")
+        val state = ShareState.Done("conv-abc-123", stagedMessage = "staged text")
         assertThat(state.conversationId).isEqualTo("conv-abc-123")
     }
 
