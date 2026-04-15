@@ -13,8 +13,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TurnEntity::class,
         TurnEventEntity::class,
         VaultEntity::class,
+        VaultEmbeddingEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class VelaDatabase : RoomDatabase() {
@@ -24,6 +25,7 @@ abstract class VelaDatabase : RoomDatabase() {
     abstract fun turnDao(): TurnDao
     abstract fun turnEventDao(): TurnEventDao
     abstract fun vaultDao(): VaultDao
+    abstract fun vaultEmbeddingDao(): VaultEmbeddingDao
 }
 
 val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -110,6 +112,23 @@ val MIGRATION_6_7 = object : Migration(6, 7) {
         )
     }
 }
+/** v9→v10: add vault_embeddings table for semantic file search. */
+val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS vault_embeddings (
+                id TEXT NOT NULL PRIMARY KEY,
+                vaultId TEXT NOT NULL,
+                filePath TEXT NOT NULL,
+                chunkIndex INTEGER NOT NULL,
+                chunkText TEXT NOT NULL,
+                embeddingJson TEXT NOT NULL,
+                fileModified INTEGER NOT NULL
+            )
+        """.trimIndent())
+    }
+}
+
 /** v8→v9: clear old base64 content block data. */
 val MIGRATION_8_9 = object : Migration(8, 9) {
     override fun migrate(db: SupportSQLiteDatabase) {

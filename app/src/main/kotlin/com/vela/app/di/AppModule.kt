@@ -20,7 +20,8 @@ import com.vela.app.ssh.SshKeyManager
 import com.vela.app.ssh.SshNodeRegistry
 import com.vela.app.vault.SharedPrefsVaultSettings
 import com.vela.app.skills.SkillsEngine
-import com.vela.app.vault.VaultGitSync
+import com.vela.app.vault.EmbeddingEngine
+    import com.vela.app.vault.VaultGitSync
 import com.vela.app.vault.VaultManager
 import com.vela.app.vault.VaultRegistry
 import com.vela.app.vault.VaultSettings
@@ -50,7 +51,7 @@ object AppModule {
     @Provides @Singleton
     fun provideDatabase(@ApplicationContext ctx: Context): VelaDatabase =
         Room.databaseBuilder(ctx, VelaDatabase::class.java, "vela_database")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
             .build()
 
     @Provides fun provideMessageDao(db: VelaDatabase): MessageDao          = db.messageDao()
@@ -58,7 +59,15 @@ object AppModule {
     @Provides fun provideSshNodeDao(db: VelaDatabase): SshNodeDao           = db.sshNodeDao()
     @Provides fun provideTurnDao(db: VelaDatabase): TurnDao                 = db.turnDao()
     @Provides fun provideTurnEventDao(db: VelaDatabase): TurnEventDao       = db.turnEventDao()
-    @Provides fun provideVaultDao(db: VelaDatabase): VaultDao               = db.vaultDao()
+    @Provides fun provideVaultDao(db: VelaDatabase): VaultDao                       = db.vaultDao()
+        @Provides fun provideVaultEmbeddingDao(db: VelaDatabase): VaultEmbeddingDao   = db.vaultEmbeddingDao()
+
+        @Provides @Singleton
+        fun provideEmbeddingEngine(
+            @ApplicationContext ctx: Context,
+            client:  OkHttpClient,
+            dao:     VaultEmbeddingDao,
+        ): EmbeddingEngine = EmbeddingEngine(ctx, client, dao)
 
     @Provides @Singleton
     fun provideConversationRepository(
@@ -160,12 +169,15 @@ object AppModule {
         transcribeAudioTool,
         // Git operations
         gitTool,
-        // Code mode — execute a shell script in one shot without token-heavy round-trips
+        // Code mode — shell script (zero deps, toybox, full vault FS access)
         RunScriptTool(ctx, vaultRegistry),
+        // Code mode — Python with full tool bindings via Chaquopy
+        CodeRunnerTool(ctx),
     )
 
     @Provides @Singleton
-    fun provideToolRegistry(tools: @JvmSuppressWildcards List<Tool>): ToolRegistry = ToolRegistry(tools)
+    fun provideToolRegistry(tools: @JvmSuppressWildcards List<Tool>): ToolRegistry =
+        ToolRegistry(tools).also { PythonToolBridge.init(it) }
 
     @Provides @Singleton
     fun provideAmplifierSession(

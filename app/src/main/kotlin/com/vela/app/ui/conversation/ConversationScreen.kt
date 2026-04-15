@@ -60,6 +60,8 @@ import com.vela.app.data.db.TurnWithEvents
 import com.vela.app.data.db.VaultEntity
 import com.vela.app.domain.model.Conversation
 import com.vela.app.engine.ContentBlockRef
+    import com.vela.app.ui.vault.VaultBrowserScreen
+    import com.vela.app.ui.vault.VaultFileViewerScreen
 import com.vela.app.engine.parseContentBlockRefs
 import com.vela.app.ui.components.MarkdownText
 import com.vela.app.ui.nodes.NodesScreen
@@ -84,7 +86,7 @@ import java.util.*
 private enum class Page {
     CHAT, SESSIONS, NODES, SETTINGS,
     SETTINGS_AI, SETTINGS_CONNECTIONS, SETTINGS_VAULTS,
-    VAULT_DETAIL, RECORDING,
+    VAULT_DETAIL, RECORDING, VAULT_BROWSER, VAULT_FILE_VIEWER,
 }
 
 private data class AttachmentItem(
@@ -114,9 +116,11 @@ fun ConversationRoot(
     speechTranscriber: SpeechTranscriber? = null,
     viewModel: ConversationViewModel = hiltViewModel(),
 ) {
-    var page          by remember { mutableStateOf(Page.CHAT) }
-    var prevPage      by remember { mutableStateOf(Page.CHAT) }
-    var detailVaultId by remember { mutableStateOf<String?>(null) }
+    var page           by remember { mutableStateOf(Page.CHAT) }
+    var prevPage       by remember { mutableStateOf(Page.CHAT) }
+    var detailVaultId  by remember { mutableStateOf<String?>(null) }
+    var browseVault    by remember { mutableStateOf<VaultEntity?>(null) }
+    var browseFilePath by remember { mutableStateOf<String?>(null) }
 
     BackHandler(enabled = page != Page.CHAT) {
         val dest = prevPage
@@ -142,6 +146,7 @@ fun ConversationRoot(
                 onOpenSessions = { prevPage = page; page = Page.SESSIONS },
                 onOpenSettings = { prevPage = page; page = Page.SETTINGS },
                 onRecord       = { prevPage = page; page = Page.RECORDING },
+                onBrowseVault  = { vault -> browseVault = vault; prevPage = page; page = Page.VAULT_BROWSER },
             )
             Page.SESSIONS -> SessionsPage(
                 viewModel,
@@ -187,6 +192,31 @@ fun ConversationRoot(
                     VaultDetailScreen(
                         vaultId        = vaultId,
                         onNavigateBack = { val dest = prevPage; prevPage = Page.CHAT; page = dest },
+                    )
+                }
+            }
+            Page.VAULT_BROWSER -> {
+                val vault = browseVault
+                if (vault != null) {
+                    VaultBrowserScreen(
+                        vault      = vault,
+                        onBack     = { val dest = prevPage; prevPage = Page.CHAT; page = dest },
+                        onOpenFile = { path ->
+                            browseFilePath = path
+                            prevPage = page
+                            page = Page.VAULT_FILE_VIEWER
+                        },
+                    )
+                }
+            }
+            Page.VAULT_FILE_VIEWER -> {
+                val vault = browseVault
+                val path  = browseFilePath
+                if (vault != null && path != null) {
+                    VaultFileViewerScreen(
+                        vault   = vault,
+                        relPath = path,
+                        onBack  = { prevPage = Page.VAULT_BROWSER; page = Page.VAULT_BROWSER },
                     )
                 }
             }
@@ -264,6 +294,7 @@ fun ConversationScreen(
     onOpenSessions: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onRecord: () -> Unit = {},
+    onBrowseVault: (VaultEntity) -> Unit = {},
 ) {
     val context          = LocalContext.current
     val turnsWithEvents  by viewModel.turnsWithEvents.collectAsState()
@@ -404,6 +435,7 @@ fun ConversationScreen(
                 onPickPhoto           = { photoLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 onPickFile            = { fileLauncher.launch(arrayOf("*/*")) },
                 onCamera              = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) },
+                onBrowseVault         = onBrowseVault,
             )
         },
     ) { pad ->
@@ -721,6 +753,7 @@ private fun ComposerBox(
     onPickPhoto: () -> Unit,
     onPickFile: () -> Unit,
     onCamera: () -> Unit,
+    onBrowseVault: (VaultEntity) -> Unit = {},
 ) {
     var showVaultPicker    by remember { mutableStateOf(false) }
     var showAttachmentSheet by remember { mutableStateOf(false) }
@@ -808,28 +841,26 @@ private fun ComposerBox(
                     )
                 }
 
-                Spacer(Modifier.width(4.dp))
-
-                // [🏛 Vault] chip — shows active vaults, tap to open picker
-                if (allVaults.isNotEmpty()) {
-                    val chipLabel = when {
-                        sessionActiveVaultIds.isEmpty() ||
-                        sessionActiveVaultIds.size == allVaults.size -> "All vaults"
-                        sessionActiveVaultIds.size == 1              ->
-                            allVaults.firstOrNull { it.id in sessionActiveVaultIds }?.name ?: "1 vault"
-                        else -> "${sessionActiveVaultIds.size} vaults"
+                // Vault chip — centered in action bar
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    if (allVaults.isNotEmpty()) {
+                        val chipLabel = when {
+                            sessionActiveVaultIds.isEmpty() ||
+                            sessionActiveVaultIds.size == allVaults.size -> "All vaults"
+                            sessionActiveVaultIds.size == 1              ->
+                                allVaults.firstOrNull { it.id in sessionActiveVaultIds }?.name ?: "1 vault"
+                            else -> "${sessionActiveVaultIds.size} vaults"
+                        }
+                        FilterChip(
+                            selected    = true,
+                            onClick     = { showVaultPicker = true },
+                            label       = { Text(chipLabel, style = MaterialTheme.typography.labelSmall) },
+                            leadingIcon = { Icon(Icons.Default.Folder, null, modifier = Modifier.size(14.dp)) },
+                            modifier    = Modifier.height(30.dp),
+                            shape       = RoundedCornerShape(15.dp),
+                        )
                     }
-                    FilterChip(
-                        selected    = true,
-                        onClick     = { showVaultPicker = true },
-                        label       = { Text(chipLabel, style = MaterialTheme.typography.labelSmall) },
-                        leadingIcon = { Icon(Icons.Default.Folder, null, modifier = Modifier.size(14.dp)) },
-                        modifier    = Modifier.height(30.dp),
-                        shape       = RoundedCornerShape(15.dp),
-                    )
                 }
-
-                Spacer(Modifier.weight(1f))
 
                 // [→ send] — animates in/out based on whether there is text
                 AnimatedVisibility(
@@ -906,10 +937,20 @@ private fun ComposerBox(
                             )
                         },
                         trailingContent = {
-                            Switch(
-                                checked         = vault.id in sessionActiveVaultIds,
-                                onCheckedChange = { onToggleVault(vault.id) },
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(
+                                    onClick  = { showVaultPicker = false; onBrowseVault(vault) },
+                                    modifier = Modifier.size(36.dp),
+                                ) {
+                                    Icon(Icons.Default.Folder, "Browse ${vault.name}",
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.primary)
+                                }
+                                Switch(
+                                    checked         = vault.id in sessionActiveVaultIds,
+                                    onCheckedChange = { onToggleVault(vault.id) },
+                                )
+                            }
                         },
                         modifier = Modifier.clickable { onToggleVault(vault.id) },
                     )
