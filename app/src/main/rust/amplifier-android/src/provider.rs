@@ -116,6 +116,11 @@ impl AnthropicProvider {
             ContentBlock::Thinking { thinking, .. } => {
                 json!({ "type": "thinking", "thinking": thinking })
             }
+            // Image block — source HashMap already matches Anthropic wire format:
+            // { "type": "base64", "media_type": "image/jpeg", "data": "<b64>" }
+            ContentBlock::Image { source, .. } => {
+                json!({ "type": "image", "source": source })
+            }
             // Silently drop unsupported block types
             _ => Value::Null,
         }
