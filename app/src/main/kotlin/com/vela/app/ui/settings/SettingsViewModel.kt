@@ -27,10 +27,12 @@ package com.vela.app.ui.settings
     ) : ViewModel() {
 
         companion object {
-            private const val PREFS       = "amplifier_prefs"
-            private const val KEY_API_KEY = "anthropic_api_key"
-            private const val KEY_MODEL   = "selected_model"
-            const val DEFAULT_MODEL       = "claude-sonnet-4-6"
+            private const val PREFS              = "amplifier_prefs"
+            private const val KEY_API_KEY        = "anthropic_api_key"
+            private const val KEY_MODEL          = "selected_model"
+            private const val KEY_GOOGLE_API_KEY = "google_api_key"
+            private const val KEY_OPENAI_API_KEY = "openai_api_key"
+            const val DEFAULT_MODEL              = "claude-sonnet-4-6"
 
             val AVAILABLE_MODELS = listOf(
                 "claude-sonnet-4-6",
@@ -63,6 +65,12 @@ package com.vela.app.ui.settings
         )
         val selectedModel: StateFlow<String> = _selectedModel.asStateFlow()
 
+        private val _googleApiKey = MutableStateFlow(prefs.getString(KEY_GOOGLE_API_KEY, "").orEmpty())
+        val googleApiKey: StateFlow<String> = _googleApiKey.asStateFlow()
+
+        private val _openAiApiKey = MutableStateFlow(prefs.getString(KEY_OPENAI_API_KEY, "").orEmpty())
+        val openAiApiKey: StateFlow<String> = _openAiApiKey.asStateFlow()
+
         val vaults: StateFlow<List<VaultEntity>> = vaultRegistry.observeAll()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -72,6 +80,16 @@ package com.vela.app.ui.settings
         fun setApiKey(key: String) {
             prefs.edit().putString(KEY_API_KEY, key).apply()
             _apiKey.value = key
+        }
+
+        fun setGoogleApiKey(key: String) {
+            prefs.edit().putString(KEY_GOOGLE_API_KEY, key).apply()
+            _googleApiKey.value = key
+        }
+
+        fun setOpenAiApiKey(key: String) {
+            prefs.edit().putString(KEY_OPENAI_API_KEY, key).apply()
+            _openAiApiKey.value = key
         }
 
         fun setModel(model: String) {

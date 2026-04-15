@@ -53,8 +53,11 @@ import com.vela.app.data.db.TurnWithEvents
 import com.vela.app.domain.model.Conversation
 import com.vela.app.ui.components.MarkdownText
 import com.vela.app.ui.nodes.NodesScreen
+    import com.vela.app.ui.settings.AiSettingsScreen
+    import com.vela.app.ui.settings.ConnectionsSettingsScreen
     import com.vela.app.ui.settings.SettingsScreen
     import com.vela.app.ui.settings.VaultDetailScreen
+    import com.vela.app.ui.settings.VaultsSettingsScreen
 import com.vela.app.voice.SpeechTranscriber
 import com.vela.app.voice.TranscriptState
 import com.vela.app.voice.VoiceCapture
@@ -62,7 +65,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import java.text.SimpleDateFormat
 import java.util.*
 
-private enum class Page { CHAT, SESSIONS, NODES, SETTINGS, VAULT_DETAIL }
+private enum class Page {
+    CHAT, SESSIONS, NODES, SETTINGS,
+    SETTINGS_AI, SETTINGS_CONNECTIONS, SETTINGS_VAULTS,
+    VAULT_DETAIL,
+}
 
 @Composable
 fun ConversationRoot(
@@ -107,7 +114,18 @@ fun ConversationRoot(
             })
             Page.SETTINGS -> SettingsScreen(
                 onNavigateBack          = { prevPage = Page.CHAT; page = Page.CHAT },
-                onNavigateToNodes       = { prevPage = page; page = Page.NODES },
+                onNavigateToAi          = { prevPage = page; page = Page.SETTINGS_AI },
+                onNavigateToConnections = { prevPage = page; page = Page.SETTINGS_CONNECTIONS },
+                onNavigateToVaults      = { prevPage = page; page = Page.SETTINGS_VAULTS },
+            )
+            Page.SETTINGS_AI -> AiSettingsScreen(
+                onNavigateBack = { prevPage = Page.SETTINGS; page = Page.SETTINGS }
+            )
+            Page.SETTINGS_CONNECTIONS -> ConnectionsSettingsScreen(
+                onNavigateBack = { prevPage = Page.SETTINGS; page = Page.SETTINGS }
+            )
+            Page.SETTINGS_VAULTS -> VaultsSettingsScreen(
+                onNavigateBack = { prevPage = Page.SETTINGS; page = Page.SETTINGS },
                 onNavigateToVaultDetail = { vaultId ->
                     detailVaultId = vaultId
                     prevPage = page
