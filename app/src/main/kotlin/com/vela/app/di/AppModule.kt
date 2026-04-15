@@ -112,6 +112,7 @@ object AppModule {
         vaultGitSync: VaultGitSync,
         skillsEngine: SkillsEngine,
         transcribeAudioTool: TranscribeAudioTool,
+        gitTool: GitTool,
     ): List<Tool> = listOf(
         GetTimeTool(), GetDateTool(), GetBatteryTool(ctx),
         SearchWebTool(client), FetchUrlTool(client),
@@ -130,6 +131,8 @@ object AppModule {
         LoadSkillTool(skillsEngine),
         // Audio transcription
         transcribeAudioTool,
+        // Git operations
+        gitTool,
     )
 
     @Provides @Singleton
