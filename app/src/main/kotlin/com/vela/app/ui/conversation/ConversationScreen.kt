@@ -23,8 +23,13 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Delete
@@ -538,8 +543,8 @@ private fun ComposerBox(
     isListening: Boolean,
     onMicClick: () -> Unit,
 ) {
-    var showVaultPicker by remember { mutableStateOf(false) }
-    val micDesc = if (isListening) "Stop voice input" else "Start voice input"
+    var showVaultPicker    by remember { mutableStateOf(false) }
+    var showAttachmentSheet by remember { mutableStateOf(false) }
 
     Surface(
         modifier = Modifier
@@ -559,29 +564,6 @@ private fun ComposerBox(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(horizontal = 4.dp),
             ) {
-                // Voice-to-text mic button (existing behaviour)
-                IconButton(
-                    onClick = onMicClick,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .semantics {
-                            testTag = "mic_in_field"
-                            contentDescription = micDesc
-                        },
-                    enabled = speechTranscriber != null,
-                ) {
-                    Icon(
-                        imageVector = if (isListening) Icons.Default.Stop else Icons.Default.Mic,
-                        contentDescription = null,
-                        tint = when {
-                            isListening           -> MaterialTheme.colorScheme.error
-                            speechTranscriber == null -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-                            else                  -> MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-
                 // Text field — no outline, outer Surface provides the container shape
                 Box(
                     modifier = Modifier
@@ -617,9 +599,9 @@ private fun ComposerBox(
                     .fillMaxWidth()
                     .padding(start = 4.dp, end = 4.dp, bottom = 2.dp),
             ) {
-                // [+] Attachment stub — Camera/Gallery/Files coming soon
+                // [+] Attachment — opens AttachmentSheet
                 IconButton(
-                    onClick  = { /* TODO: attachment picker */ },
+                    onClick  = { showAttachmentSheet = true },
                     modifier = Modifier.size(36.dp),
                 ) {
                     Icon(
@@ -672,17 +654,33 @@ private fun ComposerBox(
                     }
                 }
 
-                // [📼 tape] — navigate to recording screen
+                // Mic button — voice to text — rightmost in action bar
                 IconButton(
-                    onClick  = onRecord,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .semantics { contentDescription = "Record" },
+                    onClick = onMicClick,
+                    modifier = Modifier.size(36.dp),
+                    enabled = speechTranscriber != null,
                 ) {
-                    Text("📼", fontSize = 18.sp, lineHeight = 20.sp)
+                    Icon(
+                        imageVector = if (isListening) Icons.Default.Stop else Icons.Default.Mic,
+                        contentDescription = if (isListening) "Stop listening" else "Start voice input",
+                        tint = when {
+                            isListening -> MaterialTheme.colorScheme.error
+                            speechTranscriber == null -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.size(20.dp),
+                    )
                 }
             }
         }
+    }
+
+    // Attachment sheet
+    if (showAttachmentSheet) {
+        AttachmentSheet(
+            onDismiss = { showAttachmentSheet = false },
+            onRecord  = { showAttachmentSheet = false; onRecord() },
+        )
     }
 
     // Vault picker bottom sheet
@@ -719,5 +717,121 @@ private fun ComposerBox(
                 }
             }
         }
+    }
+}
+
+// ---- AttachmentSheet --------------------------------------------------------
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AttachmentSheet(
+    onDismiss: () -> Unit,
+    onRecord: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text(
+                "Attach",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+
+            // ── Featured: Record Transcription ──────────────────────────────
+            Card(
+                onClick = onRecord,
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                ),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.RecordVoiceOver,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(32.dp),
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Record Transcription",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                        Text(
+                            "Capture audio and transcribe to vault",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                        )
+                    }
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f),
+                    )
+                }
+            }
+
+            // ── Standard options: Camera · Photos · Files ────────────────────
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                AttachOption(
+                    icon = Icons.Default.CameraAlt,
+                    label = "Camera",
+                    onClick = { /* TODO */ onDismiss() },
+                    modifier = Modifier.weight(1f),
+                )
+                AttachOption(
+                    icon = Icons.Default.PhotoLibrary,
+                    label = "Photos",
+                    onClick = { /* TODO */ onDismiss() },
+                    modifier = Modifier.weight(1f),
+                )
+                AttachOption(
+                    icon = Icons.Default.InsertDriveFile,
+                    label = "Files",
+                    onClick = { /* TODO */ onDismiss() },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AttachOption(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        FilledTonalIconButton(
+            onClick = onClick,
+            modifier = Modifier.size(56.dp),
+            shape = RoundedCornerShape(16.dp),
+        ) {
+            Icon(icon, contentDescription = label, modifier = Modifier.size(24.dp))
+        }
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
