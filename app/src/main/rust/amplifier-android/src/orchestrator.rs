@@ -32,7 +32,7 @@ use std::sync::Arc;
 
 use amplifier_core::errors::AmplifierError;
 use amplifier_core::messages::{
-    ChatRequest, ContentBlock, Message, ToolSpec,
+    ChatRequest, ContentBlock, Message, MessageContent, Role, ToolSpec,
 };
 use amplifier_core::traits::{ContextManager, Orchestrator, Provider, Tool};
 use jni::objects::{GlobalRef, JValue};
@@ -117,9 +117,27 @@ impl SimpleOrchestrator {
         let messages: Vec<Message> = context_messages
             .into_iter()
             .filter_map(|v| {
-                serde_json::from_value(v).map_err(|e| {
-                    warn!("orchestrator: failed to deserialise context message: {e}");
-                }).ok()
+                serde_json::from_value::<Message>(v.clone())
+                    .map_err(|e| warn!("orchestrator: failed to deserialise context message: {e}"))
+                    .ok()
+                    // Rescue: amplifier-core ContentBlock has no "document" variant, so messages
+                    // with PDF/file blocks fail full deserialisation.  Extract role + serialise
+                    // the raw content array as a JSON string — provider detects and passes through.
+                    .or_else(|| {
+                        let role_str = v.get("role").and_then(|r| r.as_str())?;
+                        let role = if role_str == "assistant" { Role::Assistant } else { Role::User };
+                        let content = v.get("content")?;
+                        let content_str = serde_json::to_string(content).ok()?;
+                        warn!("orchestrator: rescued message with raw content ({} bytes)", content_str.len());
+                        Some(Message {
+                            role,
+                            content: MessageContent::Text(content_str),
+                            name: None,
+                            tool_call_id: None,
+                            metadata: None,
+                            extensions: HashMap::new(),
+                        })
+                    })
             })
             .collect();
 

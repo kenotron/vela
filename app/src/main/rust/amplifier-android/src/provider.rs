@@ -75,7 +75,12 @@ impl AnthropicProvider {
         };
 
         let content = match &msg.content {
-            MessageContent::Text(text) => json!(text),
+                // Rescue path: unknown block types (e.g. "document") were stored as a
+                // JSON-array string by the orchestrator fallback.  Detect and pass through.
+                MessageContent::Text(text) if text.starts_with('[') => {
+                    serde_json::from_str::<Value>(text).unwrap_or_else(|_| json!(text))
+                }
+                MessageContent::Text(text) => json!(text),
             MessageContent::Blocks(blocks) => {
                 let arr: Vec<Value> = blocks
                     .iter()
