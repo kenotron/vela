@@ -47,11 +47,10 @@ class ConversationScreenTest {
     }
 
     @Test
-    fun micButtonIsEmbeddedAsLeadingIcon() {
-        // RED: fails before implementation because no node carries tag "mic_in_field".
-        // After implementation the IconButton inside OutlinedTextField.leadingIcon has
-        // Modifier.semantics { testTag = "mic_in_field" }, confirming the mic lives inside
-        // the text field rather than as a standalone FAB outside it.
+    fun micButtonIsInComposerBox() {
+        // The mic button now lives inside ComposerBox (pill-shaped composer surface) rather
+        // than as a leadingIcon of an OutlinedTextField. It still carries testTag "mic_in_field"
+        // for backward-compatibility with this test.
         composeTestRule.setContent {
             VelaTheme {
                 ConversationScreen(
@@ -61,6 +60,22 @@ class ConversationScreenTest {
             }
         }
         composeTestRule.onNodeWithTag("mic_in_field").assertExists()
+    }
+
+    @Test
+    fun recordButtonIsPresentInComposer() {
+        // RED: fails before the composer redesign because no "Record" button exists.
+        // After adding ComposerBox with the 📼 tape button (contentDescription = "Record"),
+        // this test passes — confirming onRecord is wired into the bottom bar.
+        composeTestRule.setContent {
+            VelaTheme {
+                ConversationScreen(
+                    speechTranscriber = null,
+                    viewModel = viewModel,
+                )
+            }
+        }
+        composeTestRule.onNodeWithContentDescription("Record").assertExists()
     }
 
     @Test

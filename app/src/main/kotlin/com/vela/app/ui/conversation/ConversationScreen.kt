@@ -14,9 +14,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Settings
@@ -39,6 +40,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -50,6 +52,7 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vela.app.data.db.TurnEventEntity
 import com.vela.app.data.db.TurnWithEvents
+import com.vela.app.data.db.VaultEntity
 import com.vela.app.domain.model.Conversation
 import com.vela.app.ui.components.MarkdownText
 import com.vela.app.ui.nodes.NodesScreen
@@ -103,6 +106,7 @@ fun ConversationRoot(
                 viewModel,
                 onOpenSessions = { prevPage = page; page = Page.SESSIONS },
                 onOpenSettings = { prevPage = page; page = Page.SETTINGS },
+                onRecord       = { prevPage = page; page = Page.RECORDING },
             )
             Page.SESSIONS -> SessionsPage(
                 viewModel,
@@ -223,6 +227,7 @@ fun ConversationScreen(
     viewModel: ConversationViewModel = hiltViewModel(),
     onOpenSessions: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onRecord: () -> Unit = {},
 ) {
     val context          = LocalContext.current
     val turnsWithEvents  by viewModel.turnsWithEvents.collectAsState()
@@ -270,67 +275,21 @@ fun ConversationScreen(
             )
         },
         bottomBar = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
-                    .imePadding(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                val micDesc = if (isListening) "Stop voice input" else "Start voice input"
-                OutlinedTextField(
-                    value = textInput,
-                    onValueChange = { textInput = it },
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("Message\u2026") },
-                    maxLines = 4,
-                    shape = RoundedCornerShape(24.dp),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = { handleSend() }),
-                    leadingIcon = {
-                        IconButton(
-                            onClick = { handleMic() },
-                            modifier = Modifier.size(36.dp).semantics {
-                                testTag = "mic_in_field"
-                                contentDescription = micDesc
-                            },
-                        ) {
-                            Icon(
-                                imageVector = if (isListening) Icons.Default.Stop else Icons.Default.Mic,
-                                contentDescription = null,
-                                tint = if (isListening) MaterialTheme.colorScheme.error
-                                       else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    },
-                )
-                if (textInput.isNotBlank()) {
-                    IconButton(onClick = { handleSend() }) {
-                        Icon(Icons.AutoMirrored.Filled.Send, null, tint = MaterialTheme.colorScheme.primary)
-                    }
-                }
-            }
+            ComposerBox(
+                value                = textInput,
+                onValueChange        = { textInput = it },
+                onSend               = { handleSend() },
+                onRecord             = onRecord,
+                allVaults            = allVaults,
+                sessionActiveVaultIds = sessionActiveVaultIds,
+                onToggleVault        = { viewModel.toggleVaultForSession(it) },
+                speechTranscriber    = speechTranscriber,
+                isListening          = isListening,
+                onMicClick           = { handleMic() },
+            )
         },
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad)) {
-            // Vault chips row — hidden when no vaults
-            if (allVaults.isNotEmpty()) {
-                LazyRow(
-                    modifier              = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(allVaults, key = { it.id }) { vault ->
-                        FilterChip(
-                            selected = vault.id in sessionActiveVaultIds,
-                            onClick  = { viewModel.toggleVaultForSession(vault.id) },
-                            label    = { Text(vault.name, style = MaterialTheme.typography.labelMedium) },
-                        )
-                    }
-                }
-            }
-
             if (turnsWithEvents.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("Start a conversation", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -559,6 +518,206 @@ private fun smartLabel(event: TurnEventEntity): String {
         else          -> buildString {
             append(event.toolDisplayName ?: event.toolName ?: "Tool")
             if (!s.isNullOrBlank()) { append(": "); append(s) }
+        }
+    }
+}
+
+// ---- ComposerBox ------------------------------------------------------------
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ComposerBox(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onRecord: () -> Unit,
+    allVaults: List<VaultEntity>,
+    sessionActiveVaultIds: Set<String>,
+    onToggleVault: (String) -> Unit,
+    speechTranscriber: SpeechTranscriber?,
+    isListening: Boolean,
+    onMicClick: () -> Unit,
+) {
+    var showVaultPicker by remember { mutableStateOf(false) }
+    val micDesc = if (isListening) "Stop voice input" else "Start voice input"
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .imePadding()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(28.dp),
+        tonalElevation = 3.dp,
+        shadowElevation = 4.dp,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)) {
+
+            // ── Row 1: mic + text input ───────────────────────────────────
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            ) {
+                // Voice-to-text mic button (existing behaviour)
+                IconButton(
+                    onClick = onMicClick,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .semantics {
+                            testTag = "mic_in_field"
+                            contentDescription = micDesc
+                        },
+                    enabled = speechTranscriber != null,
+                ) {
+                    Icon(
+                        imageVector = if (isListening) Icons.Default.Stop else Icons.Default.Mic,
+                        contentDescription = null,
+                        tint = when {
+                            isListening           -> MaterialTheme.colorScheme.error
+                            speechTranscriber == null -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                            else                  -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+
+                // Text field — no outline, outer Surface provides the container shape
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                ) {
+                    if (value.isEmpty()) {
+                        Text(
+                            text  = "Type a message\u2026",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                        )
+                    }
+                    BasicTextField(
+                        value         = value,
+                        onValueChange = onValueChange,
+                        modifier      = Modifier.fillMaxWidth(),
+                        textStyle     = MaterialTheme.typography.bodyLarge.copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                        ),
+                        maxLines      = 6,
+                        cursorBrush   = SolidColor(MaterialTheme.colorScheme.primary),
+                        keyboardOptions = KeyboardOptions.Default,
+                        keyboardActions = KeyboardActions.Default,
+                    )
+                }
+            }
+
+            // ── Row 2: action bar ─────────────────────────────────────────
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 4.dp, end = 4.dp, bottom = 2.dp),
+            ) {
+                // [+] Attachment stub — Camera/Gallery/Files coming soon
+                IconButton(
+                    onClick  = { /* TODO: attachment picker */ },
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = "Attach",
+                        tint     = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+
+                Spacer(Modifier.width(4.dp))
+
+                // [🏛 Vault] chip — shows active vaults, tap to open picker
+                if (allVaults.isNotEmpty()) {
+                    val chipLabel = when {
+                        sessionActiveVaultIds.isEmpty() ||
+                        sessionActiveVaultIds.size == allVaults.size -> "All vaults"
+                        sessionActiveVaultIds.size == 1              ->
+                            allVaults.firstOrNull { it.id in sessionActiveVaultIds }?.name ?: "1 vault"
+                        else -> "${sessionActiveVaultIds.size} vaults"
+                    }
+                    FilterChip(
+                        selected    = true,
+                        onClick     = { showVaultPicker = true },
+                        label       = { Text(chipLabel, style = MaterialTheme.typography.labelSmall) },
+                        leadingIcon = { Icon(Icons.Default.Folder, null, modifier = Modifier.size(14.dp)) },
+                        modifier    = Modifier.height(30.dp),
+                        shape       = RoundedCornerShape(15.dp),
+                    )
+                }
+
+                Spacer(Modifier.weight(1f))
+
+                // [→ send] — animates in/out based on whether there is text
+                AnimatedVisibility(
+                    visible = value.isNotBlank(),
+                    enter   = fadeIn() + scaleIn(initialScale = 0.8f),
+                    exit    = fadeOut() + scaleOut(targetScale = 0.8f),
+                ) {
+                    IconButton(
+                        onClick  = { if (value.isNotBlank()) onSend() },
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Send",
+                            tint     = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+
+                // [📼 tape] — navigate to recording screen
+                IconButton(
+                    onClick  = onRecord,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .semantics { contentDescription = "Record" },
+                ) {
+                    Text("📼", fontSize = 18.sp, lineHeight = 20.sp)
+                }
+            }
+        }
+    }
+
+    // Vault picker bottom sheet
+    if (showVaultPicker && allVaults.isNotEmpty()) {
+        ModalBottomSheet(onDismissRequest = { showVaultPicker = false }) {
+            Column(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 32.dp),
+            ) {
+                Text(
+                    "Vaults for this session",
+                    style    = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+                allVaults.forEach { vault ->
+                    ListItem(
+                        headlineContent = { Text(vault.name) },
+                        supportingContent = {
+                            Text(
+                                if (vault.id in sessionActiveVaultIds) "Active" else "Inactive",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                        trailingContent = {
+                            Switch(
+                                checked         = vault.id in sessionActiveVaultIds,
+                                onCheckedChange = { onToggleVault(vault.id) },
+                            )
+                        },
+                        modifier = Modifier.clickable { onToggleVault(vault.id) },
+                    )
+                }
+            }
         }
     }
 }
