@@ -10,12 +10,16 @@ import com.vela.app.data.db.TurnWithEvents
 import com.vela.app.data.db.VaultEntity
 import com.vela.app.domain.model.Conversation
 import com.vela.app.engine.ContentBlock
+import com.vela.app.engine.ContentBlockRef
 import com.vela.app.engine.InferenceEngine
-import com.vela.app.engine.buildContentBlocks
+import com.vela.app.engine.buildContentBlockRefs
+import com.vela.app.engine.resolveContentBlockRefs
 import com.vela.app.engine.toApiJsonString
+import com.vela.app.engine.toRefJsonString
 import com.vela.app.vault.VaultRegistry
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -158,39 +162,49 @@ class ConversationViewModel @Inject constructor(
     /**
      * Send a message with optional file/image attachments.
      *
-     * When attachments are present the payload is encoded as Anthropic content blocks
-     * (image or document) and stored alongside the plain-text [text] in the TurnEntity.
-     * Plain text-only messages follow the existing code path (userContentJson = null).
+     * Stores only lightweight ContentBlockRef JSON in the DB (no base64) to prevent
+     * SQLiteBlobTooBigException on large images/PDFs.  Base64 is resolved on-demand
+     * at API call time — for the current turn and lazily when rebuilding history.
      */
     fun sendMessage(
         text: String,
         attachments: List<Pair<android.net.Uri, String>> = emptyList(),  // uri + mimeType
     ) {
         val convId = _activeConvId.value ?: return
-        viewModelScope.launch {
+
+        viewModelScope.launch(Dispatchers.IO) {
+            // Update conversation title on the first turn
             val isFirst = turnDao.getTurnsWithEvents(convId).first().isEmpty()
             if (isFirst) {
                 val title = text.take(40).trim() + if (text.length > 40) "…" else ""
                 conversationDao.updateTitle(convId, title, System.currentTimeMillis())
             }
+
+            // Build compact refs (no file bytes read) → safe to store in DB
+            val refs = if (attachments.isNotEmpty()) {
+                buildContentBlockRefs(context, text, attachments)
+            } else emptyList()
+
+            val refsJson: String? = if (refs.size > 1 || refs.any { it !is ContentBlockRef.Text }) {
+                refs.toRefJsonString()
+            } else null
+
+            // Resolve refs → actual base64 blocks → only used for the API call, never stored
+            val resolvedBlocks = if (refs.isNotEmpty()) resolveContentBlockRefs(context, refs) else emptyList()
+            val apiContentJson: String? = if (resolvedBlocks.size > 1 ||
+                    resolvedBlocks.any { it !is ContentBlock.Text }) {
+                resolvedBlocks.toApiJsonString()
+            } else null
+
+            val turnId = inferenceEngine.startTurn(
+                conversationId  = convId,
+                userMessage     = text,
+                userContentJson = refsJson,        // compact refs → stored in DB
+                apiContentJson  = apiContentJson,  // resolved base64 → sent to API
+                activeVaultIds  = _sessionActiveVaultIds.value,
+            )
+            _activeTurnId.value = turnId
         }
-
-        val contentBlocks = if (attachments.isNotEmpty()) {
-            com.vela.app.engine.buildContentBlocks(context, text, attachments)
-        } else emptyList()
-
-        val userContentJson: String? = if (contentBlocks.size > 1 ||
-            contentBlocks.any { it !is ContentBlock.Text }) {
-            contentBlocks.toApiJsonString()
-        } else null
-
-        val turnId = inferenceEngine.startTurn(
-            conversationId  = convId,
-            userMessage     = text,
-            userContentJson = userContentJson,
-            activeVaultIds  = _sessionActiveVaultIds.value,
-        )
-        _activeTurnId.value = turnId
     }
 
     private fun processInput(input: String) {

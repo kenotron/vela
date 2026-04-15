@@ -22,6 +22,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import org.mockito.Mockito.mock
 
 /**
  * Verifies that InferenceEngine threads the correct systemPrompt through to
@@ -114,6 +115,11 @@ class InferenceEngineSystemPromptTest {
 
     private fun fakeHarness() = SessionHarness(HookRegistry(emptyList()))
 
+    /** Returns a non-null Context mock; never called in these tests (fake DAOs return empty). */
+    @Suppress("UNCHECKED_CAST")
+    private fun fakeContext(): android.content.Context =
+        mock(android.content.Context::class.java)
+
     // ── Test helpers ──────────────────────────────────────────────────────────
 
     private fun makeEngine(
@@ -121,6 +127,7 @@ class InferenceEngineSystemPromptTest {
         mode: String,
         harness: SessionHarness = fakeHarness(),
     ) = InferenceEngine(
+        context         = fakeContext(),
         session         = session,
         toolRegistry    = ToolRegistry(emptyList()),
         turnDao         = fakeTurnDao(),
@@ -198,6 +205,7 @@ class InferenceEngineSystemPromptTest {
 
         val session = FakeSession()
         val engine = InferenceEngine(
+            context         = fakeContext(),
             session         = session,
             toolRegistry    = ToolRegistry(emptyList()),
             turnDao         = fakeTurnDao(),

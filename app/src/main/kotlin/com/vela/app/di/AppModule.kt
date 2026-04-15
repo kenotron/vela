@@ -204,6 +204,7 @@ object AppModule {
 
     @Provides @Singleton
     fun provideInferenceEngine(
+        @ApplicationContext ctx: Context,
         session: InferenceSession,
         toolRegistry: ToolRegistry,
         turnDao: TurnDao,
@@ -212,7 +213,7 @@ object AppModule {
         vaultRegistry: VaultRegistry,
         harness: SessionHarness,
     ): InferenceEngine = InferenceEngine(
-        session, toolRegistry, turnDao, turnEventDao, conversationDao, vaultRegistry, harness,
+        ctx, session, toolRegistry, turnDao, turnEventDao, conversationDao, vaultRegistry, harness,
     )
 
     @Provides @Singleton

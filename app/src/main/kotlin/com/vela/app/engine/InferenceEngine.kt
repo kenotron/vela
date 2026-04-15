@@ -1,10 +1,12 @@
 package com.vela.app.engine
 
+import android.content.Context
 import android.util.Log
 import com.vela.app.data.db.TurnDao
 import com.vela.app.data.db.TurnEventDao
 import com.vela.app.data.db.TurnEntity
 import com.vela.app.data.db.TurnEventEntity
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -54,6 +56,7 @@ private const val TAG = "InferenceEngine"
  */
 @Singleton
 class InferenceEngine @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val session: InferenceSession,
     private val toolRegistry: com.vela.app.ai.tools.ToolRegistry,
     private val turnDao: TurnDao,
@@ -77,12 +80,13 @@ class InferenceEngine @Inject constructor(
     private val _turnComplete = MutableSharedFlow<String>(extraBufferCapacity = 16)
     val turnComplete: SharedFlow<String> = _turnComplete.asSharedFlow()
 
-    // ── Public API ────────────────────────────────────────────────────────────
+    // ── Public API ─────────────────────────────────────────────────────────────
 
     fun startTurn(
         conversationId: String,
         userMessage: String,
-        userContentJson: String? = null,
+        userContentJson: String? = null,   // compact refs → stored in DB
+        apiContentJson: String? = null,    // resolved base64 → sent to API (not stored)
         activeVaultIds: Set<String> = emptySet(),
     ): String {
         val turnId = UUID.randomUUID().toString()
@@ -92,11 +96,11 @@ class InferenceEngine @Inject constructor(
                     id              = turnId,
                     conversationId  = conversationId,
                     userMessage     = userMessage,
-                    userContentJson = userContentJson,
+                    userContentJson = userContentJson,   // compact refs, safe to store
                     status          = "running",
                     timestamp       = System.currentTimeMillis(),
                 ))
-                processTurn(turnId, conversationId, userMessage, userContentJson, activeVaultIds)
+                processTurn(turnId, conversationId, userMessage, apiContentJson, activeVaultIds)
                 turnDao.updateStatus(turnId, "complete")
             } catch (e: Exception) {
                 Log.e(TAG, "Turn $turnId failed", e)
@@ -120,16 +124,16 @@ class InferenceEngine @Inject constructor(
 
     fun isRunning(turnId: String): Boolean = activeJobs.containsKey(turnId)
 
-    // ── Inference ─────────────────────────────────────────────────────────────
+    // ── Inference ──────────────────────────────────────────────────────────────
 
     private suspend fun processTurn(
         turnId: String,
         conversationId: String,
         userMessage: String,
-        userContentJson: String? = null,
+        apiContentJson: String? = null,   // resolved base64 blocks for the current turn
         activeVaultIds: Set<String> = emptySet(),
     ) {
-        val seq       = AtomicInteger(0)
+        val seq        = AtomicInteger(0)
         val textBuffer = StringBuilder()   // uncommitted text since last flush
 
         fun flushText() {
@@ -165,7 +169,7 @@ class InferenceEngine @Inject constructor(
         session.runTurn(
             historyJson     = historyJson,
             userInput       = userMessage,
-            userContentJson = userContentJson,
+            userContentJson = apiContentJson,   // resolved base64 version — not the stored refs
             systemPrompt    = systemPrompt,
 
             onToken = { token ->
@@ -216,17 +220,33 @@ class InferenceEngine @Inject constructor(
         flushText()
     }
 
-    // ── History ───────────────────────────────────────────────────────────────
+    // ── History ────────────────────────────────────────────────────────────────
 
     private suspend fun buildHistory(conversationId: String): String {
-        val arr           = JSONArray()
+        val arr            = JSONArray()
         val completedTurns = turnDao.getCompletedTurnsWithEvents(conversationId)
 
         for (twe in completedTurns) {
-            val userContent: Any = if (!twe.turn.userContentJson.isNullOrBlank()) {
-                org.json.JSONArray(twe.turn.userContentJson)  // content blocks array
-            } else {
-                twe.turn.userMessage  // plain string (existing)
+            // userContentJson now stores compact ContentBlockRef JSON.
+            // Resolve refs → base64 blocks here so history is fully materialised for the API.
+            val userContent: Any = when {
+                !twe.turn.userContentJson.isNullOrBlank() -> {
+                    val refs = runCatching { parseContentBlockRefs(twe.turn.userContentJson) }
+                        .getOrNull()
+                        .orEmpty()
+                    if (refs.isNotEmpty()) {
+                        val resolved = resolveContentBlockRefs(context, refs)
+                        if (resolved.size > 1 || resolved.any { it !is ContentBlock.Text }) {
+                            JSONArray(resolved.map { it.toApiJson() })
+                        } else {
+                            twe.turn.userMessage
+                        }
+                    } else {
+                        // Unknown / legacy format — fall back to plain text so history is safe
+                        twe.turn.userMessage
+                    }
+                }
+                else -> twe.turn.userMessage
             }
             arr.put(JSONObject().put("role", "user").put("content", userContent))
 
@@ -241,7 +261,7 @@ class InferenceEngine @Inject constructor(
         return arr.toString()
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // ── Helpers ────────────────────────────────────────────────────────────────
 
     private fun extractSummary(name: String, argsJson: String) = try {
         val obj = JSONObject(argsJson)

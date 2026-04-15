@@ -124,6 +124,7 @@
         testImplementation(libs.truth)
         testImplementation(libs.kotlinx.coroutines.test)
         testImplementation("org.json:json:20231013")
+        testImplementation("org.mockito:mockito-core:5.4.0")
 
         androidTestImplementation(libs.androidx.test.runner)
         androidTestImplementation(libs.androidx.test.rules)

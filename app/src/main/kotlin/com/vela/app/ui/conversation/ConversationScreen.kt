@@ -315,6 +315,36 @@ fun ConversationScreen(
         }
     }
 
+    var pendingCameraUri by remember { mutableStateOf<android.net.Uri?>(null) }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { success ->
+        val uri = pendingCameraUri
+        if (success && uri != null) {
+            attachments.add(AttachmentItem(
+                uri         = uri,
+                displayName = "photo_${System.currentTimeMillis()}.jpg",
+                mimeType    = "image/jpeg",
+            ))
+            pendingCameraUri = null
+        }
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            val cacheDir = java.io.File(context.cacheDir, "camera").also { it.mkdirs() }
+            val photoFile = java.io.File(cacheDir, "vela_${System.currentTimeMillis()}.jpg")
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                context, "${context.packageName}.fileprovider", photoFile
+            )
+            pendingCameraUri = uri
+            cameraLauncher.launch(uri)
+        }
+    }
+
     fun handleSend() {
         val text     = textInput.trim()
         val attPairs = attachments.map { Pair(it.uri, it.mimeType) }
@@ -367,6 +397,7 @@ fun ConversationScreen(
                 onRemoveAttachment    = { id -> attachments.removeIf { it.id == id } },
                 onPickPhoto           = { photoLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 onPickFile            = { fileLauncher.launch(arrayOf("*/*")) },
+                onCamera              = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) },
             )
         },
     ) { pad ->
@@ -622,6 +653,7 @@ private fun ComposerBox(
     onRemoveAttachment: (String) -> Unit,
     onPickPhoto: () -> Unit,
     onPickFile: () -> Unit,
+    onCamera: () -> Unit,
 ) {
     var showVaultPicker    by remember { mutableStateOf(false) }
     var showAttachmentSheet by remember { mutableStateOf(false) }
@@ -779,6 +811,7 @@ private fun ComposerBox(
             onRecord    = { showAttachmentSheet = false; onRecord() },
             onPickPhoto = { showAttachmentSheet = false; onPickPhoto() },
             onPickFile  = { showAttachmentSheet = false; onPickFile() },
+            onCamera    = { showAttachmentSheet = false; onCamera() },
         )
     }
 
@@ -828,6 +861,7 @@ private fun AttachmentSheet(
     onRecord: () -> Unit,
     onPickPhoto: () -> Unit,
     onPickFile: () -> Unit,
+    onCamera: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -890,7 +924,7 @@ private fun AttachmentSheet(
                 AttachOption(
                     icon = Icons.Default.CameraAlt,
                     label = "Camera",
-                    onClick = { /* TODO */ onDismiss() },
+                    onClick = { onCamera(); onDismiss() },
                     modifier = Modifier.weight(1f),
                 )
                 AttachOption(

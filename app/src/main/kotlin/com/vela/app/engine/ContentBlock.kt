@@ -59,3 +59,100 @@ fun buildContentBlocks(
         }
     }
 }
+
+// ── ContentBlockRef ────────────────────────────────────────────────────────────
+// Compact references stored in the DB — no base64, just URIs / file paths.
+// Call resolveContentBlockRefs() on Dispatchers.IO to materialise to ContentBlock.
+
+sealed class ContentBlockRef {
+    data class Text(val text: String) : ContentBlockRef()
+    data class ImageRef(val uri: String, val mimeType: String) : ContentBlockRef()
+    data class FileRef(val path: String, val mimeType: String, val title: String? = null) : ContentBlockRef()
+}
+
+fun ContentBlockRef.toRefJson(): JSONObject = when (this) {
+    is ContentBlockRef.Text     -> JSONObject().put("type", "text").put("text", text)
+    is ContentBlockRef.ImageRef -> JSONObject().put("type", "image_ref").put("uri", uri).put("mime", mimeType)
+    is ContentBlockRef.FileRef  -> JSONObject().put("type", "file_ref").put("path", path).put("mime", mimeType)
+        .also { o -> title?.let { o.put("title", it) } }
+}
+
+fun List<ContentBlockRef>.toRefJsonString(): String = JSONArray(map { it.toRefJson() }).toString()
+
+/** Parse ref JSON back to a ContentBlockRef list. Unknown types (e.g. legacy base64 entries) are skipped. */
+fun parseContentBlockRefs(json: String): List<ContentBlockRef> {
+    val arr = JSONArray(json)
+    return (0 until arr.length()).mapNotNull { i ->
+        val obj = arr.getJSONObject(i)
+        when (obj.getString("type")) {
+            "text"      -> ContentBlockRef.Text(obj.getString("text"))
+            "image_ref" -> ContentBlockRef.ImageRef(obj.getString("uri"), obj.getString("mime"))
+            "file_ref"  -> ContentBlockRef.FileRef(
+                path  = obj.getString("path"),
+                mimeType = obj.getString("mime"),
+                title = obj.optString("title").takeIf { it.isNotEmpty() },
+            )
+            else        -> null   // skip legacy base64 entries or unknown types
+        }
+    }
+}
+
+/**
+ * Resolve refs to actual ContentBlocks with base64 data — call on Dispatchers.IO.
+ * Content URIs (content://) and file:// URIs are opened via ContentResolver;
+ * bare filesystem paths are read directly.
+ */
+fun resolveContentBlockRefs(
+    context: android.content.Context,
+    refs: List<ContentBlockRef>,
+): List<ContentBlock> = refs.mapNotNull { ref ->
+    when (ref) {
+        is ContentBlockRef.Text -> ContentBlock.Text(ref.text)
+
+        is ContentBlockRef.ImageRef -> {
+            val uri = android.net.Uri.parse(ref.uri)
+            val bytes = runCatching {
+                context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            }.getOrNull() ?: return@mapNotNull null
+            ContentBlock.Image(Base64.encodeToString(bytes, Base64.NO_WRAP), ref.mimeType)
+        }
+
+        is ContentBlockRef.FileRef -> {
+            val bytes: ByteArray? = when {
+                ref.path.startsWith("content://") || ref.path.startsWith("file://") -> {
+                    val uri = android.net.Uri.parse(ref.path)
+                    runCatching {
+                        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    }.getOrNull()
+                }
+                else -> runCatching { java.io.File(ref.path).readBytes() }.getOrNull()
+            }
+            bytes ?: return@mapNotNull null
+            ContentBlock.Document(Base64.encodeToString(bytes, Base64.NO_WRAP), ref.mimeType, ref.title)
+        }
+    }
+}
+
+/**
+ * Build compact ContentBlockRef list from text + URI attachments.
+ * Does NOT read file bytes — only stores URI/path references for later resolution.
+ * Call on Dispatchers.IO (ContentResolver metadata query is lightweight but still I/O).
+ */
+fun buildContentBlockRefs(
+    context: android.content.Context,
+    text: String,
+    attachments: List<Pair<android.net.Uri, String>>,  // uri, mimeType
+): List<ContentBlockRef> = buildList {
+    if (text.isNotBlank()) add(ContentBlockRef.Text(text))
+    attachments.forEach { (uri, mimeType) ->
+        val name = context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+            val idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            if (c.moveToFirst() && idx >= 0) c.getString(idx) else null
+        }
+        if (mimeType.startsWith("image/")) {
+            add(ContentBlockRef.ImageRef(uri.toString(), mimeType))
+        } else {
+            add(ContentBlockRef.FileRef(uri.toString(), mimeType, name))
+        }
+    }
+}
