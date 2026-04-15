@@ -2,8 +2,11 @@
 package com.vela.app.engine
 
 import android.util.Base64
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
+
+private const val TAG = "ContentBlock"
 
 sealed class ContentBlock {
     data class Text(val text: String) : ContentBlock()
@@ -113,7 +116,14 @@ fun resolveContentBlockRefs(
             val uri = android.net.Uri.parse(ref.uri)
             val bytes = runCatching {
                 context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-            }.getOrNull() ?: return@mapNotNull null
+            }.onFailure { e ->
+                Log.e(TAG, "resolveContentBlockRefs: failed to open image URI ${ref.uri}", e)
+            }.getOrNull()
+            if (bytes == null) {
+                Log.w(TAG, "resolveContentBlockRefs: no bytes for image URI ${ref.uri} (mime=${ref.mimeType}) — dropping image block")
+                return@mapNotNull null
+            }
+            Log.d(TAG, "resolveContentBlockRefs: read image ${bytes.size}B mime=${ref.mimeType}")
             ContentBlock.Image(Base64.encodeToString(bytes, Base64.NO_WRAP), ref.mimeType)
         }
 
@@ -123,11 +133,21 @@ fun resolveContentBlockRefs(
                     val uri = android.net.Uri.parse(ref.path)
                     runCatching {
                         context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    }.onFailure { e ->
+                        Log.e(TAG, "resolveContentBlockRefs: failed to open file URI ${ref.path}", e)
                     }.getOrNull()
                 }
-                else -> runCatching { java.io.File(ref.path).readBytes() }.getOrNull()
+                else -> runCatching {
+                    java.io.File(ref.path).readBytes()
+                }.onFailure { e ->
+                    Log.e(TAG, "resolveContentBlockRefs: failed to read file ${ref.path}", e)
+                }.getOrNull()
             }
-            bytes ?: return@mapNotNull null
+            if (bytes == null) {
+                Log.w(TAG, "resolveContentBlockRefs: no bytes for file ${ref.path} (mime=${ref.mimeType}) — dropping document block")
+                return@mapNotNull null
+            }
+            Log.d(TAG, "resolveContentBlockRefs: read file ${bytes.size}B mime=${ref.mimeType}")
             ContentBlock.Document(Base64.encodeToString(bytes, Base64.NO_WRAP), ref.mimeType, ref.title)
         }
     }

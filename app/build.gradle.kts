@@ -1,5 +1,6 @@
     plugins {
         alias(libs.plugins.android.application)
+        id("com.chaquo.python")
         alias(libs.plugins.kotlin.android)
         alias(libs.plugins.kotlin.compose)
         alias(libs.plugins.hilt.android)
@@ -19,6 +20,8 @@
             versionName = "0.2.0"
 
             testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+            ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         }
 
         compileOptions {
@@ -41,6 +44,15 @@
             resources.excludes += "META-INF/DEPENDENCIES"
             resources.excludes += "META-INF/LICENSE*"
             resources.excludes += "META-INF/NOTICE*"
+        }
+    }
+
+    // ─── Chaquopy (embedded CPython) ─────────────────────────────────────────
+    // Kotlin DSL: configure outside android {} using the chaquopy {} extension.
+    // (Groovy-style python {} inside defaultConfig {} is not valid Kotlin DSL.)
+    chaquopy {
+        defaultConfig {
+            version = "3.13"
         }
     }
 

@@ -1,6 +1,7 @@
 package com.vela.app.ui.conversation
 
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vela.app.data.db.ConversationDao
@@ -195,6 +196,11 @@ class ConversationViewModel @Inject constructor(
                     resolvedBlocks.any { it !is ContentBlock.Text }) {
                 resolvedBlocks.toApiJsonString()
             } else null
+
+            Log.d("ConversationViewModel",
+                "sendMessage: attachments=${attachments.size} refs=${refs.size} " +
+                "resolvedBlocks=${resolvedBlocks.size} " +
+                "apiContentJson=${if (apiContentJson != null) "${apiContentJson.length}B" else "null"}")
 
             val turnId = inferenceEngine.startTurn(
                 conversationId  = convId,

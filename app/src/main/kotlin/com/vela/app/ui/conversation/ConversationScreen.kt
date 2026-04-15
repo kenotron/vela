@@ -294,10 +294,14 @@ fun ConversationScreen(
         ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
+            // Resolve the actual MIME type from the content resolver.
+            // "image/*" is a wildcard that the Claude API rejects — it requires
+            // specific types like image/jpeg, image/png, image/gif, image/webp.
+            val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
             attachments.add(AttachmentItem(
                 uri         = uri,
                 displayName = uri.lastPathSegment?.substringAfterLast('/') ?: "image",
-                mimeType    = "image/*",
+                mimeType    = mime,
             ))
         }
     }
