@@ -1,0 +1,68 @@
+name: CD — Build & Release APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      # Point Gradle at the pre-installed Android SDK
+      - name: Write local.properties
+        run: echo "sdk.dir=$ANDROID_HOME" >> local.properties
+
+      - name: Cache Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Build debug APK
+        # -x buildRustRelease: libamplifier_android.so is committed to jniLibs — skip recompilation
+        run: ./gradlew assembleDebug -x buildRustRelease
+
+      - name: Rename APK
+        run: |
+          SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "SHORT_SHA=$SHA" >> $GITHUB_ENV
+          cp app/build/outputs/apk/debug/app-debug.apk \
+             app/build/outputs/apk/debug/vela-debug.apk
+
+      - name: Update rolling 'latest' release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: latest
+          name: "Vela — Latest Build"
+          body: |
+            ## Install
+
+            1. Download **vela-debug.apk** below
+            2. On your Android phone: **Settings → Apps → Special app access → Install unknown apps** → allow your browser or Files app
+            3. Open the downloaded APK and tap Install
+
+            ---
+
+            **Commit:** [`${{ env.SHORT_SHA }}`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
+            **Message:** ${{ github.event.head_commit.message || 'Manual trigger' }}
+            **Build:** #${{ github.run_number }}
+          artifacts: "app/build/outputs/apk/debug/vela-debug.apk"
+          allowUpdates: true
+          removeArtifacts: true
+          makeLatest: true
+          prerelease: true
+          token: ${{ secrets.GITHUB_TOKEN }}
