@@ -58,88 +58,89 @@ class GitHubIdentityManager @Inject constructor(
         dao.getAllSync().firstOrNull { it.label.equals(label, ignoreCase = true) }?.toDomain()
 
     /** Validate a PAT, fetch user info, and store the identity. */
-    suspend fun connectWithPat(label: String, token: String): GitHubConnectResult {
-        return try {
-            val user = fetchUser(token)
-                ?: return GitHubConnectResult.Error("Invalid token or no network access")
-            val scopes = fetchScopes(token)
-            val entity = GitHubIdentityEntity(
-                id        = UUID.randomUUID().toString(),
-                label     = label.ifBlank { user.optString("login", "GitHub") },
-                username  = user.getString("login"),
-                avatarUrl = user.optString("avatar_url", ""),
-                token     = token,
-                tokenType = "pat",
-                scopes    = scopes,
-                addedAt   = System.currentTimeMillis(),
-                isDefault = dao.getAllSync().isEmpty(),   // first identity becomes default
-            )
-            dao.upsert(entity)
-            GitHubConnectResult.Success(entity.toDomain())
-        } catch (e: Exception) {
-            GitHubConnectResult.Error(e.message ?: "Unknown error")
+    suspend fun connectWithPat(label: String, token: String): GitHubConnectResult =
+        withContext(Dispatchers.IO) {
+            try {
+                // Single request to /user — captures both JSON body and X-OAuth-Scopes header
+                val (user, scopes) = fetchUserWithScopes(token)
+                    ?: return@withContext GitHubConnectResult.Error(
+                        "Invalid token or GitHub unreachable — check the PAT and network"
+                    )
+                val entity = GitHubIdentityEntity(
+                    id        = UUID.randomUUID().toString(),
+                    label     = label.ifBlank { user.optString("login", "GitHub") },
+                    username  = user.getString("login"),
+                    avatarUrl = user.optString("avatar_url", ""),
+                    token     = token,
+                    tokenType = "pat",
+                    scopes    = scopes,
+                    addedAt   = System.currentTimeMillis(),
+                    isDefault = dao.getAllSync().isEmpty(),
+                )
+                dao.upsert(entity)
+                GitHubConnectResult.Success(entity.toDomain())
+            } catch (e: Exception) {
+                GitHubConnectResult.Error(e.message ?: "Unexpected error — check logcat")
+            }
         }
-    }
 
     /** Start GitHub device authorization flow. Returns state the UI should display. */
     suspend fun startDeviceFlow(clientId: String): Result<DeviceFlowState> = runCatching {
-        val body = "client_id=$clientId&scope=repo,read:org,read:project"
-            .toRequestBody("application/x-www-form-urlencoded".toMediaType())
-        val req = Request.Builder()
-            .url("https://github.com/login/device/code")
-            .post(body)
-            .addHeader("Accept", "application/json")
-            .build()
-        val json = client.newCall(req).execute().use { resp ->
-            JSONObject(resp.body!!.string())
+        withContext(Dispatchers.IO) {
+            val body = "client_id=$clientId&scope=repo,read:org,read:project"
+                .toRequestBody("application/x-www-form-urlencoded".toMediaType())
+            val req = Request.Builder()
+                .url("https://github.com/login/device/code")
+                .post(body).addHeader("Accept", "application/json").build()
+            val json = client.newCall(req).execute().use { resp -> JSONObject(resp.body!!.string()) }
+            DeviceFlowState(
+                deviceCode      = json.getString("device_code"),
+                userCode        = json.getString("user_code"),
+                verificationUri = json.optString("verification_uri", "https://github.com/login/device"),
+                expiresIn       = json.optInt("expires_in", 900),
+                interval        = json.optInt("interval", 5),
+            )
         }
-        DeviceFlowState(
-            deviceCode      = json.getString("device_code"),
-            userCode        = json.getString("user_code"),
-            verificationUri = json.optString("verification_uri", "https://github.com/login/device"),
-            expiresIn       = json.optInt("expires_in", 900),
-            interval        = json.optInt("interval", 5),
-        )
     }
 
     /** Poll once for device flow completion. */
-    suspend fun pollDeviceFlow(clientId: String, state: DeviceFlowState, label: String): GitHubConnectResult {
-        return try {
-            val body = "client_id=$clientId&device_code=${state.deviceCode}&grant_type=urn:ietf:params:oauth:grant-type:device_code"
-                .toRequestBody("application/x-www-form-urlencoded".toMediaType())
-            val req = Request.Builder()
-                .url("https://github.com/login/oauth/access_token")
-                .post(body)
-                .addHeader("Accept", "application/json")
-                .build()
-            val json = client.newCall(req).execute().use { resp -> JSONObject(resp.body!!.string()) }
+    suspend fun pollDeviceFlow(clientId: String, state: DeviceFlowState, label: String): GitHubConnectResult =
+        withContext(Dispatchers.IO) {
+            try {
+                val body = "client_id=$clientId&device_code=${state.deviceCode}&grant_type=urn:ietf:params:oauth:grant-type:device_code"
+                    .toRequestBody("application/x-www-form-urlencoded".toMediaType())
+                val req = Request.Builder()
+                    .url("https://github.com/login/oauth/access_token")
+                    .post(body).addHeader("Accept", "application/json").build()
+                val json = client.newCall(req).execute().use { resp -> JSONObject(resp.body!!.string()) }
 
-            when {
-                json.has("access_token") -> {
-                    val token = json.getString("access_token")
-                    val user = fetchUser(token) ?: return GitHubConnectResult.Error("Could not fetch user")
-                    val entity = GitHubIdentityEntity(
-                        id        = UUID.randomUUID().toString(),
-                        label     = label.ifBlank { user.optString("login", "GitHub") },
-                        username  = user.getString("login"),
-                        avatarUrl = user.optString("avatar_url", ""),
-                        token     = token,
-                        tokenType = "oauth",
-                        scopes    = "repo,read:org,read:project",
-                        addedAt   = System.currentTimeMillis(),
-                        isDefault = dao.getAllSync().isEmpty(),
-                    )
-                    dao.upsert(entity)
-                    GitHubConnectResult.Success(entity.toDomain())
+                when {
+                    json.has("access_token") -> {
+                        val token = json.getString("access_token")
+                        val (user, _) = fetchUserWithScopes(token)
+                            ?: return@withContext GitHubConnectResult.Error("Could not fetch user")
+                        val entity = GitHubIdentityEntity(
+                            id        = UUID.randomUUID().toString(),
+                            label     = label.ifBlank { user.optString("login", "GitHub") },
+                            username  = user.getString("login"),
+                            avatarUrl = user.optString("avatar_url", ""),
+                            token     = token,
+                            tokenType = "oauth",
+                            scopes    = "repo,read:org,read:project",
+                            addedAt   = System.currentTimeMillis(),
+                            isDefault = dao.getAllSync().isEmpty(),
+                        )
+                        dao.upsert(entity)
+                        GitHubConnectResult.Success(entity.toDomain())
+                    }
+                    json.optString("error") == "authorization_pending" -> GitHubConnectResult.Pending
+                    json.optString("error") == "expired_token"         -> GitHubConnectResult.Expired
+                    else -> GitHubConnectResult.Error(json.optString("error_description", "Unknown"))
                 }
-                json.optString("error") == "authorization_pending" -> GitHubConnectResult.Pending
-                json.optString("error") == "expired_token"         -> GitHubConnectResult.Expired
-                else -> GitHubConnectResult.Error(json.optString("error_description", "Unknown"))
+            } catch (e: Exception) {
+                GitHubConnectResult.Error(e.message ?: "Poll failed")
             }
-        } catch (e: Exception) {
-            GitHubConnectResult.Error(e.message ?: "Poll failed")
         }
-    }
 
     suspend fun setDefault(id: String) {
         dao.clearDefault()
@@ -159,25 +160,19 @@ class GitHubIdentityManager @Inject constructor(
 
     // ── Private helpers ──────────────────────────────────────────────────────
 
-    private fun fetchUser(token: String): JSONObject? {
+    /** Single /user call that returns (userJson, scopesString) or null on failure. */
+    private fun fetchUserWithScopes(token: String): Pair<JSONObject, String>? {
         val req = Request.Builder()
             .url("https://api.github.com/user")
             .addHeader("Authorization", "Bearer $token")
             .addHeader("Accept", "application/vnd.github+json")
             .build()
         return client.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) null else JSONObject(resp.body!!.string())
-        }
-    }
-
-    private fun fetchScopes(token: String): String {
-        val req = Request.Builder()
-            .url("https://api.github.com/user")
-            .addHeader("Authorization", "Bearer $token")
-            .addHeader("Accept", "application/vnd.github+json")
-            .build()
-        return client.newCall(req).execute().use { resp ->
-            resp.header("X-OAuth-Scopes") ?: ""
+            if (!resp.isSuccessful) null
+            else Pair(
+                JSONObject(resp.body!!.string()),
+                resp.header("X-OAuth-Scopes") ?: "",
+            )
         }
     }
 
