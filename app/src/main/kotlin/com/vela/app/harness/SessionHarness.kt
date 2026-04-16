@@ -47,6 +47,11 @@ class SessionHarness(
     }
 
     private fun loadSystemMd(activeVaults: List<VaultEntity>): String {
+        // When no vaults are active the system prompt must explicitly revoke vault
+        // access — otherwise Claude references vault config it saw earlier in the
+        // conversation history, even though the current turn has no active vaults.
+        if (activeVaults.isEmpty()) return VAULTS_DISABLED
+
         activeVaults.forEach { vault ->
             val f = File(vault.localPath, "SYSTEM.md")
             if (f.exists()) return f.readText()
@@ -57,5 +62,10 @@ class SessionHarness(
     companion object {
         const val DEFAULT_FALLBACK =
             "# Vault session\n\nYou are a personal AI assistant with access to the user's vault."
+
+        /** Injected as system prompt when ALL vaults are toggled off. */
+        const val VAULTS_DISABLED = """You are a personal AI assistant.
+
+Vaults are currently disabled. Do not list, reference, describe, or use any vault content or configuration — even if vault information appeared earlier in this conversation. Treat all vault file tools (read_file, write_file, edit_file, grep, glob) as unavailable. If the user asks about vaults, tell them vaults are currently turned off in the session chip."""
     }
 }
