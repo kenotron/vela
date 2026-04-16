@@ -7,6 +7,7 @@ package com.vela.app.ssh
     import javax.inject.Inject
     import javax.inject.Singleton
 
+
     @Singleton
     class SshNodeRegistry @Inject constructor(private val dao: SshNodeDao) {
 
@@ -33,6 +34,9 @@ package com.vela.app.ssh
             port     = port,
             username = username,
             addedAt  = addedAt,
+            type     = if (nodeType == "amplifierd") NodeType.AMPLIFIERD else NodeType.SSH,
+            url      = url,
+            token    = token,
         )
         private fun SshNode.toEntity() = SshNodeEntity(
             id       = id,
@@ -41,6 +45,9 @@ package com.vela.app.ssh
             port     = port,
             username = username,
             addedAt  = addedAt,
+            nodeType = if (type == NodeType.AMPLIFIERD) "amplifierd" else "ssh",
+            url      = url,
+            token    = token,
         )
     }
     

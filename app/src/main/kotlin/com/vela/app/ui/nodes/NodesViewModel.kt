@@ -2,6 +2,7 @@ package com.vela.app.ui.nodes
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.vela.app.ssh.NodeType
 import com.vela.app.ssh.SshKeyManager
 import com.vela.app.ssh.SshNode
 import com.vela.app.ssh.SshNodeRegistry
@@ -47,6 +48,24 @@ class NodesViewModel @Inject constructor(
                 hosts    = listOf(host.trim()),
                 port     = port,
                 username = username.trim(),
+                type     = NodeType.SSH,
+            ))
+            _addError.value = null
+        }
+    }
+
+    fun addAmplifierdNode(label: String, url: String, token: String) {
+        if (label.isBlank() || url.isBlank()) {
+            _addError.value = "Label and URL are required"
+            return
+        }
+        viewModelScope.launch {
+            registry.addNode(SshNode(
+                id    = UUID.randomUUID().toString(),
+                label = label.trim(),
+                type  = NodeType.AMPLIFIERD,
+                url   = url.trim().trimEnd('/'),
+                token = token.trim(),
             ))
             _addError.value = null
         }

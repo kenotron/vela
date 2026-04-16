@@ -30,7 +30,7 @@ package com.vela.app.ui.vault
         private val embeddingEngine: EmbeddingEngine,
     ) : ViewModel() {
 
-        // ─── Vault selection ───────────────────────────────────────────────────
+        // --- Vault selection ----------------------------------------------------------
         val allVaults: StateFlow<List<VaultEntity>> = vaultRegistry.observeAll()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -40,10 +40,10 @@ package com.vela.app.ui.vault
         fun setVault(vault: VaultEntity) {
             _activeVault.value = vault
             navigateTo("")       // reset to root
-            triggerIndexing(vault)
+            embeddingEngine.startIndexing(vault)
         }
 
-        // ─── File tree ────────────────────────────────────────────────────────
+        // --- File tree ----------------------------------------------------------------
         private val _currentPath = MutableStateFlow("")
         val currentPath: StateFlow<String> = _currentPath.asStateFlow()
 
@@ -80,7 +80,7 @@ package com.vela.app.ui.vault
             navigateTo(_currentPath.value)
         }
 
-        // ─── Search ───────────────────────────────────────────────────────────
+        // --- Search -------------------------------------------------------------------
         private val _searchResults = MutableStateFlow<List<SearchResult>>(emptyList())
         val searchResults: StateFlow<List<SearchResult>> = _searchResults.asStateFlow()
 
@@ -100,22 +100,11 @@ package com.vela.app.ui.vault
             }
         }
 
-        // ─── Indexing ─────────────────────────────────────────────────────────
-        private val _indexProgress = MutableStateFlow<Pair<Int, Int>?>(null) // done/total or null
-        val indexProgress: StateFlow<Pair<Int, Int>?> = _indexProgress.asStateFlow()
+        // --- Indexing -----------------------------------------------------------------
+        // Progress lives in EmbeddingEngine (singleton) so it survives ViewModel
+        // recreation when the user navigates away and back to this screen.
+        val indexProgress = embeddingEngine.indexProgress
 
         private val _isConfigured = MutableStateFlow(embeddingEngine.isConfigured)
         val isConfigured: StateFlow<Boolean> = _isConfigured.asStateFlow()
-
-        fun triggerIndexing(vault: VaultEntity) {
-            if (!embeddingEngine.isConfigured) return
-            viewModelScope.launch {
-                _indexProgress.value = 0 to 0
-                embeddingEngine.indexVault(vault) { done, total ->
-                    _indexProgress.value = done to total
-                }
-                _indexProgress.value = null
-            }
-        }
     }
-    

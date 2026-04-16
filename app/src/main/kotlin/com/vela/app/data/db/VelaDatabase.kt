@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         VaultEntity::class,
         VaultEmbeddingEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 abstract class VelaDatabase : RoomDatabase() {
@@ -112,8 +112,17 @@ val MIGRATION_6_7 = object : Migration(6, 7) {
         )
     }
 }
-/** v9→v10: add vault_embeddings table for semantic file search. */
-val MIGRATION_9_10 = object : Migration(9, 10) {
+/** v10→v11: add nodeType, url, token columns to ssh_nodes for amplifierd support. */
+    val MIGRATION_10_11 = object : Migration(10, 11) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE ssh_nodes ADD COLUMN nodeType TEXT NOT NULL DEFAULT 'ssh'")
+            db.execSQL("ALTER TABLE ssh_nodes ADD COLUMN url TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE ssh_nodes ADD COLUMN token TEXT NOT NULL DEFAULT ''")
+        }
+    }
+
+    /** v9→v10: add vault_embeddings table for semantic file search. */
+    val MIGRATION_9_10 = object : Migration(9, 10) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE IF NOT EXISTS vault_embeddings (

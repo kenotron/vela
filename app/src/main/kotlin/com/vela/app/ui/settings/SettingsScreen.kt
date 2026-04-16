@@ -125,7 +125,6 @@ private fun SettingsNavRow(
         },
         modifier = if (enabled) Modifier.clickable(onClick = onClick) else Modifier,
     )
-    HorizontalDivider()
 }
 
 // ── AI sub-screen ─────────────────────────────────────────────────────────────
@@ -196,8 +195,6 @@ fun AiSettingsScreen(
                     modifier = Modifier.clickable { showModelPicker = true },
                 )
             }
-            item { HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp)) }
-
             item { SectionHeader("Google") }
             item {
                 ListItem(
@@ -214,8 +211,6 @@ fun AiSettingsScreen(
                     },
                 )
             }
-            item { HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp)) }
-
             item { SectionHeader("OpenAI") }
             item {
                 ListItem(
@@ -329,9 +324,13 @@ fun ConnectionsSettingsScreen(
 
     if (showAddSheet) {
         com.vela.app.ui.nodes.AddNodeSheet(
-            onDismiss = { showAddSheet = false; nodesViewModel.clearError() },
-            onAdd     = { label, host, port, user ->
+            onDismiss       = { showAddSheet = false; nodesViewModel.clearError() },
+            onAddSsh        = { label, host, port, user ->
                 nodesViewModel.addNode(label, host, port, user)
+                showAddSheet = false
+            },
+            onAddAmplifierd = { label, url, token ->
+                nodesViewModel.addAmplifierdNode(label, url, token)
                 showAddSheet = false
             },
             error = addError,
@@ -397,7 +396,6 @@ fun VaultsSettingsScreen(
                         },
                         modifier = Modifier.clickable { onNavigateToVaultDetail(vault.id) },
                     )
-                    HorizontalDivider()
                 }
             }
         }

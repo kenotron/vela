@@ -6,7 +6,14 @@ package com.vela.app.vault
     import com.vela.app.data.db.VaultEmbeddingDao
     import com.vela.app.data.db.VaultEmbeddingEntity
     import com.vela.app.data.db.VaultEntity
+    import kotlinx.coroutines.CoroutineScope
     import kotlinx.coroutines.Dispatchers
+    import kotlinx.coroutines.Job
+    import kotlinx.coroutines.SupervisorJob
+    import kotlinx.coroutines.flow.MutableStateFlow
+    import kotlinx.coroutines.flow.StateFlow
+    import kotlinx.coroutines.flow.asStateFlow
+    import kotlinx.coroutines.launch
     import kotlinx.coroutines.withContext
     import okhttp3.MediaType.Companion.toMediaType
     import okhttp3.OkHttpClient
@@ -44,7 +51,48 @@ package com.vela.app.vault
         private val prefs: SharedPreferences
             get() = context.getSharedPreferences("amplifier_prefs", Context.MODE_PRIVATE)
 
-        // ─── Public API ──────────────────────────────────────────────────────────
+        // --- Indexing state (singleton — survives ViewModel recreation) ---------------
+        //
+        // Keeping job management here (rather than in the ViewModel) solves two bugs:
+        //   1. Progress resets to 0/0 on every screen visit because each navigation
+        //      recreates the ViewModel and immediately calls triggerIndexing().
+        //   2. The counter fluctuates because triggerIndexing() had no job-cancellation
+        //      guard, so rapid or repeated calls launched concurrent coroutines that
+        //      raced each other writing to _indexProgress.
+        //
+        // With state here: the singleton outlives ViewModel lifetimes, so returning to
+        // the vault explorer mid-index just picks up the live progress instead of
+        // flashing "0/0" and restarting from scratch.
+
+        private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        private var indexingJob: Job? = null
+        private var indexingVaultId: String? = null
+
+        private val _indexProgress = MutableStateFlow<Pair<Int, Int>?>(null)
+        /** Current indexing progress (done to total), or null when idle. */
+        val indexProgress: StateFlow<Pair<Int, Int>?> = _indexProgress.asStateFlow()
+
+        /**
+         * Fire-and-forget indexing. Safe to call on every screen visit:
+         * - No-ops if this vault is already actively being indexed.
+         * - Cancels any in-flight job for a *different* vault before starting.
+         */
+        fun startIndexing(vault: VaultEntity) {
+            if (!isConfigured) return
+            if (indexingVaultId == vault.id && indexingJob?.isActive == true) return
+            indexingJob?.cancel()
+            indexingVaultId = vault.id
+            indexingJob = engineScope.launch {
+                _indexProgress.value = 0 to 0
+                indexVault(vault) { done, total ->
+                    _indexProgress.value = done to total
+                }
+                _indexProgress.value = null
+                indexingVaultId = null
+            }
+        }
+
+        // --- Public API ---------------------------------------------------------------
 
         val isConfigured: Boolean
             get() = googleKey.isNotBlank() || openAiKey.isNotBlank()
@@ -118,7 +166,7 @@ package com.vela.app.vault
             .take(topK)
         }
 
-        // ─── Private helpers ──────────────────────────────────────────────────────
+        // --- Private helpers ----------------------------------------------------------
 
         private val googleKey  get() = prefs.getString("google_api_key",  "").orEmpty()
         private val openAiKey  get() = prefs.getString("openai_api_key",  "").orEmpty()
@@ -187,4 +235,3 @@ package com.vela.app.vault
         private fun chunkText(text: String): List<String> =
             text.chunked(CHUNK_SIZE).filter { it.isNotBlank() }
     }
-    
