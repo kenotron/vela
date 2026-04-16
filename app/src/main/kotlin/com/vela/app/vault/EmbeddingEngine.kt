@@ -51,6 +51,9 @@ package com.vela.app.vault
         private val prefs: SharedPreferences
             get() = context.getSharedPreferences("amplifier_prefs", Context.MODE_PRIVATE)
 
+        // On-device embedding — zero network, ~10 ms/chunk. Loaded lazily from assets.
+        private val localEmbedder: LocalEmbedder by lazy { LocalEmbedder(context) }
+
         // --- Indexing state (singleton — survives ViewModel recreation) ---------------
         //
         // Keeping job management here (rather than in the ViewModel) solves two bugs:
@@ -87,20 +90,35 @@ package com.vela.app.vault
             indexingJob?.cancel()
             indexingVaultId = vault.id
             indexingJob = engineScope.launch {
-                // Check on IO thread (file walk) — skip if nothing changed since last full index
                 val lastIndexed = prefs.getLong("last_indexed_${vault.id}", 0L)
-                if (lastIndexed > 0L && !hasChangedSince(vault, lastIndexed)) {
-                    Log.d(TAG, "Vault '${vault.name}' up to date — skipping index")
+
+                // Detect stale state: timestamp written but DB is empty (embed() failed last time).
+                // Clear the pref so we re-try indexing instead of staying locked out forever.
+                if (lastIndexed > 0L && dao.countByVault(vault.id) == 0) {
+                    Log.i(TAG, "Vault '${vault.name}': lastIndexed set but DB empty — resetting")
+                    prefs.edit().remove("last_indexed_${vault.id}").apply()
+                }
+
+                val freshLastIndexed = prefs.getLong("last_indexed_${vault.id}", 0L)
+                if (freshLastIndexed > 0L && !hasChangedSince(vault, freshLastIndexed)) {
+                    Log.i(TAG, "Vault '${vault.name}' up to date — skipping index")
                     indexingVaultId = null
                     return@launch
                 }
 
                 _indexProgress.value = 0 to 0
-                indexVault(vault) { done, total ->
+                val embedded = indexVault(vault) { done, total ->
                     _indexProgress.value = done to total
                 }
-                // Persist completion so next launch skips the walk if nothing changed
-                prefs.edit().putLong("last_indexed_${vault.id}", System.currentTimeMillis()).apply()
+
+                // Only persist completion if we actually stored embeddings.
+                // If embed() failed for everything, leave lastIndexed unset so we retry next time.
+                if (embedded > 0) {
+                    prefs.edit().putLong("last_indexed_${vault.id}", System.currentTimeMillis()).apply()
+                    Log.i(TAG, "Vault '${vault.name}' indexed: $embedded chunks stored")
+                } else {
+                    Log.w(TAG, "Vault '${vault.name}' index run produced 0 embeddings — will retry next launch")
+                }
                 _indexProgress.value = null
                 indexingVaultId = null
             }
@@ -123,14 +141,16 @@ package com.vela.app.vault
         // --- Public API ---------------------------------------------------------------
 
         val isConfigured: Boolean
-            get() = googleKey.isNotBlank() || openAiKey.isNotBlank()
+            get() = localEmbedder.isAvailable || googleKey.isNotBlank() || openAiKey.isNotBlank()
 
         /**
          * Walk [vault] on disk, embed changed text files, persist to DB.
          * Safe to call repeatedly — skips unchanged files via lastModified timestamp.
+         * Returns the number of chunks successfully embedded and stored.
          */
-        suspend fun indexVault(vault: VaultEntity, onProgress: (Int, Int) -> Unit = { _, _ -> }) {
-            if (!isConfigured) return
+        suspend fun indexVault(vault: VaultEntity, onProgress: (Int, Int) -> Unit = { _, _ -> }): Int {
+            if (!isConfigured) return 0
+            var storedChunks = 0
             withContext(Dispatchers.IO) {
                 val root = File(vault.localPath).takeIf { it.exists() } ?: return@withContext
                 val files = root.walkTopDown()
@@ -148,8 +168,12 @@ package com.vela.app.vault
                     dao.deleteFile(vault.id, relPath)               // clear stale chunks
                     val text = file.readText(Charsets.UTF_8)
                     val chunks = chunkText(text)
+                    var fileChunks = 0
                     chunks.forEachIndexed { chunkIdx, chunk ->
-                        val vec = embed(chunk) ?: return@forEachIndexed
+                        val vec = embed(chunk) ?: run {
+                            Log.w(TAG, "embed() returned null for $relPath chunk $chunkIdx")
+                            return@forEachIndexed
+                        }
                         dao.upsert(VaultEmbeddingEntity(
                             id           = UUID.randomUUID().toString(),
                             vaultId      = vault.id,
@@ -159,11 +183,14 @@ package com.vela.app.vault
                             embeddingJson= JSONArray(vec.toList()).toString(),
                             fileModified = modified,
                         ))
+                        fileChunks++
+                        storedChunks++
                     }
-                    Log.d(TAG, "Indexed $relPath (${chunks.size} chunks)")
+                    Log.i(TAG, "Indexed $relPath ($fileChunks/${chunks.size} chunks stored)")
                 }
-                Log.d(TAG, "Vault ${vault.name} indexed: ${files.size} files")
+                Log.i(TAG, "Vault '${vault.name}': ${files.size} files walked, $storedChunks chunks stored")
             }
+            return storedChunks
         }
 
         /**
@@ -199,11 +226,27 @@ package com.vela.app.vault
         private val googleKey  get() = prefs.getString("google_api_key",  "").orEmpty()
         private val openAiKey  get() = prefs.getString("openai_api_key",  "").orEmpty()
 
-        /** Call whichever embedding API is configured. Returns null on failure. */
+        /**
+         * Embed [text] using the first configured provider that succeeds.
+         * Tries Google → OpenAI in order so that a transient Google failure
+         * doesn't silently produce no embeddings when OpenAI is also available.
+         */
         private fun embed(text: String): FloatArray? {
-            return if (googleKey.isNotBlank()) embedGemini(text)
-            else if (openAiKey.isNotBlank())  embedOpenAI(text)
-            else null
+            if (localEmbedder.isAvailable) {
+                localEmbedder.embed(text)?.let { return it }
+            }
+            if (googleKey.isNotBlank()) {
+                embedGemini(text)?.let { return it }
+            }
+            if (openAiKey.isNotBlank()) return embedOpenAI(text)
+            return null
+        }
+
+        /** Expected output dimension from whichever provider embed() will use. */
+        private val activeDim: Int get() = when {
+            localEmbedder.isAvailable -> LocalEmbedder.DIM  // 384
+            googleKey.isNotBlank()    -> 768
+            else                      -> 1536
         }
 
         private fun embedGemini(text: String): FloatArray? = try {

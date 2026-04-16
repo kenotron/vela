@@ -23,6 +23,9 @@ package com.vela.app.data.db
         @Query("DELETE FROM vault_embeddings WHERE vaultId = :vaultId AND filePath = :filePath")
         suspend fun deleteFile(vaultId: String, filePath: String)
 
+        @Query("SELECT COUNT(*) FROM vault_embeddings WHERE vaultId = :vaultId")
+        suspend fun countByVault(vaultId: String): Int
+
         @Query("DELETE FROM vault_embeddings WHERE vaultId = :vaultId")
         suspend fun deleteVault(vaultId: String)
     }

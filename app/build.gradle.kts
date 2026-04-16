@@ -131,7 +131,10 @@
             implementation("io.noties.markwon:ext-tasklist:4.6.2")
             implementation("io.noties.markwon:linkify:4.6.2")
 
-        // Unit tests
+        // Local on-device embedding — all-MiniLM-L6-v2 via ONNX Runtime
+            implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
+
+            // Unit tests
         testImplementation(libs.junit)
         testImplementation(libs.truth)
         testImplementation(libs.kotlinx.coroutines.test)
