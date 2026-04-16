@@ -37,58 +37,34 @@ fun ConversationBackground(modifier: Modifier = Modifier) {
 
     Canvas(modifier.fillMaxSize()) {
 
-        // ── 1. Base gradient ──────────────────────────────────────────────────
+        // ── 1. Base — almost flat, barely-there gradient ──────────────────────
+        // Dark: neutral charcoal, no blue tint fighting the message bubbles.
+        // Light: warm off-white, same temperature as the message bubbles.
         drawRect(
             brush = if (isDark) {
                 Brush.verticalGradient(
-                    0f   to Color(0xFF0D1626),
-                    0.5f to Color(0xFF090E1B),
-                    1f   to Color(0xFF060810),
+                    0f to Color(0xFF111418),
+                    1f to Color(0xFF0E1115),
                 )
             } else {
                 Brush.verticalGradient(
-                    0f to Color(0xFFF7FAFF),
-                    1f to Color(0xFFEDF2FC),
+                    0f to Color(0xFFF2F3F5),
+                    1f to Color(0xFFECEEF0),
                 )
             },
         )
 
-        // ── 2. V-beam: soft bloom from top-centre (dark mode only) ────────────
-        if (isDark) {
-            // Primary bloom — cool blue-white, tight
-            drawRect(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        Color(0xFF2A4870).copy(alpha = 0.45f),
-                        Color.Transparent,
-                    ),
-                    center = Offset(size.width * 0.5f, 0f),
-                    radius = size.height * 0.55f,
-                ),
-            )
-            // Secondary bloom — wider, adds depth
-            drawRect(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        Color(0xFF1A3050).copy(alpha = 0.20f),
-                        Color.Transparent,
-                    ),
-                    center = Offset(size.width * 0.5f, 0f),
-                    radius = size.height * 0.95f,
-                ),
-            )
-        }
-
-        // ── 3. Star / dot field ───────────────────────────────────────────────
-        val starColor  = if (isDark) Color.White else Color(0xFF5A6A90)
-        val alphaRange = if (isDark) 0.15f..0.90f else 0.03f..0.14f
-        val dpRange    = if (isDark) 0.5f..2.0f   else 0.4f..1.4f
+        // ── 2. Dot field — texture only, not decoration ───────────────────────
+        // Opacity so low you feel it more than see it.
+        val dotColor  = if (isDark) Color.White else Color(0xFF000000)
+        val alphaRange = if (isDark) 0.03f..0.12f else 0.02f..0.06f
+        val dpRange    = if (isDark) 0.3f..1.0f   else 0.3f..0.7f
 
         stars.forEach { star ->
             val alpha  = alphaRange.start + star.t * (alphaRange.endInclusive - alphaRange.start)
             val radius = (dpRange.start + star.t * (dpRange.endInclusive - dpRange.start)).dp.toPx()
             drawCircle(
-                color  = starColor.copy(alpha = alpha),
+                color  = dotColor.copy(alpha = alpha),
                 radius = radius,
                 center = Offset(star.x * size.width, star.y * size.height),
             )
