@@ -427,7 +427,7 @@ fun ConversationScreen(
     val listState = rememberLazyListState()
     LaunchedEffect(turnsWithEvents.size, streamingTextMap.size) {
         if (turnsWithEvents.isNotEmpty()) {
-            listState.animateScrollToItem(turnsWithEvents.size - 1)
+            listState.scrollToItem(turnsWithEvents.size - 1)
         }
     }
 
