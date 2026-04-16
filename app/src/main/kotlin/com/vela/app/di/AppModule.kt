@@ -212,6 +212,7 @@ object AppModule {
         ),
         VaultConfigHook(),
         VaultIndexHook(),
+        VaultEmbeddingHook(embeddingEngine),
         PersonalizationHook(),
     )
 
