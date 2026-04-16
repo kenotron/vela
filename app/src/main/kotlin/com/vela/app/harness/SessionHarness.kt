@@ -38,6 +38,11 @@ class SessionHarness(
         } else ""
 
         buildString {
+            // A fresh <lifeos-config> block is prepended every turn so the model
+            // always reads the current vault state from this turn's system prompt,
+            // overriding any stale config it may have seen in conversation history.
+            append(buildLifeosConfig(activeVaults))
+            append("\n\n")
             append(loadSystemMd(activeVaults))
             if (hookAddenda.isNotBlank()) {
                 append("\n\n")
@@ -46,26 +51,42 @@ class SessionHarness(
         }
     }
 
-    private fun loadSystemMd(activeVaults: List<VaultEntity>): String {
-        // When no vaults are active the system prompt must explicitly revoke vault
-        // access — otherwise Claude references vault config it saw earlier in the
-        // conversation history, even though the current turn has no active vaults.
-        if (activeVaults.isEmpty()) return VAULTS_DISABLED
-
-        activeVaults.forEach { vault ->
-            val f = File(vault.localPath, "SYSTEM.md")
-            if (f.exists()) return f.readText()
+    /**
+     * Builds a <lifeos-config> block reflecting the currently active vaults.
+     * Empty vaults list → vaults: [] which tells the model no vaults are available.
+     */
+    private fun buildLifeosConfig(activeVaults: List<VaultEntity>): String = buildString {
+        appendLine("<lifeos-config>")
+        if (activeVaults.isEmpty()) {
+            appendLine("vaults: []")
+        } else {
+            appendLine("vaults:")
+            activeVaults.forEach { vault ->
+                appendLine("  - name: ${vault.name}")
+                appendLine("    type: personal")
+                appendLine("    location: ${vault.localPath}")
+            }
         }
-        return fallbackPrompt
+        append("</lifeos-config>")
+    }
+
+    /**
+     * Loads the SYSTEM.md from the first active vault that has one, stripping
+     * any existing <lifeos-config> block so the dynamically-generated one above
+     * is always the authoritative source.
+     */
+    private fun loadSystemMd(activeVaults: List<VaultEntity>): String {
+        val raw = activeVaults.mapNotNull { vault ->
+            File(vault.localPath, "SYSTEM.md").takeIf { it.exists() }?.readText()
+        }.firstOrNull() ?: fallbackPrompt
+
+        // Remove any <lifeos-config>...</lifeos-config> block already in the file
+        // so we don't end up with two conflicting config blocks.
+        return raw.replace(Regex("<lifeos-config>[\\s\\S]*?</lifeos-config>\\n?"), "").trim()
     }
 
     companion object {
         const val DEFAULT_FALLBACK =
-            "# Vault session\n\nYou are a personal AI assistant with access to the user's vault."
-
-        /** Injected as system prompt when ALL vaults are toggled off. */
-        const val VAULTS_DISABLED = """You are a personal AI assistant.
-
-Vaults are currently disabled. Do not list, reference, describe, or use any vault content or configuration — even if vault information appeared earlier in this conversation. Treat all vault file tools (read_file, write_file, edit_file, grep, glob) as unavailable. If the user asks about vaults, tell them vaults are currently turned off in the session chip."""
+            "You are a personal AI assistant. Use the vault configuration above to determine what files and vaults are available."
     }
 }
