@@ -40,6 +40,7 @@ class ConversationViewModel @Inject constructor(
     companion object {
         private const val PREFS         = "amplifier_prefs"
         private const val KEY_ACTIVE_ID = "active_conversation_id"
+        private fun vaultSelKey(convId: String) = "vault_sel_$convId"
     }
 
     private val prefs get() = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -121,10 +122,11 @@ class ConversationViewModel @Inject constructor(
             }
         }
 
-        // Reset session vault selection when active conversation changes
+        // Restore per-conversation vault selection when the active conversation changes.
+        // Falls back to all enabled vaults for conversations with no saved preference.
         viewModelScope.launch {
-            _activeConvId.filterNotNull().collect {
-                _sessionActiveVaultIds.value = allVaults.value.map { v -> v.id }.toSet()
+            _activeConvId.filterNotNull().collect { convId ->
+                _sessionActiveVaultIds.value = loadVaultSelection(convId)
             }
         }
     }
@@ -170,6 +172,29 @@ class ConversationViewModel @Inject constructor(
         _sessionActiveVaultIds.update { current ->
             if (vaultId in current) current - vaultId else current + vaultId
         }
+        // Persist the new selection so it survives conversation switches
+        _activeConvId.value?.let { saveVaultSelection(it, _sessionActiveVaultIds.value) }
+    }
+
+    // ── Vault selection persistence ───────────────────────────────────────────
+
+    /**
+     * Load the saved vault selection for [convId].
+     * Falls back to all currently-enabled vaults for new/unseen conversations.
+     */
+    private fun loadVaultSelection(convId: String): Set<String> {
+        val saved = prefs.getString(vaultSelKey(convId), null)
+        if (saved != null) {
+            // Return exactly what was saved, even if it's an empty set (user turned all off)
+            return if (saved.isBlank()) emptySet()
+                   else saved.split(",").filter { it.isNotBlank() }.toSet()
+        }
+        // No saved preference → sensible default: all currently-enabled vaults
+        return allVaults.value.map { it.id }.toSet()
+    }
+
+    private fun saveVaultSelection(convId: String, ids: Set<String>) {
+        prefs.edit().putString(vaultSelKey(convId), ids.joinToString(",")).apply()
     }
 
     /**
