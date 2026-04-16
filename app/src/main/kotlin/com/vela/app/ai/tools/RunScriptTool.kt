@@ -6,26 +6,25 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Executes a shell script in one shot, returning only the final stdout.
+ * Executes a shell script in one shot, returning the combined stdout+stderr output.
  *
  * This is "code mode" for the agentic loop: instead of the LLM making N individual
  * tool calls (each result consuming context tokens), the LLM writes a single script
- * that performs all the operations locally. Intermediate results never flow back
- * through Claude — only the script's final stdout does.
+ * that performs all the operations locally. Only the script's final output flows back.
  *
  * The script runs via [ProcessBuilder] as Vela's own UID, giving it full read/write
  * access to the vault filesystem without cross-app sandbox issues.
  *
- * Environment variables injected for every script:
- *   VAULT  — absolute path to the active vault (may be empty if none configured)
- *   TMPDIR — writable scratch space (app cache dir)
- *   HOME   — app files directory
+ * ### Why redirectErrorStream + reader thread
  *
- * Available commands (Android toybox): cat, grep, find, awk, sed, sort, wc, head,
- * tail, cut, tr, echo, printf, cp, mv, rm, mkdir, chmod, stat, date, ls, ps, id.
- * Pipes, redirects, for/while loops, if/else, and here-docs all work.
+ * Reading stdout and stderr sequentially deadlocks whenever stderr output exceeds the
+ * OS pipe buffer (~64 KB): the process blocks trying to write stderr while we block
+ * waiting for stdout to finish. Merging streams via [ProcessBuilder.redirectErrorStream]
+ * eliminates the second pipe. Draining the merged stream on a daemon thread lets
+ * [Process.waitFor] enforce the 30-second timeout even if the read is still in progress.
  */
 class RunScriptTool(
     private val context: Context,
@@ -51,7 +50,7 @@ class RunScriptTool(
         Commands: cat, grep, find, awk, sed, sort, wc, head, tail, cut, tr,
                   cp, mv, rm, mkdir, echo, printf, stat, date, ls — and pipes/loops.
 
-        Output: script stdout. Timeout: 30s.
+        Output: combined stdout + stderr. Timeout: 30s.
     """.trimIndent()
 
     override val parameters = listOf(
@@ -73,6 +72,7 @@ class RunScriptTool(
             tmpScript.writeText("#!/system/bin/sh\n$script")
 
             val process = ProcessBuilder("/system/bin/sh", tmpScript.absolutePath)
+                .redirectErrorStream(true)   // merge stderr → stdout: one pipe, no deadlock
                 .apply {
                     environment()["VAULT"]  = vaultPath
                     environment()["TMPDIR"] = context.cacheDir.absolutePath
@@ -80,27 +80,40 @@ class RunScriptTool(
                 }
                 .start()
 
-            val stdout = process.inputStream.bufferedReader().readText()
-            val stderr = process.errorStream.bufferedReader().readText()
-            val done   = process.waitFor(30, TimeUnit.SECONDS)
+            // Drain the merged stream on a daemon thread so waitFor() can fire as a real timeout.
+            // If we read inline first, a hanging script never reaches waitFor.
+            val outputRef = AtomicReference("")
+            val readerThread = Thread {
+                outputRef.set(process.inputStream.bufferedReader().readText())
+            }.apply { isDaemon = true; start() }
 
-            if (!done) {
+            val exited = process.waitFor(30, TimeUnit.SECONDS)
+
+            if (!exited) {
                 process.destroyForcibly()
-                return@withContext "Error: script timed out after 30s"
+                readerThread.join(500)          // collect whatever was written before kill
+                val partial = outputRef.get().trimEnd()
+                return@withContext buildString {
+                    append("Error: script timed out after 30s")
+                    if (partial.isNotBlank()) {
+                        appendLine()
+                        append("Output before timeout:\n$partial")
+                    }
+                }
             }
 
-            val rc = process.exitValue()
+            readerThread.join(2_000)            // should be instant — process already exited
+
+            val output = outputRef.get().trimEnd()
+            val rc     = process.exitValue()
+
             buildString {
-                if (stdout.isNotBlank()) append(stdout.trimEnd())
-                if (stderr.isNotBlank()) {
-                    if (isNotEmpty()) appendLine()
-                    append("[stderr] ${stderr.trimEnd()}")
-                }
+                if (output.isNotBlank()) append(output)
                 if (rc != 0) {
                     if (isNotEmpty()) appendLine()
                     append("[exit $rc]")
                 }
-            }.ifBlank { if (rc == 0) "(no output)" else "[exit $rc]" }
+            }.ifBlank { "(script completed — no output)" }
 
         } finally {
             tmpScript.delete()
