@@ -63,6 +63,7 @@ import com.vela.app.engine.ContentBlockRef
     import com.vela.app.ui.vault.VaultBrowserScreen
     import com.vela.app.ui.vault.VaultFileViewerScreen
 import com.vela.app.engine.parseContentBlockRefs
+import com.vela.app.ui.components.ConversationBackground
 import com.vela.app.ui.components.MarkdownText
 import com.vela.app.ui.nodes.NodesScreen
     import com.vela.app.ui.settings.AiSettingsScreen
@@ -465,7 +466,8 @@ fun ConversationScreen(
             )
         },
     ) { pad ->
-        Column(Modifier.fillMaxSize().padding(pad)) {
+        Box(Modifier.fillMaxSize().padding(pad)) {
+            ConversationBackground()
             if (turnsWithEvents.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("Start a conversation", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
