@@ -63,6 +63,7 @@ class InferenceEngine @Inject constructor(
     private val turnEventDao: TurnEventDao,
     private val conversationDao: com.vela.app.data.db.ConversationDao,
     private val vaultRegistry: com.vela.app.vault.VaultRegistry,
+    private val vaultManager: com.vela.app.vault.VaultManager,
     private val harness: com.vela.app.harness.SessionHarness,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -156,15 +157,22 @@ class InferenceEngine @Inject constructor(
 
         val historyJson = buildHistory(conversationId)
 
-        val systemPrompt = if (!harness.isInitialized(conversationId)) {
-            val allEnabled = vaultRegistry.getEnabledVaults()
-            // If caller specified active vaults, filter to those; otherwise use all enabled
-            val vaultsForSession = if (activeVaultIds.isEmpty()) allEnabled
-                                   else allEnabled.filter { it.id in activeVaultIds }
-            harness.buildSystemPrompt(conversationId, vaultsForSession)
-        } else {
-            ""
-        }
+        val allEnabled = vaultRegistry.getEnabledVaults()
+        // Compute session-active vault list every turn so toggling the vault chip
+        // takes effect immediately — not just on the first turn of a conversation.
+        val vaultsForSession = if (activeVaultIds.isEmpty()) allEnabled
+                               else allEnabled.filter { it.id in activeVaultIds }
+
+        // Rebuild system prompt every turn with the current vault set.
+        // SessionHarness fires hooks (sync, index) only on the first turn internally.
+        val systemPrompt = harness.buildSystemPrompt(conversationId, vaultsForSession)
+
+        // Gate tool access: restrict VaultManager to only the session-active vaults
+        // so that toggling a vault off in the chip also blocks read_file / grep / etc.
+        val sessionCanonicalPaths = vaultsForSession.mapNotNull { v ->
+            runCatching { java.io.File(v.localPath).canonicalPath }.getOrNull()
+        }.toSet()
+        vaultManager.setSessionVaultPaths(sessionCanonicalPaths)
 
         // If the user sent only attachments with no text, userMessage is "".
         // Pass a non-empty placeholder so the Rust bridge / API layer never
@@ -175,7 +183,7 @@ class InferenceEngine @Inject constructor(
             userMessage
         }
 
-        session.runTurn(
+        try { session.runTurn(
             historyJson     = historyJson,
             userInput       = effectiveUserInput,
             userContentJson = apiContentJson,   // resolved base64 version — not the stored refs
@@ -227,6 +235,11 @@ class InferenceEngine @Inject constructor(
 
         // Flush whatever text arrived after the last tool call (or the only response)
         flushText()
+        } finally {
+            // Always release the session vault restriction after the turn completes
+            // so the next turn can set its own restriction cleanly.
+            vaultManager.clearSessionVaultPaths()
+        }
     }
 
     // ── History ────────────────────────────────────────────────────────────────

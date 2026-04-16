@@ -225,9 +225,10 @@ object AppModule {
         turnEventDao: TurnEventDao,
         conversationDao: ConversationDao,
         vaultRegistry: VaultRegistry,
+        vaultManager: VaultManager,
         harness: SessionHarness,
     ): InferenceEngine = InferenceEngine(
-        ctx, session, toolRegistry, turnDao, turnEventDao, conversationDao, vaultRegistry, harness,
+        ctx, session, toolRegistry, turnDao, turnEventDao, conversationDao, vaultRegistry, vaultManager, harness,
     )
 
     @Provides @Singleton

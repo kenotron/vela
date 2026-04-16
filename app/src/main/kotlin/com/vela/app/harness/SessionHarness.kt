@@ -27,15 +27,23 @@ class SessionHarness(
         conversationId: String,
         activeVaults: List<VaultEntity>,
     ): String = withContext(Dispatchers.IO) {
-        val hookCtx = HookContext(conversationId, activeVaults, HookEvent.SESSION_START)
-        val addenda = hookRegistry.collectAddenda(HookEvent.SESSION_START, hookCtx)
+        // Hooks (sync, index, personalization) fire ONCE per conversation on the first
+        // turn — they have side-effects (git pull, indexing) that must not repeat.
+        // SYSTEM.md is re-read every turn so vault toggling takes effect immediately
+        // without the user having to start a new conversation.
+        val hookAddenda = if (!isInitialized(conversationId)) {
+            val hookCtx = HookContext(conversationId, activeVaults, HookEvent.SESSION_START)
+            hookRegistry.collectAddenda(HookEvent.SESSION_START, hookCtx)
+                .also { initialized.add(conversationId) }
+        } else ""
+
         buildString {
             append(loadSystemMd(activeVaults))
-            if (addenda.isNotBlank()) {
+            if (hookAddenda.isNotBlank()) {
                 append("\n\n")
-                append(addenda)
+                append(hookAddenda)
             }
-        }.also { initialized.add(conversationId) }
+        }
     }
 
     private fun loadSystemMd(activeVaults: List<VaultEntity>): String {

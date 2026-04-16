@@ -1,6 +1,7 @@
 package com.vela.app.vault
 
 import java.io.File
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -21,6 +22,22 @@ class VaultManager(
     val root: File,
     private val enabledVaultPaths: StateFlow<Set<String>>,
 ) {
+    /**
+     * Session-level vault restriction, set by InferenceEngine before each turn.
+     * When non-empty, ONLY paths inside these canonical directories are accessible,
+     * regardless of the global [enabledVaultPaths]. Cleared after every turn.
+     *
+     * This makes the session vault chip actually gate tool access — not just
+     * the system prompt description of available vaults.
+     */
+    private val sessionActivePaths = AtomicReference<Set<String>>(emptySet())
+
+    fun setSessionVaultPaths(canonicalPaths: Set<String>) {
+        sessionActivePaths.set(canonicalPaths)
+    }
+    fun clearSessionVaultPaths() {
+        sessionActivePaths.set(emptySet())
+    }
 
     /** Creates the vault root directory (and any parents) if not already present. */
     fun init() {
@@ -81,10 +98,13 @@ class VaultManager(
      * all access is permitted so the user can set up their first vault.
      */
     private fun isWithinEnabledVault(file: File): Boolean {
-        val enabled = enabledVaultPaths.value
-        if (enabled.isEmpty()) return true  // no vaults configured — don't block
+        // Session-active paths take priority when set (vault chip toggled off → deny access).
+        // Fall back to the global enabled set when no session restriction is in effect.
+        val session = sessionActivePaths.get()
+        val effective = if (session.isNotEmpty()) session else enabledVaultPaths.value
+        if (effective.isEmpty()) return true  // no vaults configured — don't block
         val canonical = runCatching { file.canonicalPath }.getOrNull() ?: return false
-        return enabled.any { vaultCanonical ->
+        return effective.any { vaultCanonical ->
             canonical.startsWith(vaultCanonical + File.separator) || canonical == vaultCanonical
         }
     }
