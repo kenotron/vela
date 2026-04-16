@@ -51,7 +51,7 @@ object AppModule {
     @Provides @Singleton
     fun provideDatabase(@ApplicationContext ctx: Context): VelaDatabase =
         Room.databaseBuilder(ctx, VelaDatabase::class.java, "vela_database")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
             .build()
 
     @Provides fun provideMessageDao(db: VelaDatabase): MessageDao          = db.messageDao()
@@ -59,8 +59,16 @@ object AppModule {
     @Provides fun provideSshNodeDao(db: VelaDatabase): SshNodeDao           = db.sshNodeDao()
     @Provides fun provideTurnDao(db: VelaDatabase): TurnDao                 = db.turnDao()
     @Provides fun provideTurnEventDao(db: VelaDatabase): TurnEventDao       = db.turnEventDao()
-    @Provides fun provideVaultDao(db: VelaDatabase): VaultDao                       = db.vaultDao()
-        @Provides fun provideVaultEmbeddingDao(db: VelaDatabase): VaultEmbeddingDao   = db.vaultEmbeddingDao()
+    @Provides fun provideVaultDao(db: VelaDatabase): VaultDao                             = db.vaultDao()
+    @Provides fun provideVaultEmbeddingDao(db: VelaDatabase): VaultEmbeddingDao           = db.vaultEmbeddingDao()
+    @Provides fun provideGitHubIdentityDao(db: VelaDatabase): com.vela.app.data.db.GitHubIdentityDao = db.gitHubIdentityDao()
+
+    @Provides @Singleton
+    fun provideGitHubIdentityManager(
+        dao: com.vela.app.data.db.GitHubIdentityDao,
+        client: OkHttpClient,
+    ): com.vela.app.github.GitHubIdentityManager =
+        com.vela.app.github.GitHubIdentityManager(dao, client)
 
         @Provides @Singleton
         fun provideEmbeddingEngine(
@@ -149,11 +157,13 @@ object AppModule {
         skillsEngine: SkillsEngine,
         transcribeAudioTool: TranscribeAudioTool,
         gitTool: GitTool,
+        gitHubIdentityManager: com.vela.app.github.GitHubIdentityManager,
     ): List<Tool> = listOf(
         GetTimeTool(), GetDateTool(), GetBatteryTool(ctx),
         SearchWebTool(client), FetchUrlTool(client),
         ListNodesTool(sshNodeRegistry),
         RunInNodeTool(sshNodeRegistry, sshKeyManager, client),
+        GitHubTool(gitHubIdentityManager, client),
         // Vault file tools
         ReadFileTool(vaultManager),
         WriteFileTool(vaultManager),

@@ -85,7 +85,7 @@ import java.util.*
 
 private enum class Page {
     CHAT, SESSIONS, NODES, SETTINGS,
-    SETTINGS_AI, SETTINGS_CONNECTIONS, SETTINGS_VAULTS,
+    SETTINGS_AI, SETTINGS_CONNECTIONS, SETTINGS_VAULTS, SETTINGS_GITHUB,
     VAULT_DETAIL, RECORDING, VAULT_BROWSER, VAULT_FILE_VIEWER,
 }
 
@@ -162,6 +162,7 @@ fun ConversationRoot(
                 onNavigateToConnections = { prevPage = page; page = Page.SETTINGS_CONNECTIONS },
                 onNavigateToVaults      = { prevPage = page; page = Page.SETTINGS_VAULTS },
                 onNavigateToRecording   = { prevPage = page; page = Page.RECORDING },
+                onNavigateToGitHub      = { prevPage = page; page = Page.SETTINGS_GITHUB },
             )
             Page.RECORDING -> com.vela.app.ui.recording.RecordingScreen(
                 onNavigateBack    = { val dest = prevPage; prevPage = Page.CHAT; page = dest },
@@ -176,6 +177,9 @@ fun ConversationRoot(
             )
             Page.SETTINGS_CONNECTIONS -> ConnectionsSettingsScreen(
                 onNavigateBack = { prevPage = Page.SETTINGS; page = Page.SETTINGS }
+            )
+            Page.SETTINGS_GITHUB -> com.vela.app.ui.github.GitHubIdentitiesScreen(
+                onBack = { prevPage = Page.SETTINGS; page = Page.SETTINGS }
             )
             Page.SETTINGS_VAULTS -> VaultsSettingsScreen(
                 onNavigateBack = { prevPage = Page.SETTINGS; page = Page.SETTINGS },

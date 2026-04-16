@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -32,6 +33,7 @@ fun SettingsScreen(
     onNavigateToConnections: () -> Unit,
     onNavigateToVaults: () -> Unit,
     onNavigateToRecording: () -> Unit,
+    onNavigateToGitHub: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val apiKey by viewModel.apiKey.collectAsState()
@@ -81,6 +83,14 @@ fun SettingsScreen(
                     title    = "Recording",
                     subtitle = "Transcription settings",
                     onClick  = onNavigateToRecording,
+                )
+            }
+            item {
+                SettingsNavRow(
+                    icon     = Icons.Default.Person,
+                    title    = "GitHub",
+                    subtitle = "Connected accounts for repos, issues & PRs",
+                    onClick  = onNavigateToGitHub,
                 )
             }
         }

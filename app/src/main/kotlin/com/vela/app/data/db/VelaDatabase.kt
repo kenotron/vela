@@ -14,8 +14,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TurnEventEntity::class,
         VaultEntity::class,
         VaultEmbeddingEntity::class,
+        GitHubIdentityEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
 )
 abstract class VelaDatabase : RoomDatabase() {
@@ -26,7 +27,27 @@ abstract class VelaDatabase : RoomDatabase() {
     abstract fun turnEventDao(): TurnEventDao
     abstract fun vaultDao(): VaultDao
     abstract fun vaultEmbeddingDao(): VaultEmbeddingDao
+    abstract fun gitHubIdentityDao(): GitHubIdentityDao
 }
+
+/** v11→v12: add github_identities table for multi-account GitHub support. */
+    val MIGRATION_11_12 = object : Migration(11, 12) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("""
+                CREATE TABLE github_identities (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    label TEXT NOT NULL,
+                    username TEXT NOT NULL,
+                    avatarUrl TEXT NOT NULL,
+                    token TEXT NOT NULL,
+                    tokenType TEXT NOT NULL,
+                    scopes TEXT NOT NULL,
+                    addedAt INTEGER NOT NULL,
+                    isDefault INTEGER NOT NULL DEFAULT 0
+                )
+            """.trimIndent())
+        }
+    }
 
 val MIGRATION_1_2 = object : Migration(1, 2) {
     override fun migrate(db: SupportSQLiteDatabase) {
