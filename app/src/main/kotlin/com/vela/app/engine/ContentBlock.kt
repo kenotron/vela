@@ -36,11 +36,14 @@ fun ContentBlock.toApiJson(): JSONObject = when (this) {
                 .put("media_type", "application/pdf")
                 .put("data", base64Data)
         } else {
+            // PlainTextSourceParam: { type="text", media_type="text/plain", data=raw_utf8 }
+            // data must be a plain UTF-8 string — NOT base64.
             val decoded = runCatching {
                 Base64.decode(base64Data, Base64.NO_WRAP).toString(Charsets.UTF_8)
             }.getOrDefault(base64Data)
             JSONObject()
                 .put("type", "text")
+                .put("media_type", "text/plain")
                 .put("data", decoded)
         }
         JSONObject()
