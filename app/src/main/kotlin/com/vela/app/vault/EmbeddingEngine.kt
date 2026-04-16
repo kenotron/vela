@@ -73,9 +73,13 @@ package com.vela.app.vault
         val indexProgress: StateFlow<Pair<Int, Int>?> = _indexProgress.asStateFlow()
 
         /**
-         * Fire-and-forget indexing. Safe to call on every screen visit:
+         * Fire-and-forget indexing. Safe to call on every screen visit and after vault sync:
          * - No-ops if this vault is already actively being indexed.
+         * - Skips the walk entirely if nothing on disk has changed since the last completed run.
          * - Cancels any in-flight job for a *different* vault before starting.
+         *
+         * Completion is persisted in SharedPrefs so the "nothing changed" check survives
+         * app restarts — no unnecessary re-walk on launch if the vault is up to date.
          */
         fun startIndexing(vault: VaultEntity) {
             if (!isConfigured) return
@@ -83,13 +87,37 @@ package com.vela.app.vault
             indexingJob?.cancel()
             indexingVaultId = vault.id
             indexingJob = engineScope.launch {
+                // Check on IO thread (file walk) — skip if nothing changed since last full index
+                val lastIndexed = prefs.getLong("last_indexed_${vault.id}", 0L)
+                if (lastIndexed > 0L && !hasChangedSince(vault, lastIndexed)) {
+                    Log.d(TAG, "Vault '${vault.name}' up to date — skipping index")
+                    indexingVaultId = null
+                    return@launch
+                }
+
                 _indexProgress.value = 0 to 0
                 indexVault(vault) { done, total ->
                     _indexProgress.value = done to total
                 }
+                // Persist completion so next launch skips the walk if nothing changed
+                prefs.edit().putLong("last_indexed_${vault.id}", System.currentTimeMillis()).apply()
                 _indexProgress.value = null
                 indexingVaultId = null
             }
+        }
+
+        /**
+         * Quick pre-flight check: are there any indexable files in [vault] with a
+         * lastModified timestamp newer than [epochMs]?
+         *
+         * Short-circuits on the first changed file — O(1) in the common "nothing changed"
+         * case once the early exit fires. Called on the IO thread inside [startIndexing].
+         */
+        private fun hasChangedSince(vault: VaultEntity, epochMs: Long): Boolean {
+            val root = File(vault.localPath).takeIf { it.exists() } ?: return false
+            return root.walkTopDown()
+                .filter { it.isFile && it.extension.lowercase() in INDEXABLE && it.length() <= MAX_FILE_BYTES }
+                .any { it.lastModified() > epochMs }
         }
 
         // --- Public API ---------------------------------------------------------------

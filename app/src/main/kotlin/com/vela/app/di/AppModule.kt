@@ -202,11 +202,13 @@ object AppModule {
     fun provideHooks(
         vaultSettings: VaultSettings,
         vaultGitSync: VaultGitSync,
+        embeddingEngine: EmbeddingEngine,
     ): @JvmSuppressWildcards List<Hook> = listOf(
         VaultSyncHook(
             cloneIfNeeded = { id, path -> vaultGitSync.cloneIfNeeded(id, path) },
             pull          = { id, path -> vaultGitSync.pull(id, path) },
             vaultSettings = vaultSettings,
+            onAfterSync   = { vault -> embeddingEngine.startIndexing(vault) },
         ),
         VaultConfigHook(),
         VaultIndexHook(),

@@ -2,7 +2,9 @@ package com.vela.app.github
 
 import com.vela.app.data.db.GitHubIdentityDao
 import com.vela.app.data.db.GitHubIdentityEntity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request

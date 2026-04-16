@@ -20,6 +20,8 @@ class VaultSyncHook(
     private val cloneIfNeeded: suspend (vaultId: String, vaultPath: File) -> Unit,
     private val pull: suspend (vaultId: String, vaultPath: File) -> Unit,
     private val vaultSettings: VaultSettings,
+    /** Called for each vault after a successful pull — use to trigger re-indexing. */
+    private val onAfterSync: (com.vela.app.data.db.VaultEntity) -> Unit = {},
 ) : Hook {
     override val event = HookEvent.SESSION_START
     override val priority = 0
@@ -34,6 +36,9 @@ class VaultSyncHook(
                 }.onFailure { e ->
                     return HookResult.Error("Vault sync failed for ${vault.name}: ${e.message}")
                 }
+                // Notify after a successful sync so the embedding index can re-check
+                // for new/modified files. startIndexing() will skip if nothing changed.
+                onAfterSync(vault)
             }
         }
         return HookResult.Continue
