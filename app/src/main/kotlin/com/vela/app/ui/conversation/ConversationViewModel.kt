@@ -58,6 +58,18 @@ class ConversationViewModel @Inject constructor(
         return text
     }
 
+    // Pending transcript — set by RecordingScreen after AI transcription completes.
+    // ConversationScreen saves this to a temp file and stages it as a composer attachment.
+    private val _pendingTranscript = MutableStateFlow<String?>(null)
+    val pendingTranscript: StateFlow<String?> = _pendingTranscript.asStateFlow()
+
+    fun setPendingTranscript(text: String) { _pendingTranscript.value = text }
+    fun consumePendingTranscript(): String? {
+        val text = _pendingTranscript.value
+        _pendingTranscript.value = null
+        return text
+    }
+
     val conversations: StateFlow<List<Conversation>> = conversationDao.getAllConversations()
         .map { it.map { e -> e.toDomain() } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

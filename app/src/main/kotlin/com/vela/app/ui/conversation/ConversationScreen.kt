@@ -164,11 +164,10 @@ fun ConversationRoot(
                 onNavigateToRecording   = { prevPage = page; page = Page.RECORDING },
             )
             Page.RECORDING -> com.vela.app.ui.recording.RecordingScreen(
-                onNavigateBack = { prevPage = Page.SETTINGS; page = Page.SETTINGS },
-                onVaultSessionCreated = { convId, stagedMessage ->
-                    viewModel.switchToConversation(convId)
-                    viewModel.setPendingInput(stagedMessage)
-                    prevPage = Page.CHAT
+                onNavigateBack    = { val dest = prevPage; prevPage = Page.CHAT; page = dest },
+                onTranscriptReady = { transcript ->
+                    viewModel.setPendingTranscript(transcript)
+                    prevPage = Page.RECORDING
                     page = Page.CHAT
                 },
             )
@@ -313,6 +312,8 @@ fun ConversationScreen(
             viewModel.consumePendingInput()
         }
     }
+
+    val pendingTranscript by viewModel.pendingTranscript.collectAsState()
     val voiceCapture = remember(speechTranscriber) { speechTranscriber?.let { VoiceCapture(it) } }
     DisposableEffect(voiceCapture) { onDispose { voiceCapture?.destroy() } }
     val idleFlow = remember { MutableStateFlow<TranscriptState>(TranscriptState.Idle) }
@@ -322,6 +323,27 @@ fun ConversationScreen(
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) voiceCapture?.startCapture() }
 
     val attachments = remember { androidx.compose.runtime.mutableStateListOf<AttachmentItem>() }
+
+    // When a transcript arrives from the recording flow, save it to a temp .txt file
+    // and stage it as a composer attachment — the user just adds a message and sends.
+    LaunchedEffect(pendingTranscript) {
+        val transcript = pendingTranscript ?: return@LaunchedEffect
+        viewModel.consumePendingTranscript()
+        val tmpFile = java.io.File(context.cacheDir, "transcript_${System.currentTimeMillis()}.txt")
+        try {
+            tmpFile.writeText(transcript)
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                context, "${context.packageName}.fileprovider", tmpFile
+            )
+            attachments.add(AttachmentItem(
+                uri         = uri,
+                displayName = tmpFile.name,
+                mimeType    = "text/plain",
+            ))
+        } catch (_: Exception) {
+            textInput = transcript   // fallback: paste into text field
+        }
+    }
 
     val photoLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
@@ -952,6 +974,8 @@ private fun ComposerBox(
                                 )
                             }
                         },
+                        // Transparent container so the sheet background shows through cleanly
+                        colors   = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
                         modifier = Modifier.clickable { onToggleVault(vault.id) },
                     )
                 }
@@ -1006,12 +1030,12 @@ private fun AttachmentSheet(
                     )
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            "Record Transcription",
+                            "Record & Transcribe",
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                         Text(
-                            "Capture audio and transcribe to vault",
+                            "AI transcribes your voice — attached to this message",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
                         )

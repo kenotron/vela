@@ -10,12 +10,9 @@ import android.os.IBinder
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.vela.app.data.db.ConversationDao
-import com.vela.app.data.db.ConversationEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.launch
-import java.util.UUID
 import javax.inject.Inject
 
 enum class TranscriptionProvider { GEMINI, WHISPER }
@@ -25,7 +22,6 @@ class RecordingViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     val repository: RecordingRepository,
     private val transcriptionService: TranscriptionService,
-    private val conversationDao: ConversationDao,
 ) : ViewModel() {
 
     private var recordingService: RecordingService? = null
@@ -55,7 +51,21 @@ class RecordingViewModel @Inject constructor(
         recordingService = null
     }
 
-    fun transcribe(provider: TranscriptionProvider, googleApiKey: String, openAiApiKey: String) {
+    /**
+     * Stop the current recording and immediately kick off AI transcription.
+     * Reads the API key from SharedPrefs — prefers Gemini, falls back to Whisper.
+     */
+    fun stopAndTranscribe() {
+        stopRecording()
+        val prefs = context.getSharedPreferences("amplifier_prefs", android.content.Context.MODE_PRIVATE)
+        val googleKey = prefs.getString("google_api_key", "").orEmpty()
+        val openAiKey = prefs.getString("openai_api_key", "").orEmpty()
+        val provider  = if (googleKey.isNotBlank()) TranscriptionProvider.GEMINI
+                        else TranscriptionProvider.WHISPER
+        transcribe(provider, googleKey, openAiKey)
+    }
+
+    private fun transcribe(provider: TranscriptionProvider, googleApiKey: String, openAiApiKey: String) {
         val file = repository.state.value.outputFile ?: return
         repository.onTranscribing()
         viewModelScope.launch {
@@ -67,29 +77,6 @@ class RecordingViewModel @Inject constructor(
                 onSuccess = { repository.onTranscriptReady(it) },
                 onFailure = { repository.onError(it.message ?: "Transcription failed") },
             )
-        }
-    }
-
-    fun createVaultSession(onCreated: (conversationId: String, message: String) -> Unit) {
-        val file = repository.state.value.outputFile ?: return
-        val duration = repository.formatElapsed(repository.state.value.elapsedSeconds)
-        val stagedMessage = """Please transcribe and process this voice recording into my vault.
-
-Audio file: ${file.absolutePath}
-Duration: $duration
-
-Transcribe the audio, then process the transcript according to the vault protocols — extract action items, identify people mentioned, note topics discussed, and file everything in the appropriate vault locations."""
-
-        viewModelScope.launch {
-            val conv = ConversationEntity(
-                id        = UUID.randomUUID().toString(),
-                title     = "Recording ${java.text.SimpleDateFormat("MMM d, HH:mm", java.util.Locale.US).format(java.util.Date())}",
-                createdAt = System.currentTimeMillis(),
-                updatedAt = System.currentTimeMillis(),
-                mode      = "vault",
-            )
-            conversationDao.insert(conv)
-            onCreated(conv.id, stagedMessage)
         }
     }
 
