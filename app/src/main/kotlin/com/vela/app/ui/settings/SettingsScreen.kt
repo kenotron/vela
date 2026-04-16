@@ -62,7 +62,7 @@ fun SettingsScreen(
                 SettingsNavRow(
                     icon     = Icons.Default.Hub,
                     title    = "Connections",
-                    subtitle = "SSH nodes",
+                    subtitle = "SSH & Amplifier nodes",
                     onClick  = onNavigateToConnections,
                 )
             }

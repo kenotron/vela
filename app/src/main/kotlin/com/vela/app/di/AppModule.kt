@@ -152,9 +152,8 @@ object AppModule {
     ): List<Tool> = listOf(
         GetTimeTool(), GetDateTool(), GetBatteryTool(ctx),
         SearchWebTool(client), FetchUrlTool(client),
-        ListSshNodesTool(sshNodeRegistry),
-        SshCommandTool(sshNodeRegistry, sshKeyManager),
-        AmplifierdTool(sshNodeRegistry, client),
+        ListNodesTool(sshNodeRegistry),
+        RunInNodeTool(sshNodeRegistry, sshKeyManager, client),
         // Vault file tools
         ReadFileTool(vaultManager),
         WriteFileTool(vaultManager),
