@@ -867,7 +867,7 @@ private fun ComposerBox(
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     if (allVaults.isNotEmpty()) {
                         val chipLabel = when {
-                            sessionActiveVaultIds.isEmpty() ||
+                            sessionActiveVaultIds.isEmpty()              -> "No vaults"
                             sessionActiveVaultIds.size == allVaults.size -> "All vaults"
                             sessionActiveVaultIds.size == 1              ->
                                 allVaults.firstOrNull { it.id in sessionActiveVaultIds }?.name ?: "1 vault"

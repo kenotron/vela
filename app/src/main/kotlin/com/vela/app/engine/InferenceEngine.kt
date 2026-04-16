@@ -160,8 +160,9 @@ class InferenceEngine @Inject constructor(
         val allEnabled = vaultRegistry.getEnabledVaults()
         // Compute session-active vault list every turn so toggling the vault chip
         // takes effect immediately — not just on the first turn of a conversation.
-        val vaultsForSession = if (activeVaultIds.isEmpty()) allEnabled
-                               else allEnabled.filter { it.id in activeVaultIds }
+        // Empty set = user explicitly toggled every vault off → no vaults active.
+        // Do NOT fall back to allEnabled; that would silently re-enable everything.
+        val vaultsForSession = allEnabled.filter { it.id in activeVaultIds }
 
         // Rebuild system prompt every turn with the current vault set.
         // SessionHarness fires hooks (sync, index) only on the first turn internally.
