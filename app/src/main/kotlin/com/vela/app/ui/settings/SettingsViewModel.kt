@@ -4,6 +4,8 @@ package com.vela.app.ui.settings
     import androidx.lifecycle.ViewModel
     import androidx.lifecycle.viewModelScope
     import com.vela.app.data.db.VaultEntity
+    import com.vela.app.github.GitHubIdentity
+    import com.vela.app.github.GitHubIdentityManager
     import com.vela.app.vault.VaultGitSync
     import com.vela.app.vault.VaultRegistry
     import com.vela.app.vault.VaultSettings
@@ -13,6 +15,7 @@ package com.vela.app.ui.settings
     import kotlinx.coroutines.flow.SharingStarted
     import kotlinx.coroutines.flow.StateFlow
     import kotlinx.coroutines.flow.asStateFlow
+    import kotlinx.coroutines.flow.map
     import kotlinx.coroutines.flow.stateIn
     import kotlinx.coroutines.launch
     import java.io.File
@@ -24,7 +27,18 @@ package com.vela.app.ui.settings
         private val vaultRegistry: VaultRegistry,
         private val vaultSettings: VaultSettings,
         private val vaultGitSync: VaultGitSync,
+        private val gitHubIdentityManager: GitHubIdentityManager,
     ) : ViewModel() {
+
+        val gitHubIdentities: StateFlow<List<GitHubIdentity>> =
+            gitHubIdentityManager.allFlow()
+                .map { list ->
+                    list.map { e ->
+                        GitHubIdentity(e.id, e.label, e.username, e.avatarUrl,
+                            e.token, e.tokenType, e.scopes, e.addedAt, e.isDefault)
+                    }
+                }
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
         companion object {
             private const val PREFS              = "amplifier_prefs"

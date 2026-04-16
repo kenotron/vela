@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.vela.app.github.GitHubIdentity
 
 // ── Top-level settings nav list ──────────────────────────────────────────────
 
@@ -357,7 +358,8 @@ fun VaultsSettingsScreen(
     onNavigateToVaultDetail: (vaultId: String) -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
-    val vaults by viewModel.vaults.collectAsState()
+    val vaults           by viewModel.vaults.collectAsState()
+    val gitHubIdentities by viewModel.gitHubIdentities.collectAsState()
     var showAddSheet by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -413,8 +415,9 @@ fun VaultsSettingsScreen(
 
     if (showAddSheet) {
         AddVaultSheet(
-            onDismiss = { showAddSheet = false },
-            onConfirm = { name, remoteUrl, pat, branch ->
+            identities = gitHubIdentities,
+            onDismiss  = { showAddSheet = false },
+            onConfirm  = { name, remoteUrl, pat, branch ->
                 viewModel.addVault(name, remoteUrl, pat, branch)
                 showAddSheet = false
             },
@@ -494,20 +497,27 @@ internal fun SectionHeader(title: String) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AddVaultSheet(
-    onDismiss: () -> Unit,
-    onConfirm: (name: String, remoteUrl: String, pat: String, branch: String) -> Unit,
+    identities: List<GitHubIdentity>,
+    onDismiss:  () -> Unit,
+    onConfirm:  (name: String, remoteUrl: String, pat: String, branch: String) -> Unit,
 ) {
-    var name       by remember { mutableStateOf("") }
-    var remoteUrl  by remember { mutableStateOf("") }
-    var pat        by remember { mutableStateOf("") }
-    var branch     by remember { mutableStateOf("") }
-    var showGitHub by remember { mutableStateOf(false) }
-    var nameError  by remember { mutableStateOf(false) }
+    var name      by remember { mutableStateOf("") }
+    var remoteUrl by remember { mutableStateOf("") }
+    var branch    by remember { mutableStateOf("") }
+    var showSync  by remember { mutableStateOf(false) }
+    var nameError by remember { mutableStateOf(false) }
+
+    // Identity picker state
+    var expanded         by remember { mutableStateOf(false) }
+    var selectedIdentity by remember(identities) {
+        mutableStateOf(identities.firstOrNull { it.isDefault } ?: identities.firstOrNull())
+    }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 32.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 32.dp),
+               verticalArrangement = Arrangement.spacedBy(10.dp)) {
+
             Text("Add Vault", style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.height(16.dp))
 
             OutlinedTextField(
                 value          = name,
@@ -518,50 +528,91 @@ internal fun AddVaultSheet(
                 singleLine     = true,
                 modifier       = Modifier.fillMaxWidth(),
             )
-            Spacer(Modifier.height(8.dp))
 
-            TextButton(onClick = { showGitHub = !showGitHub }) {
-                Text(if (showGitHub) "Hide GitHub sync" else "Connect GitHub (optional)")
+            TextButton(onClick = { showSync = !showSync },
+                       contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
+                Text(if (showSync) "Remove GitHub sync" else "Connect to GitHub repo (optional)",
+                     style = MaterialTheme.typography.labelMedium)
             }
 
-            if (showGitHub) {
+            if (showSync) {
                 OutlinedTextField(
                     value         = remoteUrl,
                     onValueChange = { remoteUrl = it },
-                    label         = { Text("GitHub repo URL") },
-                    placeholder   = { Text("https://github.com/user/vault.git") },
+                    label         = { Text("Repo URL") },
+                    placeholder   = { Text("https://github.com/user/vault or user/vault") },
                     singleLine    = true,
                     modifier      = Modifier.fillMaxWidth(),
                 )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value                  = pat,
-                    onValueChange          = { pat = it },
-                    label                  = { Text("Personal Access Token") },
-                    visualTransformation   = PasswordVisualTransformation(),
-                    singleLine             = true,
-                    modifier               = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(8.dp))
+
+                // ── Identity picker ────────────────────────────────────────────
+                if (identities.isEmpty()) {
+                    Text(
+                        "No GitHub accounts connected — add one in Settings → GitHub to enable sync.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    ExposedDropdownMenuBox(
+                        expanded         = expanded,
+                        onExpandedChange = { expanded = it },
+                    ) {
+                        OutlinedTextField(
+                            value       = selectedIdentity
+                                ?.let { "${it.label}  (@${it.username})" }
+                                ?: "Select GitHub account",
+                            onValueChange = {},
+                            readOnly    = true,
+                            label       = { Text("GitHub account") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+                            modifier    = Modifier.fillMaxWidth().menuAnchor(),
+                        )
+                        ExposedDropdownMenu(
+                            expanded         = expanded,
+                            onDismissRequest = { expanded = false },
+                        ) {
+                            identities.forEach { identity ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(identity.label,
+                                                 style = MaterialTheme.typography.bodyMedium)
+                                            Text("@${identity.username}",
+                                                 style = MaterialTheme.typography.bodySmall,
+                                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    onClick = { selectedIdentity = identity; expanded = false },
+                                    contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding,
+                                )
+                            }
+                        }
+                    }
+                }
+
                 OutlinedTextField(
                     value         = branch,
                     onValueChange = { branch = it },
                     label         = { Text("Branch (optional)") },
-                    placeholder   = { Text("main, master — leave blank to auto-detect") },
+                    placeholder   = { Text("main — leave blank to auto-detect") },
                     singleLine    = true,
                     modifier      = Modifier.fillMaxWidth(),
                 )
-                Spacer(Modifier.height(8.dp))
             }
 
-            Spacer(Modifier.height(8.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text("Cancel") }
                 Spacer(Modifier.width(8.dp))
-                Button(onClick = {
-                    if (name.isBlank()) { nameError = true; return@Button }
-                    onConfirm(name.trim(), remoteUrl.trim(), pat.trim(), branch.trim())
-                }) { Text("Create Vault") }
+                Button(
+                    onClick = {
+                        if (name.isBlank()) { nameError = true; return@Button }
+                        // Resolve token from selected identity; fall through empty if no sync
+                        val token = if (showSync) selectedIdentity?.token ?: "" else ""
+                        onConfirm(name.trim(), remoteUrl.trim(), token, branch.trim())
+                    },
+                    enabled = name.isNotBlank() &&
+                              (!showSync || (remoteUrl.isNotBlank() && (identities.isEmpty() || selectedIdentity != null))),
+                ) { Text("Create Vault") }
             }
         }
     }
