@@ -35,6 +35,8 @@ package com.vela.app.ui.vault
     import androidx.compose.ui.layout.ContentScale
     import androidx.compose.ui.platform.LocalContext
     import androidx.compose.ui.text.font.FontFamily
+    import androidx.compose.ui.text.font.FontWeight
+    import androidx.compose.ui.text.style.TextOverflow
     import androidx.compose.ui.text.input.TextFieldValue
     import androidx.compose.ui.unit.dp
     import androidx.compose.ui.viewinterop.AndroidView
@@ -152,7 +154,7 @@ package com.vela.app.ui.vault
                 }
 
                 if (!isConfigured && isSearchMode) {
-                    Text("Configure a Google or OpenAI API key in Settings to enable semantic search.",
+                    Text("Semantic search unavailable — configure a Google or OpenAI key in Settings.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
@@ -170,12 +172,9 @@ package com.vela.app.ui.vault
                             Text("No results", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     } else {
-                        LazyColumn(
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
+                        LazyColumn(contentPadding = PaddingValues(top = 4.dp, bottom = 16.dp)) {
                             items(searchResults, key = { "${it.filePath}:${it.chunkText.hashCode()}" }) { result ->
-                                SearchResultCard(result, onClick = { onOpenFile(result.filePath) })
+                                SearchResultRow(result, onClick = { onOpenFile(result.filePath) })
                             }
                         }
                     }
@@ -233,27 +232,53 @@ package com.vela.app.ui.vault
     }
 
     @Composable
-    private fun SearchResultCard(result: com.vela.app.vault.SearchResult, onClick: () -> Unit) {
-        Card(
-            onClick = onClick,
-            shape = RoundedCornerShape(10.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    private fun SearchResultRow(result: com.vela.app.vault.SearchResult, onClick: () -> Unit) {
+        val cs = MaterialTheme.colorScheme
+        // Split the path into breadcrumb segments
+        val segments = result.filePath.replace('\\', '/').split('/')
+        val title    = segments.last().substringBeforeLast('.')   // filename without extension
+        val crumbs   = if (segments.size > 1)
+            (listOf(result.vaultName.ifBlank { "vault" }) + segments.dropLast(1))
+                .joinToString(" › ")
+        else result.vaultName.ifBlank { "vault" }
+
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(horizontal = 20.dp, vertical = 14.dp),
         ) {
-            Column(Modifier.padding(12.dp)) {
-                Text(result.filePath,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.height(4.dp))
-                Text(result.chunkText.take(180),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 4)
-                Spacer(Modifier.height(4.dp))
-                Text("%.0f%% match".format(result.score * 100),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            // Path breadcrumb — small, muted, like a search-result URL
+            Text(
+                crumbs,
+                style = MaterialTheme.typography.labelSmall,
+                color = cs.onSurfaceVariant.copy(alpha = 0.65f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(2.dp))
+            // File name as the "title" link
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Normal),
+                color = cs.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(5.dp))
+            // Relevant text snippet
+            Text(
+                result.chunkText.trim().take(240),
+                style = MaterialTheme.typography.bodySmall,
+                color = cs.onSurface.copy(alpha = 0.75f),
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
+        HorizontalDivider(
+            modifier = Modifier.padding(horizontal = 20.dp),
+            color = cs.outlineVariant.copy(alpha = 0.4f),
+        )
     }
 
     // ─── File viewer ──────────────────────────────────────────────────────────────
