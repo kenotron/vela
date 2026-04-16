@@ -26,13 +26,28 @@ fun ContentBlock.toApiJson(): JSONObject = when (this) {
             .put("media_type", mediaType)
             .put("data", base64Data))
 
-    is ContentBlock.Document -> JSONObject()
-        .put("type", "document")
-        .put("source", JSONObject()
-            .put("type", "base64")
-            .put("media_type", mediaType)
-            .put("data", base64Data))
-        .also { obj -> title?.let { obj.put("title", it) } }
+    is ContentBlock.Document -> {
+        // Anthropic's Messages API only accepts source.type="base64" for PDFs.
+        // All text-type documents (text/plain, text/html, text/csv, etc.) must use
+        // source.type="text" with the raw decoded string — not base64 + media_type.
+        val source = if (mediaType == "application/pdf") {
+            JSONObject()
+                .put("type", "base64")
+                .put("media_type", "application/pdf")
+                .put("data", base64Data)
+        } else {
+            val decoded = runCatching {
+                Base64.decode(base64Data, Base64.NO_WRAP).toString(Charsets.UTF_8)
+            }.getOrDefault(base64Data)
+            JSONObject()
+                .put("type", "text")
+                .put("data", decoded)
+        }
+        JSONObject()
+            .put("type", "document")
+            .put("source", source)
+            .also { obj -> title?.let { obj.put("title", it) } }
+    }
 }
 
 fun List<ContentBlock>.toApiJsonString(): String =
