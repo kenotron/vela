@@ -46,8 +46,9 @@ class AmplifierSession @Inject constructor(
         onToolEnd:         (suspend (stableId: String, result: String) -> Unit),
         onToken:           (suspend (token: String) -> Unit),
         onProviderRequest: (suspend () -> String?),
-    ) {
-        val toolsJson = buildToolsJson()
+            onServerTool:      (suspend (name: String, argsJson: String) -> Unit),
+        ) {
+            val toolsJson = buildToolsJson()
         Log.d(TAG, "runTurn model=${getModel()} historyLen=${historyJson.length} hasSystemPrompt=${systemPrompt.isNotBlank()}")
 
         var tokenWasEmitted = false
@@ -74,10 +75,13 @@ class AmplifierSession @Inject constructor(
             },
             providerRequestCb = {
                 runBlocking { onProviderRequest() }.orEmpty()
-            },
-        )
+                },
+                serverToolCb = { name, argsJson ->
+                    runBlocking { onServerTool(name, argsJson) }
+                },
+            )
 
-        if (!tokenWasEmitted && finalText.isNotEmpty()) onToken(finalText)
+            if (!tokenWasEmitted && finalText.isNotEmpty()) onToken(finalText)
     }
 
     private suspend fun executeTool(name: String, argsJson: String): String = try {

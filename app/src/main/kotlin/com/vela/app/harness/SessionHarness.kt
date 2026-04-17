@@ -37,8 +37,15 @@ class SessionHarness(
                 .also { initialized.add(conversationId) }
         } else ""
 
-        buildString {
-            // A fresh <lifeos-config> block is prepended every turn so the model
+        val todayDate = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                .format(java.util.Date())
+
+            buildString {
+                // Today's date — authoritative, always fresh, prevents the model from
+                // inferring stale dates from file names or conversation history.
+                appendLine("Today's date: $todayDate")
+                appendLine()
+                // A fresh <lifeos-config> block is prepended every turn so the model
             // always reads the current vault state from this turn's system prompt,
             // overriding any stale config it may have seen in conversation history.
             append(buildLifeosConfig(activeVaults))

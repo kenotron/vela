@@ -15,6 +15,7 @@ package com.vela.app.engine
             onToolEnd:         (suspend (stableId: String, result: String) -> Unit),
             onToken:           (suspend (token: String) -> Unit),
             onProviderRequest: (suspend () -> String?) = { null },   // ephemeral injection before each LLM call
-        )
-    }
+                onServerTool:      (suspend (name: String, argsJson: String) -> Unit) = { _, _ -> },
+            )
+        }
     

@@ -25,13 +25,16 @@ use amplifier_core::{
     ProviderInfo, Role, ToolCall, Usage,
 };
 use amplifier_core::traits::Provider;
-use log::{debug, warn};
+use log::{debug, info, warn};
 use reqwest::Client;
 use serde_json::{json, Value};
+use std::time::Duration;
 
-const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
-const ANTHROPIC_VERSION: &str = "2023-06-01";
-const DEFAULT_MAX_TOKENS: u64 = 8192;
+const ANTHROPIC_API_URL:  &str = "https://api.anthropic.com/v1/messages";
+const ANTHROPIC_VERSION:  &str = "2023-06-01";
+const DEFAULT_MAX_TOKENS: u64  = 32_768;
+const MAX_RETRIES:        u32  = 3;
+const BASE_RETRY_MS:      u64  = 1_000;
 
 /// Calls the Anthropic Messages API implementing the amplifier-core [`Provider`] trait.
 ///
@@ -71,7 +74,9 @@ impl AnthropicProvider {
         let role = match msg.role {
             Role::User | Role::Tool | Role::Function => "user",
             Role::Assistant => "assistant",
-            Role::System | Role::Developer => "system",
+            Role::System => "system",
+            // Anthropic doesn't support developer role — treat as user
+            Role::Developer => "user",
         };
 
         let content = match &msg.content {
@@ -179,9 +184,20 @@ impl AnthropicProvider {
                             extensions: HashMap::new(),
                         })
                     }
-                    // Anthropic server tool result — treat as ToolResult so the
-                        // orchestrator can match it to the original tool_use by id.
-                        "web_search_tool_result" => {
+                    // Anthropic server_tool_use — identical structure to tool_use.
+                        // Appears in end_turn responses (Anthropic executes on its server).
+                        "server_tool_use" => {
+                            let id    = block.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let name  = block.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let input: HashMap<String, Value> = block
+                                .get("input").and_then(|v| v.as_object())
+                                .map(|o| o.iter().map(|(k,v)| (k.clone(),v.clone())).collect())
+                                .unwrap_or_default();
+                            Some(ContentBlock::ToolCall { id, name, input, visibility: None, extensions: HashMap::new() })
+                        }
+                        // Anthropic server tool result — treat as ToolResult so the
+                            // orchestrator can match it to the original tool_use by id.
+                            "web_search_tool_result" => {
                             let tool_call_id = block
                                 .get("tool_use_id")
                                 .and_then(|v| v.as_str())
@@ -282,16 +298,43 @@ impl AnthropicProvider {
                 model: None,
                 retry_after: None,
                 status_code: Some(status.as_u16()),
-                retryable: status.is_server_error(),
+                retryable: matches!(status.as_u16(), 429 | 529 | 500 | 502 | 503 | 504),
                 delay_multiplier: None,
             });
         }
 
         Ok(raw)
-    }
-}
+        }
 
-// ──────────────────────────── Provider trait impl ────────────────────────────
+        /// Retry wrapper around [`call_api`] with exponential backoff.
+        /// Retries on rate limits (429), overloads (529), server errors (5xx), network failures.
+        async fn call_api_with_retry(&self, body: Value) -> Result<Value, ProviderError> {
+            let mut attempt: u32 = 0;
+            loop {
+                match self.call_api(body.clone()).await {
+                    Ok(v) => return Ok(v),
+                    Err(e) => {
+                        let retryable = match &e {
+                            ProviderError::Other { status_code: Some(c), .. } =>
+                                matches!(c, 429 | 529 | 500 | 502 | 503 | 504),
+                            ProviderError::Unavailable { .. } => true,
+                            _ => false,
+                        };
+                        if retryable && attempt < MAX_RETRIES {
+                            let delay = BASE_RETRY_MS * (1u64 << attempt);
+                            info!("provider: retrying in {delay}ms (attempt {}/{MAX_RETRIES})", attempt + 1);
+                            tokio::time::sleep(Duration::from_millis(delay)).await;
+                            attempt += 1;
+                        } else {
+                            return Err(e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ──────────────────────────── Provider trait impl ────────────────────────────
 
 impl Provider for AnthropicProvider {
     fn name(&self) -> &str {
@@ -370,7 +413,7 @@ impl Provider for AnthropicProvider {
             body["tools"] = json!(tools_arr);
 
             // ── Call the API ──────────────────────────────────────────────────
-            let raw = self.call_api(body).await?;
+            let raw = self.call_api_with_retry(body).await?;
 
             debug!(
                 "AnthropicProvider: response stop_reason={:?}",

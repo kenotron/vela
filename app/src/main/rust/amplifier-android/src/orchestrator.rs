@@ -53,6 +53,9 @@ pub struct SimpleOrchestrator {
     token_cb: Arc<GlobalRef>,
         /// Global reference to `ProviderRequestCallback` — called before each LLM call.
         provider_request_cb: Arc<GlobalRef>,
+        /// Global reference to `ServerToolCallback` — notifies Kotlin when a
+        /// server tool (e.g. web_search) runs, for UI display only.
+        server_tool_cb: Arc<GlobalRef>,
     }
 
     impl SimpleOrchestrator {
@@ -60,8 +63,28 @@ pub struct SimpleOrchestrator {
             jvm: Arc<JavaVM>,
             token_cb: Arc<GlobalRef>,
             provider_request_cb: Arc<GlobalRef>,
+            server_tool_cb: Arc<GlobalRef>,
         ) -> Self {
-            Self { jvm, token_cb, provider_request_cb }
+            Self { jvm, token_cb, provider_request_cb, server_tool_cb }
+        }
+
+        /// Notify Kotlin that a server-side tool ran (UI display only — no execution).
+        fn emit_server_tool(&self, name: &str, args_json: &str) {
+            let Ok(mut env) = self.jvm.attach_current_thread() else {
+                warn!("emit_server_tool: failed to attach JVM thread");
+                return;
+            };
+            let Ok(j_name) = env.new_string(name) else { return; };
+            let Ok(j_args) = env.new_string(args_json) else { return; };
+            if let Err(e) = env.call_method(
+                self.server_tool_cb.as_ref(),
+                "onServerTool",
+                "(Ljava/lang/String;Ljava/lang/String;)V",
+                &[JValue::Object(&j_name), JValue::Object(&j_args)],
+            ) {
+                warn!("emit_server_tool: callback failed: {e:?}");
+                let _ = env.exception_clear();
+            }
         }
 
         /// Call `ProviderRequestCallback.onProviderRequest()` on the Kotlin side.
@@ -304,12 +327,23 @@ impl Orchestrator for SimpleOrchestrator {
                 match stop_reason {
                     // ── Turn complete ─────────────────────────────────────────
                     "end_turn" | "stop_sequence" | "stop" => {
-                        let text = Self::extract_text(&response.content);
-                        if !text.is_empty() {
-                            self.emit_token(&text);
+                            // Notify Kotlin of any server tool calls (e.g. web_search)
+                            // so the UI can show them. These appear as ToolCall blocks
+                            // in end_turn responses (Anthropic executed them server-side).
+                            for block in &response.content {
+                                if let amplifier_core::messages::ContentBlock::ToolCall {
+                                    name, input, ..
+                                } = block {
+                                    let args = serde_json::to_string(input).unwrap_or_default();
+                                    self.emit_server_tool(name, &args);
+                                }
+                            }
+                            let text = Self::extract_text(&response.content);
+                            if !text.is_empty() {
+                                self.emit_token(&text);
+                            }
+                            return Ok(text);
                         }
-                        return Ok(text);
-                    }
 
                     // ── Tool calls ────────────────────────────────────────────
                     "tool_use" | "tool_calls" => {

@@ -125,6 +125,7 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
     token_cb: JObject,
     tool_cb: JObject,
     provider_request_cb: JObject,
+    server_tool_cb: JObject,
 ) -> jstring {
     // Initialise Android logcat sink exactly once.
     android_logger::init_once(
@@ -192,7 +193,15 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
         }
     };
 
-    // ── Run the agent loop on the shared tokio runtime ────────────────────────
+    let server_tool_cb_global = match env.new_global_ref(server_tool_cb) {
+            Ok(r) => Arc::new(r),
+            Err(e) => {
+                error!("nativeRun: failed to create global ref for serverToolCb: {e:?}");
+                return err_string(&mut env, "could not pin serverToolCb");
+            }
+        };
+
+        // ── Run the agent loop on the shared tokio runtime ────────────────────────
     let result = RT.block_on(async move {
         // Parse the Anthropic-format history and convert to amplifier-core format.
         let raw_history: Vec<Value> = serde_json::from_str(&history_json).unwrap_or_else(|e| {
@@ -218,6 +227,7 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
             Arc::clone(&jvm),
             Arc::clone(&token_cb_global),
             Arc::clone(&provider_request_cb_global),
+            Arc::clone(&server_tool_cb_global),
         );
 
         // Wire providers map (Orchestrator trait expects a HashMap).

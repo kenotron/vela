@@ -267,6 +267,25 @@ package com.vela.app.engine
                     }
                 },
 
+                onServerTool = { name, argsJson ->
+                    // Server tool ran on Anthropic's backend — create a TurnEvent for UI display
+                    val eventId = UUID.randomUUID().toString()
+                    val tool    = toolRegistry.find(name)
+                    val summary = extractSummary(name, argsJson)
+                    turnEventDao.insert(TurnEventEntity(
+                        id              = eventId,
+                        turnId          = turnId,
+                        seq             = seq.getAndIncrement(),
+                        type            = "tool",
+                        toolName        = name,
+                        toolDisplayName = tool?.displayName ?: "Web Search",
+                        toolIcon        = tool?.icon ?: "🔍",
+                        toolSummary     = summary,
+                        toolArgs        = argsJson,
+                        toolStatus      = "done",
+                    ))
+                },
+
                 onProviderRequest = {
                     // ── PROVIDER_REQUEST hook ─────────────────────────────────────
                     // Build context including current todo state + recent tools

@@ -25,8 +25,9 @@ package com.vela.app.ai
             systemPrompt:      String,
             tokenCb:           TokenCallback,
             toolCb:            ToolCallback,
-            providerRequestCb: ProviderRequestCallback,  // called before each LLM call
-        ): String
+            providerRequestCb: ProviderRequestCallback,   // called before each LLM call
+                serverToolCb:      ServerToolCallback,           // called when server tool executes
+            ): String
 
         /** Per-token streaming callback — called from the Rust decode loop. */
         fun interface TokenCallback {
@@ -42,6 +43,17 @@ package com.vela.app.ai
          */
         fun interface ToolCallback {
             fun executeTool(name: String, argsJson: String): String
+        }
+
+        /**
+         * Server tool callback — called when Anthropic server tools (e.g. web_search_20250305)
+         * execute. UI display only — no local execution needed.
+         *
+         * @param name     Tool name, e.g. "web_search"
+         * @param argsJson JSON object of arguments, e.g. {"query":"..."}
+         */
+        fun interface ServerToolCallback {
+            fun onServerTool(name: String, argsJson: String)
         }
 
         /**
