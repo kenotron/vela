@@ -17,10 +17,6 @@ private const val TAG = "AmplifierSession"
  *
  * Owns NO history — callers pass [historyJson] pre-built from DB.
  * Owns NO coroutine scope — callers own the lifecycle.
- *
- * [onToolStart] returns a stable String ID (the caller-assigned TurnEvent ID).
- * That same ID is passed to [onToolEnd] so the caller can UPDATE the exact
- * DB row without any snapshot lookup.
  */
 @Singleton
 class AmplifierSession @Inject constructor(
@@ -41,53 +37,34 @@ class AmplifierSession @Inject constructor(
     fun setApiKey(k: String) { prefs.edit().putString(KEY_API_KEY, k).apply() }
     override fun isConfigured(): Boolean = getApiKey().isNotBlank()
 
-    /**
-     * Run one user turn.
-     *
-     * This is a **blocking** call — it drives the Rust JNI loop synchronously on
-     * whatever thread the caller is on. Callers should be on Dispatchers.IO.
-     *
-     * @param historyJson  Anthropic-format JSON array of prior messages (built by caller).
-     * @param userInput    The user's new message.
-     * @param systemPrompt Optional system prompt to inject into the request.
-     *                     Pass blank string (default) to use no system prompt.
-     * @param onToolStart  Called when a tool call starts. Returns a stable ID the caller
-     *                     assigns (e.g., a UUID for the TurnEvent row). The same ID is
-     *                     passed back to [onToolEnd] for in-place DB update.
-     * @param onToolEnd    Called when a tool completes. Receives (stableId, result).
-     * @param onToken      Called for each streamed text token (currently the full response
-     *                     arrives at once, but this API is forward-compatible with SSE).
-     */
     override suspend fun runTurn(
-        historyJson:     String,
-        userInput:       String,
-        userContentJson: String?,
-        systemPrompt:    String,
-        onToolStart:     (suspend (name: String, argsJson: String) -> String),
-        onToolEnd:       (suspend (stableId: String, result: String) -> Unit),
-        onToken:         (suspend (token: String) -> Unit),
+        historyJson:       String,
+        userInput:         String,
+        userContentJson:   String?,
+        systemPrompt:      String,
+        onToolStart:       (suspend (name: String, argsJson: String) -> String),
+        onToolEnd:         (suspend (stableId: String, result: String) -> Unit),
+        onToken:           (suspend (token: String) -> Unit),
+        onProviderRequest: (suspend () -> String?),
     ) {
         val toolsJson = buildToolsJson()
         Log.d(TAG, "runTurn model=${getModel()} historyLen=${historyJson.length} hasSystemPrompt=${systemPrompt.isNotBlank()}")
 
-        // Antipattern guard: orchestrator.rs calls emit_token() AND returns the
-        // same string. Without this flag the text would be emitted twice —
-        // once via tokenCb during nativeRun, once from the return value below.
         var tokenWasEmitted = false
 
         val finalText = AmplifierBridge.nativeRun(
-            apiKey          = getApiKey(),
-            model           = getModel(),
-            toolsJson       = toolsJson,
-            historyJson     = historyJson,
-            userInput       = userInput,
-            userContentJson = userContentJson,
-            systemPrompt    = systemPrompt,
-            tokenCb      = { token ->
+            apiKey            = getApiKey(),
+            model             = getModel(),
+            toolsJson         = toolsJson,
+            historyJson       = historyJson,
+            userInput         = userInput,
+            userContentJson   = userContentJson,
+            systemPrompt      = systemPrompt,
+            tokenCb           = { token ->
                 tokenWasEmitted = true
                 runBlocking { onToken(token) }
             },
-            toolCb      = { name, argsJson ->
+            toolCb            = { name, argsJson ->
                 runBlocking {
                     val stableId = onToolStart(name, argsJson)
                     val result   = executeTool(name, argsJson)
@@ -95,10 +72,11 @@ class AmplifierSession @Inject constructor(
                     result
                 }
             },
+            providerRequestCb = {
+                runBlocking { onProviderRequest() }.orEmpty()
+            },
         )
 
-        // Fallback: only emit from return value if streaming callbacks never fired
-        // (e.g., future code path where Rust skips emit_token).
         if (!tokenWasEmitted && finalText.isNotEmpty()) onToken(finalText)
     }
 

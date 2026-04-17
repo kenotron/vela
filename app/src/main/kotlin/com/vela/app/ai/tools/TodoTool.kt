@@ -47,7 +47,25 @@ class TodoTool : Tool {
         }
     }
 
-    private fun parseTodos(json: String): Result<List<TodoItem>> = runCatching {
+    /**
+         * Returns the current todo list formatted for hook injection.
+         * Empty string if no todos exist.
+         */
+        fun getFormattedState(): String {
+            if (todos.isEmpty()) return ""
+            return todos.joinToString("\n") { item ->
+                val icon = when (item.status) {
+                    "completed"   -> "✓"
+                    "in_progress" -> "→"
+                    else          -> "○"
+                }
+                val text = if (item.status == "in_progress" && item.activeForm.isNotBlank())
+                    item.activeForm else item.content
+                "$icon $text"
+            }
+        }
+
+        private fun parseTodos(json: String): Result<List<TodoItem>> = runCatching {
         val arr = JSONArray(json)
         (0 until arr.length()).map { i ->
             val obj = arr.getJSONObject(i)

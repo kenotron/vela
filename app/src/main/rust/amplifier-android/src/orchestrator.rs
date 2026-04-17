@@ -51,12 +51,46 @@ pub struct SimpleOrchestrator {
     jvm: Arc<JavaVM>,
     /// Global reference to `TokenCallback` — called after each text segment.
     token_cb: Arc<GlobalRef>,
-}
-
-impl SimpleOrchestrator {
-    pub fn new(jvm: Arc<JavaVM>, token_cb: Arc<GlobalRef>) -> Self {
-        Self { jvm, token_cb }
+        /// Global reference to `ProviderRequestCallback` — called before each LLM call.
+        provider_request_cb: Arc<GlobalRef>,
     }
+
+    impl SimpleOrchestrator {
+        pub fn new(
+            jvm: Arc<JavaVM>,
+            token_cb: Arc<GlobalRef>,
+            provider_request_cb: Arc<GlobalRef>,
+        ) -> Self {
+            Self { jvm, token_cb, provider_request_cb }
+        }
+
+        /// Call `ProviderRequestCallback.onProviderRequest()` on the Kotlin side.
+        /// Returns `Some(injection)` if hooks want to inject ephemeral context,
+        /// or `None` for no injection. Failures are swallowed so they cannot abort the loop.
+        fn call_provider_request(&self) -> Option<String> {
+            let mut env = self.jvm.attach_current_thread().ok()?;
+            let result = env.call_method(
+                self.provider_request_cb.as_ref(),
+                "onProviderRequest",
+                "()Ljava/lang/String;",
+                &[],
+            );
+            let jvalue = match result {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!("call_provider_request: threw: {e:?}");
+                    let _ = env.exception_clear();
+                    return None;
+                }
+            };
+            let jobject = jvalue.l().ok()?;
+            if jobject.is_null() { return None; }
+            let jstr = jni::objects::JString::from(jobject);
+            env.get_string(&jstr)
+                .map(|s| String::from(s))
+                .ok()
+                .filter(|s| !s.is_empty())
+        }
 
     // ─────────────────────── Token streaming (Vela-specific) ─────────────────
 
@@ -240,8 +274,18 @@ impl Orchestrator for SimpleOrchestrator {
                         },
                     ))?;
 
-                // 2. Build and send request
-                let request = Self::build_chat_request(context_messages, &tool_specs, None);
+                // 2. Inject ephemeral context from Kotlin hooks (PROVIDER_REQUEST)
+                    let mut messages_for_request = context_messages;
+                    if let Some(injection) = self.call_provider_request() {
+                        debug!("orchestrator: injecting {} bytes from hooks", injection.len());
+                        messages_for_request.push(serde_json::json!({
+                            "role":    "user",
+                            "content": injection,
+                        }));
+                    }
+
+                    // 3. Build and send request
+                    let request = Self::build_chat_request(messages_for_request, &tool_specs, None);
                 let response = provider
                     .complete(request)
                     .await

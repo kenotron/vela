@@ -15,8 +15,10 @@ import com.vela.app.hooks.HookRegistry
 import com.vela.app.hooks.PersonalizationHook
 import com.vela.app.hooks.VaultConfigHook
 import com.vela.app.hooks.VaultIndexHook
-import com.vela.app.hooks.VaultEmbeddingHook
-import com.vela.app.hooks.VaultSyncHook
+import com.vela.app.hooks.StatusContextHook
+    import com.vela.app.hooks.TodoReminderHook
+    import com.vela.app.hooks.VaultEmbeddingHook
+    import com.vela.app.hooks.VaultSyncHook
 import com.vela.app.ssh.SshKeyManager
 import com.vela.app.ssh.SshNodeRegistry
 import com.vela.app.vault.SharedPrefsVaultSettings
@@ -214,8 +216,11 @@ object AppModule {
         VaultConfigHook(),
         VaultIndexHook(),
         VaultEmbeddingHook(embeddingEngine),
-        PersonalizationHook(),
-    )
+            PersonalizationHook(),
+            // Agent-loop hooks — fire on PROVIDER_REQUEST before each LLM call
+            StatusContextHook(),
+            TodoReminderHook(),
+        )
 
     @Provides @Singleton
     fun provideSessionHarness(
@@ -235,6 +240,7 @@ object AppModule {
         @ApplicationContext ctx: Context,
         session: InferenceSession,
         toolRegistry: ToolRegistry,
+        hookRegistry: HookRegistry,
         turnDao: TurnDao,
         turnEventDao: TurnEventDao,
         conversationDao: ConversationDao,
@@ -242,7 +248,8 @@ object AppModule {
         vaultManager: VaultManager,
         harness: SessionHarness,
     ): InferenceEngine = InferenceEngine(
-        ctx, session, toolRegistry, turnDao, turnEventDao, conversationDao, vaultRegistry, vaultManager, harness,
+        ctx, session, toolRegistry, hookRegistry,
+        turnDao, turnEventDao, conversationDao, vaultRegistry, vaultManager, harness,
     )
 
     @Provides @Singleton
