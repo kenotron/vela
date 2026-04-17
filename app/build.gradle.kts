@@ -138,7 +138,11 @@
             implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
 
         // Microsoft Authentication (MSAL) — Entra ID + personal Microsoft accounts
-        implementation(libs.msal)
+        implementation(libs.msal) {
+            // display-mask is a Surface Duo foldable SDK — not available on standard
+            // Maven repos and not needed for Vela. Exclude to unblock the build.
+            exclude(group = "com.microsoft.device.display", module = "display-mask")
+        }
 
             // Unit tests
         testImplementation(libs.junit)
