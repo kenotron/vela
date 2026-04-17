@@ -25,7 +25,7 @@
                 val request = Request.Builder().url(url).build()
                 val response = client.newCall(request).execute()
                 val body = response.body?.string().orEmpty()
-                if (!response.isSuccessful) return@runCatching "HTTP \${response.code} error for $url"
+                if (!response.isSuccessful) return@runCatching "HTTP ${response.code} error for $url"
 
                 val contentType = response.header("Content-Type", "").orEmpty()
                 val text = when {
@@ -37,17 +37,29 @@
                         .replace(Regex("\\s+"), " ").trim()
                     else -> body.replace(Regex("\\s+"), " ").trim()
                 }
-                val trimmed = if (text.length > 1200) text.take(1200) + "…[truncated]" else text
+                val trimmed = if (text.length > 8_000) text.take(8_000) + "…[truncated]" else text
                 "Fetched $url:\n$trimmed"
-            }.getOrElse { e -> "Error fetching $url: \${e.message?.take(120)}" }
+            }.getOrElse { e -> "Error fetching $url: ${e.message?.take(120)}" }
         }
     }
 
+    /**
+     * Web search tool using DuckDuckGo's HTML endpoint.
+     *
+     * Uses https://html.duckduckgo.com/html/ which returns real web results (titles,
+     * URLs, snippets) — much better than the Instant Answer JSON API which only
+     * returns Wikipedia summaries.
+     *
+     * NOTE: When using Anthropic as the provider, Claude has native web search
+     * capability built into the API (web_search_20250305 tool). That is a better
+     * option and doesn't require this tool at all — it's handled server-side by
+     * Anthropic. This tool is useful when the provider doesn't offer native search.
+     */
     class SearchWebTool(private val client: OkHttpClient) : Tool {
         override val name        = "search_web"
         override val displayName = "Web Search"
         override val icon        = "🔍"
-        override val description = "Searches the web and returns relevant snippets with URLs"
+        override val description = "Searches the web and returns results with titles, URLs, and snippets"
         override val parameters  = listOf(
             ToolParameter("query", "string", "the search query"),
         )
@@ -56,42 +68,73 @@
             val query = args["query"] as? String
                 ?: return@withContext "Error: 'query' parameter is required"
 
-            runCatching {
-                val encoded  = URLEncoder.encode(query, "UTF-8")
-                val url      = "https://api.duckduckgo.com/?q=$encoded&format=json&no_html=1&skip_disambig=1"
-                val request  = Request.Builder().url(url).build()
-                val response = client.newCall(request).execute()
-                val body     = response.body?.string() ?: return@runCatching "No response from search"
-                val json     = JSONObject(body)
-                val sb       = StringBuilder("Search results for \"$query\":\n")
-
-                val abstract    = json.optString("AbstractText").take(300)
-                val abstractUrl = json.optString("AbstractURL")
-                if (abstract.isNotBlank()) {
-                    sb.append("• $abstract")
-                    if (abstractUrl.isNotBlank()) sb.append("\n  URL: $abstractUrl")
-                    sb.append("\n")
-                }
-
-                val topics = json.optJSONArray("RelatedTopics")
-                if (topics != null) {
-                    (0 until topics.length())
-                        .mapNotNull { i -> topics.optJSONObject(i) }
-                        .filter { it.optString("Text").isNotBlank() }
-                        .take(3)
-                        .forEach { obj ->
-                            val text     = obj.optString("Text").take(200)
-                            val firstUrl = obj.optString("FirstURL")
-                            sb.append("• $text")
-                            if (firstUrl.isNotBlank()) sb.append("\n  URL: $firstUrl")
-                            sb.append("\n")
-                        }
-                }
-
-                val result = sb.toString().trimEnd()
-                if (result == "Search results for \"$query\":") "No results found for: $query"
-                else result
-            }.getOrElse { e -> "Error searching for '$query': \${e.message?.take(120)}" }
+            searchHtml(query).takeIf { !it.startsWith("Error") && it != "No results found for: $query" }
+                ?: searchInstantAnswer(query)
         }
+
+        // ── DuckDuckGo HTML search ─────────────────────────────────────────────────
+        // Scrapes https://html.duckduckgo.com/html/ for real web results.
+
+        private fun searchHtml(query: String): String = runCatching {
+            val encoded = URLEncoder.encode(query, "UTF-8")
+            val request = Request.Builder()
+                .url("https://html.duckduckgo.com/html/?q=$encoded")
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36")
+                .build()
+            val html = client.newCall(request).execute().body?.string() ?: return@runCatching "No response"
+
+            // Extract result blocks: title + url + snippet
+            val titleRx   = Regex("""class="result__a"[^>]*>([^<]{3,100})<""")
+            val urlRx     = Regex("""class="result__url"[^>]*>\s*([^\s<]{5,200})\s*<""")
+            val snippetRx = Regex("""class="result__snippet"[^>]*>([^<]{10,400})<""")
+
+            val titles   = titleRx.findAll(html).map { it.groupValues[1].trim() }.toList()
+            val urls     = urlRx.findAll(html).map { it.groupValues[1].trim() }.toList()
+            val snippets = snippetRx.findAll(html).map { it.groupValues[1].trim() }.toList()
+
+            if (titles.isEmpty()) return@runCatching "No results found for: $query"
+
+            buildString {
+                appendLine("Search results for \"$query\":")
+                titles.take(6).forEachIndexed { i, title ->
+                    appendLine("• $title")
+                    urls.getOrNull(i)?.let  { appendLine("  $it") }
+                    snippets.getOrNull(i)?.let { appendLine("  $it") }
+                    appendLine()
+                }
+            }.trimEnd()
+        }.getOrElse { e -> "Error: ${e.message?.take(100)}" }
+
+        // ── DuckDuckGo Instant Answer (fallback) ───────────────────────────────────
+        // Only returns Wikipedia-style summaries. Falls back here if HTML parse fails.
+
+        private fun searchInstantAnswer(query: String): String = runCatching {
+            val encoded  = URLEncoder.encode(query, "UTF-8")
+            val url      = "https://api.duckduckgo.com/?q=$encoded&format=json&no_html=1&skip_disambig=1"
+            val body     = client.newCall(Request.Builder().url(url).build()).execute().body?.string()
+                ?: return@runCatching "No results found for: $query"
+            val json     = JSONObject(body)
+            val sb       = StringBuilder("Search results for \"$query\":\n")
+
+            json.optString("AbstractText").take(300).takeIf { it.isNotBlank() }?.let {
+                sb.append("• $it")
+                json.optString("AbstractURL").takeIf { u -> u.isNotBlank() }?.let { u -> sb.append("\n  $u") }
+                sb.append("\n")
+            }
+
+            json.optJSONArray("RelatedTopics")?.let { topics ->
+                (0 until topics.length())
+                    .mapNotNull { topics.optJSONObject(it) }
+                    .filter { it.optString("Text").isNotBlank() }
+                    .take(3)
+                    .forEach { obj ->
+                        sb.append("• ${obj.optString("Text").take(200)}")
+                        obj.optString("FirstURL").takeIf { it.isNotBlank() }?.let { sb.append("\n  $it") }
+                        sb.append("\n")
+                    }
+            }
+
+            sb.toString().trimEnd().takeIf { it != "Search results for \"$query\":" }
+                ?: "No results found for: $query"
+        }.getOrElse { e -> "Error searching for '$query': ${e.message?.take(120)}" }
     }
-    

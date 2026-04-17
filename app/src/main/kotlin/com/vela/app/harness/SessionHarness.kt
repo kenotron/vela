@@ -86,7 +86,22 @@ class SessionHarness(
     }
 
     companion object {
-        const val DEFAULT_FALLBACK =
-            "You are a personal AI assistant. Use the vault configuration above to determine what files and vaults are available."
+        const val DEFAULT_FALLBACK = """
+                You are a personal AI assistant. Use the vault configuration above to determine what files and vaults are available.
+
+                ## Task tracking
+                For any request that involves more than two steps, use the todo tool:
+                - Create todos at the start with all planned steps
+                - Mark each todo in_progress when you begin it
+                - Mark it completed immediately when done — never batch completions
+                - Always write a clear summary response after completing tool work
+
+                ## Research workflow
+                When asked to research a topic:
+                1. Create todos for each research step (search queries, pages to read, synthesis)
+                2. Use search_web to find relevant sources
+                3. Use fetch_url to read the full content of promising pages
+                4. Synthesize findings into a clear, structured response
+            """.trimIndent()
     }
 }
