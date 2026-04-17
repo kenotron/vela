@@ -49,6 +49,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -659,6 +660,19 @@ private fun TextEventRow(text: String, streaming: Boolean, maxW: androidx.compos
 private fun ToolGroupRow(events: List<TurnEventEntity>) {
     if (events.isEmpty()) return
 
+    // Special rendering for todo tool — show a checklist card instead of generic tool row
+    val isTodoGroup = events.all { it.toolName == "todo" }
+    if (isTodoGroup) {
+        val lastTodoUpdate = events.lastOrNull { it.toolArgs != null && run {
+            try { org.json.JSONObject(it.toolArgs).optString("action").let { a -> a == "create" || a == "update" } }
+            catch (_: Exception) { false }
+        }}
+        if (lastTodoUpdate != null) {
+            TodoChecklistRow(event = lastTodoUpdate)
+            return
+        }
+    }
+
     var expanded by remember { mutableStateOf(false) }
     val last      = events.last()
     val isRunning = last.toolStatus == null || last.toolStatus == "running"
@@ -740,6 +754,91 @@ private fun ToolGroupRow(events: List<TurnEventEntity>) {
         }
     }
 }
+
+@Composable
+private fun TodoChecklistRow(event: TurnEventEntity) {
+    val cs        = MaterialTheme.colorScheme
+    val isRunning = event.toolStatus == null || event.toolStatus == "running"
+
+    data class TodoItem(val content: String, val status: String, val activeForm: String)
+
+    val items: List<TodoItem> = remember(event.toolArgs) {
+        try {
+            val obj      = org.json.JSONObject(event.toolArgs ?: return@remember emptyList())
+            val todosStr = obj.optString("todos").takeIf { it.isNotBlank() } ?: return@remember emptyList()
+            val arr      = org.json.JSONArray(todosStr)
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                TodoItem(
+                    content    = o.optString("content"),
+                    status     = o.optString("status", "pending"),
+                    activeForm = o.optString("activeForm"),
+                )
+            }
+        } catch (_: Exception) { emptyList() }
+    }
+
+    if (items.isEmpty()) return
+
+    val borderColor = if (isRunning) cs.primary.copy(alpha = 0.4f) else cs.outlineVariant
+
+    Column(modifier = Modifier.padding(start = 16.dp, end = 32.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .width(2.dp)
+                    .height(IntrinsicSize.Min)
+                    .defaultMinSize(minHeight = 20.dp)
+                    .background(borderColor, RoundedCornerShape(1.dp))
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text  = "✅  Tasks",
+                style = MaterialTheme.typography.labelSmall,
+                color = cs.onSurfaceVariant,
+            )
+            if (isRunning) {
+                Spacer(Modifier.width(6.dp))
+                val inf   = rememberInfiniteTransition(label = "todo_pulse")
+                val alpha by inf.animateFloat(0.3f, 1f,
+                    infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "a")
+                Box(Modifier.size(5.dp).alpha(alpha)
+                    .background(cs.primary, CircleShape))
+            }
+        }
+
+        Spacer(Modifier.height(4.dp))
+
+        items.forEach { item ->
+            val isComplete   = item.status == "completed"
+            val isInProgress = item.status == "in_progress"
+            val displayText  = if (isInProgress && item.activeForm.isNotBlank()) item.activeForm else item.content
+
+            val (icon, iconTint, textColor, decoration) = when {
+                isComplete   -> Quadruple("✓", cs.primary.copy(alpha = 0.5f),   cs.onSurface.copy(alpha = 0.4f), TextDecoration.LineThrough)
+                isInProgress -> Quadruple("→", cs.primary,                       cs.onSurface,                    TextDecoration.None)
+                else         -> Quadruple("○", cs.onSurfaceVariant.copy(0.5f),   cs.onSurface.copy(alpha = 0.7f), TextDecoration.None)
+            }
+
+            Row(
+                modifier = Modifier.padding(start = 10.dp, top = 2.dp, bottom = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(icon,  style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (isInProgress) FontWeight.SemiBold else FontWeight.Normal), color = iconTint, modifier = Modifier.width(14.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text           = displayText,
+                    style          = MaterialTheme.typography.labelSmall.copy(textDecoration = decoration),
+                    color          = textColor,
+                    maxLines       = 2,
+                    overflow       = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+private data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 
 private fun smartLabel(event: TurnEventEntity): String {
     val s = event.toolSummary
