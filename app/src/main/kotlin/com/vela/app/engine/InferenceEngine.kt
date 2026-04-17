@@ -332,11 +332,12 @@ package com.vela.app.engine
             val ts = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US)
                 .format(java.util.Date(epochMs))
             return when (content) {
-                is String    -> "[$ts]\n\n$content"
-                is JSONArray -> {
-                    // Prepend a text block carrying the timestamp
-                    val stamped = JSONArray()
-                    stamped.put(JSONObject().put("type", "text").put("text", "[$ts]\n\n"))
+                // <vela-meta> is invisible in the UI (stripped before rendering)
+                    // but fully visible to the LLM in the raw message content.
+                    is String    -> "<vela-meta>$ts</vela-meta>\n\n$content"
+                    is JSONArray -> {
+                        val stamped = JSONArray()
+                        stamped.put(JSONObject().put("type", "text").put("text", "<vela-meta>$ts</vela-meta>\n\n"))
                     repeat(content.length()) { i -> stamped.put(content.get(i)) }
                     stamped
                 }

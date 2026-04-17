@@ -566,8 +566,12 @@ private fun TurnRow(twe: TurnWithEvents, streamingText: String?, isLive: Boolean
                         }
                     }
                 }
-                // Text bubble — only rendered when there is text
-                if (twe.turn.userMessage.isNotBlank()) {
+                // Text bubble — only rendered when there is text.
+                // Strip <vela-meta>...</vela-meta> before display — these are
+                // invisible timestamp markers for the LLM, not for the user.
+                val displayMessage = twe.turn.userMessage
+                    .replace(Regex("<vela-meta>[^<]*</vela-meta>\\n*"), "")
+                if (displayMessage.isNotBlank()) {
                     Box(
                         Modifier
                             .widthIn(max = maxW)
@@ -575,7 +579,7 @@ private fun TurnRow(twe: TurnWithEvents, streamingText: String?, isLive: Boolean
                             .padding(horizontal = 14.dp, vertical = 10.dp),
                     ) {
                         Text(
-                            twe.turn.userMessage,
+                            displayMessage,
                             style = MaterialTheme.typography.bodyMedium,
                             color = cs.onSurface,
                         )
