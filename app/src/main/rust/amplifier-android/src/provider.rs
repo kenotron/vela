@@ -245,7 +245,7 @@ impl AnthropicProvider {
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", ANTHROPIC_VERSION)
             .header("content-type", "application/json")
-            .header("anthropic-beta", "web-search-2025-03-05")
+            // anthropic-beta header not required for web_search_20250305 (GA)
             .json(&body)
             .send()
             .await
@@ -365,7 +365,8 @@ impl Provider for AnthropicProvider {
                 .filter(|s| !s.is_empty())
                 .map(|s| Self::build_anthropic_tools(s))
                 .unwrap_or_default();
-            tools_arr.push(json!({ "type": "web_search_20250305" }));
+            // web_search_20250305 requires both type AND name fields
+            tools_arr.push(json!({ "type": "web_search_20250305", "name": "web_search" }));
             body["tools"] = json!(tools_arr);
 
             // ── Call the API ──────────────────────────────────────────────────
