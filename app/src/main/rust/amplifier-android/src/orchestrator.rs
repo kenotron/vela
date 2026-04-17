@@ -358,8 +358,25 @@ impl Orchestrator for SimpleOrchestrator {
                                     }
                                 }
                             } else {
-                                warn!("orchestrator: unknown tool requested: {}", call.name);
-                                json!(format!("Error: tool '{}' not found", call.name))
+                                // No local handler — check for a server-provided result.
+                                // Anthropic server tools (web_search_20250305) execute on
+                                // Anthropic's backend and return a ToolResult content block
+                                // in the same response, matched by tool_call_id.
+                                let server_result = response.content.iter().find_map(|blk| {
+                                    if let amplifier_core::ContentBlock::ToolResult {
+                                        tool_call_id, output, ..
+                                    } = blk {
+                                        if tool_call_id == &call.id { Some(output.clone()) }
+                                        else { None }
+                                    } else { None }
+                                });
+                                if let Some(r) = server_result {
+                                    debug!("orchestrator: using server result for '{}'", call.name);
+                                    r
+                                } else {
+                                    warn!("orchestrator: no handler or server result for '{}'", call.name);
+                                    json!("") // skip gracefully — don't inject an error
+                                }
                             };
 
                             // Store result in amplifier-core format (tool_call_id, output).

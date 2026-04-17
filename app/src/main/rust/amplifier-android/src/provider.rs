@@ -179,7 +179,24 @@ impl AnthropicProvider {
                             extensions: HashMap::new(),
                         })
                     }
-                    "thinking" => {
+                    // Anthropic server tool result — treat as ToolResult so the
+                        // orchestrator can match it to the original tool_use by id.
+                        "web_search_tool_result" => {
+                            let tool_call_id = block
+                                .get("tool_use_id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            // Serialise the content array back to JSON for the orchestrator
+                            let output = block.get("content").cloned().unwrap_or(json!([]));
+                            Some(ContentBlock::ToolResult {
+                                tool_call_id,
+                                output,
+                                visibility: None,
+                                extensions: HashMap::new(),
+                            })
+                        }
+                        "thinking" => {
                         let thinking = block
                             .get("thinking")
                             .and_then(|t| t.as_str())
@@ -228,6 +245,7 @@ impl AnthropicProvider {
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", ANTHROPIC_VERSION)
             .header("content-type", "application/json")
+            .header("anthropic-beta", "web-search-2025-03-05")
             .json(&body)
             .send()
             .await
@@ -341,12 +359,14 @@ impl Provider for AnthropicProvider {
                 body["system"] = json!(self.system_prompt);
             }
 
-            // Tools (from the request)
-            if let Some(specs) = &request.tools {
-                if !specs.is_empty() {
-                    body["tools"] = json!(Self::build_anthropic_tools(specs));
-                }
-            }
+            // Tools: Kotlin client tools + web_search_20250305 server tool.
+            // web_search is executed by Anthropic's server — no local handler needed.
+            let mut tools_arr: Vec<Value> = request.tools.as_deref()
+                .filter(|s| !s.is_empty())
+                .map(|s| Self::build_anthropic_tools(s))
+                .unwrap_or_default();
+            tools_arr.push(json!({ "type": "web_search_20250305" }));
+            body["tools"] = json!(tools_arr);
 
             // ── Call the API ──────────────────────────────────────────────────
             let raw = self.call_api(body).await?;
