@@ -86,7 +86,7 @@ class SessionHarness(
     }
 
     companion object {
-        const val DEFAULT_FALLBACK = """
+        val DEFAULT_FALLBACK = """
                 You are a personal AI assistant. Use the vault configuration above to determine what files and vaults are available.
 
                 ## Task tracking
