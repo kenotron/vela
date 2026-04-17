@@ -44,6 +44,9 @@
             resources.excludes += "META-INF/DEPENDENCIES"
             resources.excludes += "META-INF/LICENSE*"
             resources.excludes += "META-INF/NOTICE*"
+            // MSAL pulls in Bouncy Castle — these collide without exclusion
+            resources.excludes += "META-INF/BCKEY.DSA"
+            resources.excludes += "META-INF/BCKEY.SF"
         }
     }
 
@@ -133,6 +136,9 @@
 
         // Local on-device embedding — all-MiniLM-L6-v2 via ONNX Runtime
             implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
+
+        // Microsoft Authentication (MSAL) — Entra ID + personal Microsoft accounts
+        implementation(libs.msal)
 
             // Unit tests
         testImplementation(libs.junit)

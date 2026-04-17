@@ -321,6 +321,29 @@ package com.vela.app.engine
 
         // ── History ────────────────────────────────────────────────────────────────
 
+        /**
+         * Prefix every historical user message with its send time so the model
+         * knows WHEN a message was sent, not just what was said.
+         *
+         * Content can be a plain String or a JSONArray (content blocks with images/docs).
+         * Both cases get a leading "[2026-04-15 14:30]" marker.
+         */
+        private fun withTimestamp(content: Any, epochMs: Long): Any {
+            val ts = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US)
+                .format(java.util.Date(epochMs))
+            return when (content) {
+                is String    -> "[$ts]\n\n$content"
+                is JSONArray -> {
+                    // Prepend a text block carrying the timestamp
+                    val stamped = JSONArray()
+                    stamped.put(JSONObject().put("type", "text").put("text", "[$ts]\n\n"))
+                    repeat(content.length()) { i -> stamped.put(content.get(i)) }
+                    stamped
+                }
+                else -> content
+            }
+        }
+
         private suspend fun buildHistory(conversationId: String): String {
             val arr            = JSONArray()
             val completedTurns = turnDao.getCompletedTurnsWithEvents(conversationId)
@@ -344,7 +367,8 @@ package com.vela.app.engine
                     }
                     else -> twe.turn.userMessage
                 }
-                arr.put(JSONObject().put("role", "user").put("content", userContent))
+                arr.put(JSONObject().put("role", "user").put("content",
+                    withTimestamp(userContent, twe.turn.timestamp)))
 
                 // Build assistant message — include a synthetic summary for tool-only turns
                 // so multi-turn conversations don't lose context about completed work.

@@ -7,7 +7,15 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 
-    <application
+    <!-- MSAL: allows detecting Microsoft Authenticator / Company Portal (Android 11+) -->
+        <queries>
+            <package android:name="com.azure.authenticator" />
+            <package android:name="com.microsoft.authenticator" />
+            <package android:name="com.microsoft.intune" />
+            <package android:name="com.microsoft.windowsintune.companyportal" />
+        </queries>
+
+        <application
         android:name=".VelaApplication"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -48,6 +56,21 @@
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
+
+        <!-- MSAL: catches msauth:// redirect after browser/Authenticator auth -->
+        <activity
+            android:name="com.microsoft.identity.client.BrowserTabActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="msauth"
+                    android:host="com.vela.app"
+                    android:path="/aNnWPrIpCBBJrOG6suAPSuST0Nw=" />
             </intent-filter>
         </activity>
 
