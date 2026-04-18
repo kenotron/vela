@@ -77,7 +77,9 @@ When generating a new renderer, `__VELA_CONTEXT__` includes current `global:` an
 - `put(collection, id, data)` — upsert a document
 - `get(collection, id)` — read a document
 - `delete(collection, id)` — remove a document
-- `watch(collection, cb)` — observe changes to a collection
+- `watch(collection, cb)` — observes changes to a collection. Implemented as a Room `Flow` collected in a background coroutine. Changes are delivered to the WebView via `evaluateJavascript`. The observer is torn down when the WebView is destroyed.
+
+The `collection` argument must begin with `local:`, `global:`, or `type:`. An unrecognised prefix throws an error.
 
 Complex query/index support is deferred to a later on-device sync optimization pass.
 
@@ -91,6 +93,7 @@ Topics follow `{mini-app-type}:{event-name}` convention (e.g., `recipe:ingredien
 **System events** published by Vela itself:
 
 - `vela:theme-changed`
+- `vela:vault-changed`
 - `vela:vault-synced`
 - `vela:layout-changed`
 
@@ -130,7 +133,7 @@ At WebView load, Vela injects `window.__VELA_CONTEXT__`:
         { "id": "items_collection", "description": "The current collection of items the user intends to buy" }
       ],
       "consumes": [
-        { "id": "add_items", "description": "Adds a list of items to the shopping list" }
+        { "id": "shopping-list.add_items", "description": "Adds a list of items to the shopping list" }
       ]
     }
   ],
@@ -139,6 +142,8 @@ At WebView load, Vela injects `window.__VELA_CONTEXT__`:
   "layout": "phone"
 }
 ```
+
+> **Note:** Cross-app capability references in `consumes` use `{type}.{id}` format (e.g., `shopping-list.add_items`); `provides` entries use bare `{id}`.
 
 ---
 
@@ -197,17 +202,16 @@ Happens exactly once per unknown content type. The LLM receives:
 It returns two artifacts:
 
 - **Complete HTML/CSS/JS page** — persisted to `.vela/renderers/{content_type}/renderer.html` inside the vault (travels with data via git sync)
-- **English-described capability manifest** — persisted to Room DB (`mini_app_registry`)
+- **English-described capability manifest** — includes `provides`, `consumes`, and `db_collections` (the collections the mini app uses with their scope and description). Persisted to Room DB (`mini_app_registry`).
 
 ### Evolution: Additive, Not Destructive
 
-Three triggers cause a renderer to update:
+Two triggers cause a renderer to update:
 
 1. A new mini app joins the graph that the current renderer could connect to
 2. The user explicitly requests an update
-3. `vela.ai` detects schema drift in the underlying content
 
-When triggered, the LLM receives the existing renderer HTML plus delta context and produces a **patch** — not a full regeneration. `local:` state is preserved.
+When triggered, the LLM receives the existing renderer HTML as context and produces a **complete updated HTML file**. Generation is semantically conservative — user customisations and `local:` state contracts are preserved — but the output is always a full HTML document, not a diff.
 
 ---
 
@@ -229,8 +233,8 @@ New top-level composable reading `WindowSizeClass`:
 | Destination    | Behavior                                                                                          |
 |----------------|---------------------------------------------------------------------------------------------------|
 | **Projects**   | Existing conversation/session logic, re-hosted. Chat retained as the primary modality for AI.     |
-| **Vault**      | `VaultBrowserScreen` promoted from chip to first-class destination. Phone: full-screen list, tap → full-screen `MiniAppContainer`. Tablet: permanent master/detail split. |
-| **Connectors** | New `ConnectorsScreen` combining existing `NodesScreen` logic (SSH nodes) with external service connector slots. |
+| **Vault**      | `VaultBrowserScreen` promoted from chip to first-class destination. Phone: full-screen list, tap → full-screen `MiniAppContainer`. `Medium`/`Expanded`: permanent master/detail split. |
+| **Connectors** | Migrates existing `NodesScreen` logic (SSH Vela nodes) into the new Connectors destination. External service connectors are out of scope for this spec and will be addressed in a follow-on design. |
 | **Profile**    | Existing settings, renamed.                                                                       |
 
 ### ConversationScreen Decomposition
@@ -259,13 +263,13 @@ Mini apps adapt via CSS variables (`--vela-layout`, `--vela-viewport-width`, etc
 
 | File                              | Responsibility                                                  |
 |-----------------------------------|-----------------------------------------------------------------|
-| `MiniAppRuntime.kt`              | Composable owning WebView lifecycle, SDK injection, bridge routing |
+| `MiniAppRuntime.kt`              | Composable owning WebView lifecycle, SDK injection, bridge routing. Note: the file is `MiniAppRuntime.kt`; the composable it exports (and used throughout the codebase) is `MiniAppContainer`. |
 | `VelaJSInterface.kt`            | `@JavascriptInterface`-annotated class with four inner objects (`Db`, `Events`, `Ai`, `Vault`) |
 | `RendererGenerator.kt`          | Assembles LLM generation prompt, calls AmplifierSession, parses HTML + manifest, persists both |
 | `CapabilitiesGraphRepository.kt` | Room entity + repository for `mini_app_registry` table          |
 | `MiniAppDocumentStore.kt`       | Room entity + repository for `mini_app_documents` table backing `vela.db` |
 | `NavigationScaffold.kt`         | `WindowSizeClass`-aware adaptive navigation host                |
-| `ConnectorsScreen.kt`           | Nodes + external connectors unified view with ViewModel         |
+| `ConnectorsScreen.kt`           | Migrates existing `NodesScreen` logic (SSH Vela nodes) into the new Connectors destination. External service connectors are out of scope for this spec and will be addressed in a follow-on design. |
 
 ### Modified Files
 
@@ -299,3 +303,4 @@ Mini apps adapt via CSS variables (`--vela-layout`, `--vela-viewport-width`, etc
 | `VelaJSInterface`              | Test each namespace in isolation with a mock WebView; no live Amplifier session required |
 | `CapabilitiesGraphRepository`  | Room in-memory DB tests for registry reads/writes and English manifest round-trips   |
 | `NavigationScaffold`           | Screenshot tests at Compact and Medium window widths confirming bottom bar vs rail rendering |
+| `RendererGenerator.kt`         | Unit test prompt assembly (verify content, capabilities graph, scope contract all present). Test manifest extraction from LLM response. Test HTML persistence to `.vela/renderers/` path. Use a mock AmplifierSession returning fixture HTML + manifest. |
