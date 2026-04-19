@@ -2,6 +2,7 @@ package com.vela.app.ui.miniapp
 
 import com.google.common.truth.Truth.assertThat
 import com.vela.app.ai.AmplifierSession
+import com.vela.app.ai.RendererGenerator
 import com.vela.app.data.db.MiniAppDocumentDao
 import com.vela.app.data.db.MiniAppDocumentEntity
 import com.vela.app.data.db.MiniAppRegistryDao
@@ -44,7 +45,7 @@ class MiniAppRuntimeTest {
         Dispatchers.resetMain()
     }
 
-    // ── Fake stubs ───────────────────────────────────────────────────────────
+    // ── Fake stubs ────────────────────────────────────────────────────────────────────────────────
 
     private val fakeRegistryDao = object : MiniAppRegistryDao {
         override fun getAll(): Flow<List<MiniAppRegistryEntity>> = flowOf(emptyList())
@@ -69,6 +70,7 @@ class MiniAppRuntimeTest {
     }
 
     private val mockSession: AmplifierSession = Mockito.mock(AmplifierSession::class.java)
+    private val mockRendererGenerator: RendererGenerator = Mockito.mock(RendererGenerator::class.java)
 
     private fun buildViewModel(root: File): MiniAppViewModel {
         val vaultManager = VaultManager(
@@ -76,15 +78,37 @@ class MiniAppRuntimeTest {
             enabledVaultPaths = MutableStateFlow(emptySet()),
         )
         return MiniAppViewModel(
-            documentStore    = MiniAppDocumentStore(fakeDocumentDao),
-            eventBus         = EventBus(),
-            amplifierSession = mockSession,
-            vaultManager     = vaultManager,
-            capabilitiesRepo = CapabilitiesGraphRepository(fakeRegistryDao),
+            documentStore     = MiniAppDocumentStore(fakeDocumentDao),
+            eventBus          = EventBus(),
+            amplifierSession  = mockSession,
+            vaultManager      = vaultManager,
+            capabilitiesRepo  = CapabilitiesGraphRepository(fakeRegistryDao),
+            rendererGenerator = mockRendererGenerator,
         )
     }
 
-    // ── VelaTheme ────────────────────────────────────────────────────────────
+    // ── RendererState ─────────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `RendererState Fallback holds contentType and content`() {
+        val fallback = RendererState.Fallback("markdown", "# Hello")
+        assertThat(fallback.contentType).isEqualTo("markdown")
+        assertThat(fallback.content).isEqualTo("# Hello")
+    }
+
+    @Test
+    fun `RendererState Ready holds renderer file reference`() {
+        val file = File("/tmp/renderer.html")
+        val ready = RendererState.Ready(file)
+        assertThat(ready.rendererFile).isEqualTo(file)
+    }
+
+    @Test
+    fun `RendererState Loading is a singleton object`() {
+        assertThat(RendererState.Loading).isNotNull()
+    }
+
+    // ── VelaTheme ─────────────────────────────────────────────────────────────────────────────────
 
     @Test
     fun `VelaTheme dark variant stores isDark true and primaryColor`() {
@@ -100,7 +124,7 @@ class MiniAppRuntimeTest {
         assertThat(theme.primaryColor).isEqualTo("#6200EE")
     }
 
-    // ── MiniAppViewModel.createJsInterface ───────────────────────────────────
+    // ── MiniAppViewModel.createJsInterface ────────────────────────────────────────────────────────
 
     @Test
     fun `createJsInterface returns non-null VelaJSInterface`() {
@@ -117,7 +141,7 @@ class MiniAppRuntimeTest {
         assertThat(a).isNotSameInstanceAs(b)
     }
 
-    // ── MiniAppViewModel.getRendererFile ─────────────────────────────────────
+    // ── MiniAppViewModel.getRendererFile ──────────────────────────────────────────────────────────
 
     @Test
     fun `getRendererFile returns null when renderer does not exist`() {

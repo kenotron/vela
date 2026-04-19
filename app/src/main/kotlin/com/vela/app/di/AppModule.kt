@@ -19,6 +19,7 @@ import com.vela.app.hooks.StatusContextHook
     import com.vela.app.hooks.TodoReminderHook
     import com.vela.app.hooks.VaultEmbeddingHook
     import com.vela.app.hooks.VaultSyncHook
+import com.vela.app.events.EventBus
 import com.vela.app.ssh.SshKeyManager
 import com.vela.app.ssh.SshNodeRegistry
 import com.vela.app.vault.SharedPrefsVaultSettings
@@ -208,11 +209,13 @@ object AppModule {
         vaultSettings: VaultSettings,
         vaultGitSync: VaultGitSync,
         embeddingEngine: EmbeddingEngine,
+        eventBus: EventBus,
     ): @JvmSuppressWildcards List<Hook> = listOf(
         VaultSyncHook(
             cloneIfNeeded = { id, path -> vaultGitSync.cloneIfNeeded(id, path) },
             pull          = { id, path -> vaultGitSync.pull(id, path) },
             vaultSettings = vaultSettings,
+            eventBus      = eventBus,
             onAfterSync   = { vault -> embeddingEngine.startIndexing(vault) },
         ),
         VaultConfigHook(),

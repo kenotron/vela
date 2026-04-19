@@ -2,7 +2,10 @@ package com.vela.app.hooks
 
 import com.google.common.truth.Truth.assertThat
 import com.vela.app.data.db.VaultEntity
+import com.vela.app.events.EventBus
 import com.vela.app.vault.VaultSettings
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import java.io.IOException
@@ -29,6 +32,7 @@ class VaultSyncHookTest {
             cloneIfNeeded = { id, _ -> callOrder.add("clone:$id") },
             pull          = { id, _ -> callOrder.add("pull:$id") },
             vaultSettings = fakeSettings,
+            eventBus      = EventBus(),
         )
         val ctx = HookContext("conv", listOf(vaultA), HookEvent.SESSION_START)
         hook.execute(ctx)
@@ -42,6 +46,7 @@ class VaultSyncHookTest {
             cloneIfNeeded = { _, _ -> },
             pull          = { id, _ -> pulledIds.add(id) },
             vaultSettings = fakeSettings,
+            eventBus      = EventBus(),
         )
         val ctx = HookContext("conv", listOf(vaultA, vaultB), HookEvent.SESSION_START)
         val result = hook.execute(ctx)
@@ -56,6 +61,7 @@ class VaultSyncHookTest {
             cloneIfNeeded = { _, _ -> },
             pull          = { _, _ -> pullCalled = true },
             vaultSettings = fakeSettings,
+            eventBus      = EventBus(),
         )
         hook.execute(HookContext("conv", emptyList(), HookEvent.SESSION_START))
         assertThat(pullCalled).isFalse()
@@ -66,8 +72,47 @@ class VaultSyncHookTest {
             cloneIfNeeded = { _, _ -> },
             pull          = { _, _ -> throw IOException("network unreachable") },
             vaultSettings = fakeSettings,
+            eventBus      = EventBus(),
         )
         val result = hook.execute(HookContext("conv", listOf(vaultA), HookEvent.SESSION_START))
         assertThat(result).isInstanceOf(HookResult.Error::class.java)
+    }
+
+    @Test fun `pull failure emits sync-failed event on event bus`() = runBlocking {
+        val eventBus = EventBus()
+        val received = mutableListOf<String>()
+        val job = launch { eventBus.events.collect { received += it.topic } }
+        delay(10) // let collector attach
+
+        val hook = VaultSyncHook(
+            cloneIfNeeded = { _, _ -> },
+            pull          = { _, _ -> throw IOException("network unreachable") },
+            vaultSettings = fakeSettings,
+            eventBus      = eventBus,
+        )
+        hook.execute(HookContext("conv", listOf(vaultA), HookEvent.SESSION_START))
+        delay(50)
+        job.cancel()
+
+        assertThat(received).contains("vela:sync-failed")
+    }
+
+    @Test fun `successful sync emits vault-synced event on event bus`() = runBlocking {
+        val eventBus = EventBus()
+        val received = mutableListOf<String>()
+        val job = launch { eventBus.events.collect { received += it.topic } }
+        delay(10) // let collector attach
+
+        val hook = VaultSyncHook(
+            cloneIfNeeded = { _, _ -> },
+            pull          = { _, _ -> },
+            vaultSettings = fakeSettings,
+            eventBus      = eventBus,
+        )
+        hook.execute(HookContext("conv", listOf(vaultA), HookEvent.SESSION_START))
+        delay(50)
+        job.cancel()
+
+        assertThat(received).contains("vela:vault-synced")
     }
 }

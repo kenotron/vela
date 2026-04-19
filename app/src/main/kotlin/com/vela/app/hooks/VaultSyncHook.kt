@@ -1,5 +1,6 @@
 package com.vela.app.hooks
 
+import com.vela.app.events.EventBus
 import com.vela.app.vault.VaultSettings
 import java.io.File
 
@@ -15,11 +16,16 @@ import java.io.File
  * Failures from either lambda (network timeouts, auth errors, disk errors) are
  * caught and returned as [HookResult.Error] so a transient infrastructure issue
  * does not break the session. Same pattern as PersonalizationHook.
+ *
+ * System events emitted:
+ *  - `vela:vault-synced`  on successful clone+pull for each vault.
+ *  - `vela:sync-failed`   on any sync failure before returning [HookResult.Error].
  */
 class VaultSyncHook(
     private val cloneIfNeeded: suspend (vaultId: String, vaultPath: File) -> Unit,
     private val pull: suspend (vaultId: String, vaultPath: File) -> Unit,
     private val vaultSettings: VaultSettings,
+    private val eventBus: EventBus,
     /** Called for each vault after a successful pull — use to trigger re-indexing. */
     private val onAfterSync: (com.vela.app.data.db.VaultEntity) -> Unit = {},
 ) : Hook {
@@ -33,12 +39,21 @@ class VaultSyncHook(
                 runCatching {
                     cloneIfNeeded(vault.id, vaultPath)
                     pull(vault.id, vaultPath)
+                }.onSuccess {
+                    // Notify after a successful sync so the embedding index can re-check
+                    // for new/modified files. startIndexing() will skip if nothing changed.
+                    eventBus.tryPublish(
+                        "vela:vault-synced",
+                        """{"vaultId":"${vault.id}"}""",
+                    )
+                    onAfterSync(vault)
                 }.onFailure { e ->
+                    eventBus.tryPublish(
+                        "vela:sync-failed",
+                        """{"vaultId":"${vault.id}","error":"${e.message ?: "unknown"}"}""",
+                    )
                     return HookResult.Error("Vault sync failed for ${vault.name}: ${e.message}")
                 }
-                // Notify after a successful sync so the embedding index can re-check
-                // for new/modified files. startIndexing() will skip if nothing changed.
-                onAfterSync(vault)
             }
         }
         return HookResult.Continue

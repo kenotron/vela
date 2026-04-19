@@ -75,14 +75,18 @@ class VelaJSInterfaceTest {
 
     // ── validateCollection via Db.get ----------------------------------------
 
-    @Test(expected = IllegalArgumentException::class)
-    fun `db get throws for unknown collection prefix`() {
-        buildInterface().db.get("unknown:something", "id")
+    @Test
+    fun `db get returns null silently for unknown collection prefix`() {
+        // @JavascriptInterface methods must not propagate exceptions — invalid prefix returns null
+        val result = buildInterface().db.get("unknown:something", "id")
+        assertThat(result).isNull()
     }
 
-    @Test(expected = IllegalArgumentException::class)
-    fun `db get throws for collection with no prefix separator`() {
-        buildInterface().db.get("shopping-list", "item-1")
+    @Test
+    fun `db get returns null silently for collection with no prefix separator`() {
+        // @JavascriptInterface methods must not propagate exceptions — missing prefix returns null
+        val result = buildInterface().db.get("shopping-list", "item-1")
+        assertThat(result).isNull()
     }
 
     @Test
@@ -98,6 +102,17 @@ class VelaJSInterfaceTest {
     @Test
     fun `db get does not throw for valid type prefix`() {
         buildInterface().db.get("type:recent", "id")
+    }
+
+    @Test
+    fun `db put does not throw for unknown collection prefix`() {
+        // fire-and-forget — invalid collection must be silently swallowed
+        buildInterface().db.put("unknown:col", "id", "{}")
+    }
+
+    @Test
+    fun `db delete does not throw for unknown collection prefix`() {
+        buildInterface().db.delete("unknown:col", "id")
     }
 
     // ── scopeCollection via Db.get -------------------------------------------

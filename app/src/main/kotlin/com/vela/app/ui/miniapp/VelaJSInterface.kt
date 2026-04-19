@@ -5,6 +5,7 @@ import com.vela.app.ai.AmplifierSession
 import com.vela.app.data.repository.MiniAppDocumentStore
 import com.vela.app.events.EventBus
 import com.vela.app.vault.VaultManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -64,37 +65,55 @@ class VelaJSInterface(
         /**
          * Upsert a document. `collection` must start with `local:`, `global:`, or `type:`.
          * Fire-and-forget from JS — no return value.
+         *
+         * Exceptions from invalid collection prefixes are caught and logged — they must
+         * never propagate out of a @JavascriptInterface method.
          */
         @JavascriptInterface
         fun put(collection: String, id: String, data: String) {
-            validateCollection(collection)
-            val (prefix, name) = scopeCollection(collection)
-            scope.launch { documentStore.put(prefix, name, id, data) }
+            try {
+                validateCollection(collection)
+                val (prefix, name) = scopeCollection(collection)
+                scope.launch { documentStore.put(prefix, name, id, data) }
+            } catch (_: Exception) {
+                // Invalid collection prefix — silently drop; @JavascriptInterface must not throw
+            }
         }
 
         /**
          * Synchronous point read — blocks the Binder thread until the DB returns.
          * Acceptable for small document reads; do NOT call on the main thread.
+         *
+         * Returns `null` on any error (invalid prefix, DB failure) — never throws.
          */
         @JavascriptInterface
         fun get(collection: String, id: String): String? {
-            validateCollection(collection)
-            val (prefix, name) = scopeCollection(collection)
-            var result: String? = null
-            val latch = CountDownLatch(1)
-            scope.launch {
-                result = documentStore.get(prefix, name, id)
-                latch.countDown()
+            return try {
+                validateCollection(collection)
+                val (prefix, name) = scopeCollection(collection)
+                var result: String? = null
+                val latch = CountDownLatch(1)
+                scope.launch {
+                    result = documentStore.get(prefix, name, id)
+                    latch.countDown()
+                }
+                latch.await()
+                result
+            } catch (_: Exception) {
+                // Invalid collection prefix or DB failure — return null; @JavascriptInterface must not throw
+                null
             }
-            latch.await()
-            return result
         }
 
         @JavascriptInterface
         fun delete(collection: String, id: String) {
-            validateCollection(collection)
-            val (prefix, name) = scopeCollection(collection)
-            scope.launch { documentStore.delete(prefix, name, id) }
+            try {
+                validateCollection(collection)
+                val (prefix, name) = scopeCollection(collection)
+                scope.launch { documentStore.delete(prefix, name, id) }
+            } catch (_: Exception) {
+                // Invalid collection prefix — silently drop; @JavascriptInterface must not throw
+            }
         }
 
         /**
@@ -103,25 +122,34 @@ class VelaJSInterface(
          *
          * The previous watch on the same collection (if any) is cancelled before
          * the new one starts — prevents duplicates on React-style re-renders.
+         *
+         * On invalid collection prefix, calls `callbackName` with an error JSON object
+         * and logs — never throws from the @JavascriptInterface method itself.
          */
         @JavascriptInterface
         fun watch(collection: String, callbackName: String) {
-            validateCollection(collection)
-            val (prefix, name) = scopeCollection(collection)
-            val key = "db:watch:$collection"
-            subscriptionJobs[key]?.cancel()
-            subscriptionJobs[key] = scope.launch {
-                documentStore.watch(prefix, name).collect { entities ->
-                    val jsonArray = buildString {
-                        append("[")
-                        entities.forEachIndexed { i, e ->
-                            if (i > 0) append(",")
-                            append("""{"id":${escapeJs(e.id)},"data":${e.data},"updatedAt":${e.updatedAt}}""")
+            try {
+                validateCollection(collection)
+                val (prefix, name) = scopeCollection(collection)
+                val key = "db:watch:$collection"
+                subscriptionJobs[key]?.cancel()
+                subscriptionJobs[key] = scope.launch {
+                    documentStore.watch(prefix, name).collect { entities ->
+                        val jsonArray = buildString {
+                            append("[")
+                            entities.forEachIndexed { i, e ->
+                                if (i > 0) append(",")
+                                append("""{"id":${escapeJs(e.id)},"data":${e.data},"updatedAt":${e.updatedAt}}""")
+                            }
+                            append("]")
                         }
-                        append("]")
+                        onEvaluateJs("$callbackName($jsonArray)")
                     }
-                    onEvaluateJs("$callbackName($jsonArray)")
                 }
+            } catch (e: Exception) {
+                // Invalid collection prefix — report error via callback; @JavascriptInterface must not throw
+                val errorJson = buildErrorJson("INVALID_COLLECTION", e.message ?: "unknown")
+                onEvaluateJs("$callbackName([], $errorJson)")
             }
         }
     }
@@ -207,8 +235,10 @@ class VelaJSInterface(
                         onProviderRequest = { null },
                         onServerTool      = { _, _ -> },
                     )
-                    eventBus.tryPublish("vela:ai-interrupted", "{}")   // signals completion too
                     onEvaluateJs("$doneCallbackName()")
+                } catch (e: CancellationException) {
+                    eventBus.tryPublish("vela:ai-interrupted", "{}")
+                    throw e  // MUST re-throw — structured concurrency requires CancellationException to propagate
                 } catch (e: Exception) {
                     eventBus.tryPublish("vela:ai-interrupted", "{}")
                     onEvaluateJs("$doneCallbackName(${escapeJs(e.message ?: "stream error")})")
@@ -315,6 +345,19 @@ class VelaJSInterface(
             "type"   -> "type"   to "$contentType::$name"
             else     -> "global" to name
         }
+    }
+
+    /**
+     * Builds a structured error JSON object for reporting Kotlin exceptions back to JS.
+     *
+     * Format: `{"code":"...", "message":"...", "detail":"..."}` — suitable for use in
+     * `__vela_reject` callbacks or as an error argument to watch/subscribe callbacks.
+     */
+    private fun buildErrorJson(code: String, message: String, detail: String = ""): String {
+        val safeCode    = code.replace("\"", "\\\"")
+        val safeMessage = message.replace("\"", "\\\"").replace("\n", "\\n")
+        val safeDetail  = detail.replace("\"", "\\\"").replace("\n", "\\n")
+        return """{"code":"$safeCode","message":"$safeMessage","detail":"$safeDetail"}"""
     }
 
     /** Wraps a string in a JS double-quoted literal with escaping for safe `evaluateJavascript` use. */

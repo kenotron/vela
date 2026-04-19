@@ -1,26 +1,39 @@
 package com.vela.app.ui.miniapp
 
+import android.util.Log
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vela.app.ai.AmplifierSession
+import com.vela.app.ai.GenerationResult
+import com.vela.app.ai.RendererGenerator
 import com.vela.app.data.db.MiniAppRegistryEntity
 import com.vela.app.data.repository.CapabilitiesGraphRepository
 import com.vela.app.data.repository.MiniAppDocumentStore
 import com.vela.app.events.EventBus
+import com.vela.app.ui.components.MarkdownText
 import com.vela.app.vault.VaultManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -31,9 +44,9 @@ import org.json.JSONObject
 import java.io.File
 import javax.inject.Inject
 
-// ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────────
 // Shared data class — also used by RendererGenerator (Task 6)
-// ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────────
 
 /**
  * Represents the current app theme for injection into `__VELA_CONTEXT__` and for
@@ -45,9 +58,26 @@ data class VelaTheme(
     val primaryColor: String,
 )
 
-// ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────────
+// RendererState — drives what MiniAppContainer shows
+// ────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Tracks the renderer lifecycle inside [MiniAppContainer].
+ *
+ * - [Loading]  — no cached renderer yet; generation is in flight.
+ * - [Ready]    — renderer HTML exists on disk; WebView loads it.
+ * - [Fallback] — generation failed; show a native Compose fallback viewer.
+ */
+sealed class RendererState {
+    object Loading : RendererState()
+    data class Ready(val rendererFile: File) : RendererState()
+    data class Fallback(val contentType: String, val content: String) : RendererState()
+}
+
+// ────────────────────────────────────────────────────────────────────────────────
 // ViewModel — dependency carrier, one instance per screen destination
-// ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────────
 
 @HiltViewModel
 class MiniAppViewModel @Inject constructor(
@@ -55,6 +85,7 @@ class MiniAppViewModel @Inject constructor(
     internal val eventBus: EventBus,
     internal val amplifierSession: AmplifierSession,
     internal val vaultManager: VaultManager,
+    internal val rendererGenerator: RendererGenerator,
     private val capabilitiesRepo: CapabilitiesGraphRepository,
 ) : ViewModel() {
 
@@ -83,9 +114,9 @@ class MiniAppViewModel @Inject constructor(
             ?.takeIf { it.exists() }
 }
 
-// ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────────
 // Composable
-// ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────────
 
 /**
  * Full-screen mini app host. Owns the [WebView] lifecycle, injects the Vela SDK,
@@ -108,7 +139,7 @@ fun MiniAppContainer(
     modifier: Modifier = Modifier,
     viewModel: MiniAppViewModel = hiltViewModel(),
 ) {
-    // ── Reactive state ──────────────────────────────────────────────
+    // ── Reactive state ──────────────────────────────────────────────────────────
     val capabilities by viewModel.capabilities.collectAsState()
     val isDark       = isSystemInDarkTheme()
     val primaryArgb  = MaterialTheme.colorScheme.primary.toArgb()
@@ -119,7 +150,7 @@ fun MiniAppContainer(
         buildContextJson(itemPath, itemContent, contentType, capabilities, theme, layout)
     }
 
-    // ── JS interface — stable for the composable's lifetime ─────────
+    // ── JS interface — stable for the composable's lifetime ──────────────────────
     val jsInterface = remember(itemPath, contentType) {
         viewModel.createJsInterface(itemPath, contentType)
     }
@@ -128,68 +159,142 @@ fun MiniAppContainer(
         onDispose { jsInterface.cancelAllSubscriptions() }
     }
 
-    // ── WebView ──────────────────────────────────────────────────────
-    AndroidView(
-        factory = { ctx ->
-            WebView(ctx).apply {
-                // Wire evaluateJavascript callback back to this WebView
-                jsInterface.onEvaluateJs = { js ->
-                    post { evaluateJavascript(js, null) }
+    // ── RendererState — drives which UI branch is shown ─────────────────────────
+    var rendererState by remember(contentType) {
+        mutableStateOf<RendererState>(
+            viewModel.getRendererFile(contentType)
+                ?.let { RendererState.Ready(it) }
+                ?: RendererState.Loading
+        )
+    }
+
+    // Trigger renderer generation when no cached renderer exists
+    LaunchedEffect(contentType) {
+        if (rendererState is RendererState.Loading) {
+            val result = viewModel.rendererGenerator.generateRenderer(
+                itemPath    = itemPath,
+                itemContent = itemContent,
+                contentType = contentType,
+                theme       = theme,
+                layout      = layout,
+            )
+            rendererState = when (result) {
+                is GenerationResult.Success ->
+                    viewModel.getRendererFile(contentType)
+                        ?.let { RendererState.Ready(it) }
+                        ?: RendererState.Fallback(contentType, itemContent)
+                is GenerationResult.Failure -> {
+                    Log.w("MiniAppRuntime", "Renderer generation failed for $contentType, falling back", result.cause)
+                    RendererState.Fallback(contentType, itemContent)
                 }
+            }
+        }
+    }
 
-                // Register the four SDK namespaces
-                addJavascriptInterface(jsInterface.db,     "__vela_db")
-                addJavascriptInterface(jsInterface.events, "__vela_events")
-                addJavascriptInterface(jsInterface.ai,     "__vela_ai")
-                addJavascriptInterface(jsInterface.vault,  "__vela_vault")
+    // ── Branch on state ─────────────────────────────────────────────────────────
+    val state = rendererState
+    if (state is RendererState.Fallback) {
+        FallbackRenderer(
+            contentType = state.contentType,
+            content     = state.content,
+            modifier    = modifier,
+        )
+    } else {
+        // Loading or Ready — show WebView (factory loads placeholder or renderer)
+        AndroidView(
+            factory = { ctx ->
+                WebView(ctx).apply {
+                    // Wire evaluateJavascript callback back to this WebView
+                    jsInterface.onEvaluateJs = { js ->
+                        post { evaluateJavascript(js, null) }
+                    }
 
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
+                    // Register the four SDK namespaces
+                    addJavascriptInterface(jsInterface.db,     "__vela_db")
+                    addJavascriptInterface(jsInterface.events, "__vela_events")
+                    addJavascriptInterface(jsInterface.ai,     "__vela_ai")
+                    addJavascriptInterface(jsInterface.vault,  "__vela_vault")
 
-                webViewClient = object : WebViewClient() {
-                    override fun onPageFinished(view: WebView, url: String) {
-                        // Assemble window.vela namespace + inject __VELA_CONTEXT__
-                        val script = buildString {
-                            append("(function(){")
-                            append("window.vela={")
-                            append("db:window.__vela_db,")
-                            append("events:window.__vela_events,")
-                            append("ai:window.__vela_ai,")
-                            append("vault:window.__vela_vault")
-                            append("};")
-                            append("window.__VELA_CONTEXT__=")
-                            append(contextJson)
-                            append(";")
-                            append("if(typeof window.onVelaReady==='function')window.onVelaReady();")
-                            append("})();")
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+
+                    webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(view: WebView, url: String) {
+                            // Assemble window.vela namespace + inject __VELA_CONTEXT__
+                            val script = buildString {
+                                append("(function(){")
+                                append("window.vela={")
+                                append("db:window.__vela_db,")
+                                append("events:window.__vela_events,")
+                                append("ai:window.__vela_ai,")
+                                append("vault:window.__vela_vault")
+                                append("};")
+                                append("window.__VELA_CONTEXT__=")
+                                append(contextJson)
+                                append(";")
+                                append("if(typeof window.onVelaReady==='function')window.onVelaReady();")
+                                append("})();")
+                            }
+                            view.evaluateJavascript(script, null)
                         }
-                        view.evaluateJavascript(script, null)
+                    }
+
+                    // Load renderer if it exists, otherwise show the loading placeholder
+                    val rendererFile = viewModel.getRendererFile(contentType)
+                    if (rendererFile != null) {
+                        loadUrl("file://${rendererFile.absolutePath}")
+                    } else {
+                        loadData(LOADING_PLACEHOLDER_HTML, "text/html", "UTF-8")
                     }
                 }
-
-                // Load renderer if it exists, otherwise show the loading placeholder
-                val rendererFile = viewModel.getRendererFile(contentType)
-                if (rendererFile != null) {
-                    loadUrl("file://${rendererFile.absolutePath}")
-                } else {
-                    loadData(LOADING_PLACEHOLDER_HTML, "text/html", "UTF-8")
+            },
+            update = { webView ->
+                val s = rendererState
+                if (s is RendererState.Ready) {
+                    // Transition from Loading → Ready: load renderer if not yet loaded
+                    val fileUrl = "file://${s.rendererFile.absolutePath}"
+                    if (webView.url != fileUrl) {
+                        webView.loadUrl(fileUrl)
+                    }
                 }
-            }
-        },
-        update = { webView ->
-            // Recomposition — push the latest __VELA_CONTEXT__ (e.g. after theme change
-            // or after a new mini app joins the capabilities graph)
-            webView.post {
-                webView.evaluateJavascript("window.__VELA_CONTEXT__=$contextJson;", null)
-            }
-        },
-        modifier = modifier.fillMaxSize(),
-    )
+                // Push the latest __VELA_CONTEXT__ (e.g. after theme change
+                // or after a new mini app joins the capabilities graph)
+                webView.post {
+                    webView.evaluateJavascript("window.__VELA_CONTEXT__=$contextJson;", null)
+                }
+            },
+            modifier = modifier.fillMaxSize(),
+        )
+    }
 }
 
-// ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────────
+// FallbackRenderer — always renders something when WebView generation fails
+// ────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Native Compose fallback shown when [RendererGenerator] fails to produce HTML.
+ * Dispatches to content-type-appropriate viewers so there is never a blank screen.
+ */
+@Composable
+private fun FallbackRenderer(
+    contentType: String,
+    content: String,
+    modifier: Modifier = Modifier,
+) {
+    when (contentType) {
+        "markdown" -> Box(modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
+            MarkdownText(text = content, color = MaterialTheme.colorScheme.onSurface)
+        }
+        else -> Box(modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
+            Text(text = content, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────────────────
 // Private helpers
-// ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────────
 
 /**
  * Serialises all inputs into the `__VELA_CONTEXT__` JSON object that is injected
