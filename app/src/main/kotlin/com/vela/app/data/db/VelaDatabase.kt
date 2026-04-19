@@ -15,8 +15,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         VaultEntity::class,
         VaultEmbeddingEntity::class,
         GitHubIdentityEntity::class,
+        MiniAppRegistryEntity::class,
+        MiniAppDocumentEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 abstract class VelaDatabase : RoomDatabase() {
@@ -48,6 +50,33 @@ abstract class VelaDatabase : RoomDatabase() {
             """.trimIndent())
         }
     }
+
+/** v12→v13: add mini_app_registry and mini_app_documents tables for the mini app renderer system. */
+val MIGRATION_12_13 = object : Migration(12, 13) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE mini_app_registry (
+                contentType TEXT NOT NULL PRIMARY KEY,
+                rendererPath TEXT NOT NULL,
+                provides TEXT NOT NULL,
+                consumes TEXT NOT NULL,
+                dbCollections TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                lastUsed INTEGER NOT NULL
+            )
+        """.trimIndent())
+        db.execSQL("""
+            CREATE TABLE mini_app_documents (
+                scopePrefix TEXT NOT NULL,
+                collection TEXT NOT NULL,
+                id TEXT NOT NULL,
+                data TEXT NOT NULL,
+                updatedAt INTEGER NOT NULL,
+                PRIMARY KEY (scopePrefix, collection, id)
+            )
+        """.trimIndent())
+    }
+}
 
 val MIGRATION_1_2 = object : Migration(1, 2) {
     override fun migrate(db: SupportSQLiteDatabase) {
