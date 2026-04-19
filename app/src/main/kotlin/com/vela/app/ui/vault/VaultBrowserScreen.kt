@@ -7,6 +7,7 @@ package com.vela.app.ui.vault
     import android.os.ParcelFileDescriptor
     import android.webkit.WebView
     import android.webkit.WebViewClient
+    import androidx.activity.compose.BackHandler
     import androidx.compose.animation.core.*
     import androidx.compose.foundation.Image
     import androidx.compose.foundation.background
@@ -42,12 +43,16 @@ package com.vela.app.ui.vault
     import androidx.compose.ui.viewinterop.AndroidView
     import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
     import androidx.compose.material3.windowsizeclass.WindowSizeClass
+    import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
     import androidx.hilt.navigation.compose.hiltViewModel
     import com.vela.app.data.db.VaultEntity
     import com.vela.app.ui.components.MarkdownText
+    import com.vela.app.ui.miniapp.MiniAppContainer
     import java.io.File
     import java.text.SimpleDateFormat
     import java.util.*
+    import kotlinx.coroutines.Dispatchers
+    import kotlinx.coroutines.withContext
 
     private val IMAGE_EXTS = setOf("jpg", "jpeg", "png", "gif", "webp", "bmp")
     private val PDF_EXTS   = setOf("pdf")
@@ -62,7 +67,7 @@ package com.vela.app.ui.vault
         else                          -> Icons.AutoMirrored.Filled.InsertDriveFile
     }
 
-    /** Tab-root overload — handles vault selection internally. */
+    /** Tab-root overload — handles vault selection and file routing. */
     @OptIn(ExperimentalMaterial3WindowSizeClassApi::class, ExperimentalMaterial3Api::class)
     @Composable
     fun VaultBrowserScreen(
@@ -70,15 +75,62 @@ package com.vela.app.ui.vault
         modifier:        Modifier = Modifier,
         viewModel:       VaultBrowserViewModel = hiltViewModel(),
     ) {
-        val allVaults   by viewModel.allVaults.collectAsState()
-        val activeVault by viewModel.activeVault.collectAsState()
+        val allVaults     by viewModel.allVaults.collectAsState()
+        val selectedVault by viewModel.activeVault.collectAsState()
 
-        if (activeVault != null) {
-            VaultBrowserScreen(
-                vault      = activeVault!!,
-                onBack     = { viewModel.clearVault() },
-                onOpenFile = {},
-            )
+        var selectedFilePath by remember { mutableStateOf<String?>(null) }
+        val isCompact = windowSizeClass.widthSizeClass == WindowWidthSizeClass.Compact
+
+        if (selectedVault != null) {
+            if (isCompact) {
+                val vault = selectedVault
+                if (vault != null && selectedFilePath != null) {
+                    BackHandler { selectedFilePath = null }
+                    MiniAppContainerView(
+                        vault    = vault,
+                        relPath  = selectedFilePath!!,
+                        layout   = "phone",
+                        modifier = modifier.fillMaxSize(),
+                    )
+                } else {
+                    VaultFileListPane(
+                        vault       = vault,
+                        viewModel   = viewModel,
+                        onOpenFile  = { path -> selectedFilePath = path },
+                        modifier    = modifier,
+                    )
+                }
+            } else {
+                Row(modifier = modifier.fillMaxSize()) {
+                    VaultFileListPane(
+                        vault      = selectedVault,
+                        viewModel  = viewModel,
+                        onOpenFile = { path -> selectedFilePath = path },
+                        modifier   = Modifier.width(320.dp).fillMaxHeight(),
+                    )
+                    VerticalDivider()
+                    val path = selectedFilePath
+                    if (selectedVault != null && path != null) {
+                        MiniAppContainerView(
+                            vault    = selectedVault!!,
+                            relPath  = path,
+                            layout   = "tablet",
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                        )
+                    } else {
+                        Box(
+                            modifier          = Modifier.weight(1f).fillMaxHeight(),
+                            contentAlignment  = Alignment.Center,
+                        ) {
+                            Text(
+                                "Select a file to view",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
         } else {
             Scaffold(
                 modifier = modifier,
@@ -163,7 +215,7 @@ package com.vela.app.ui.vault
         ) { pad ->
             Column(Modifier.fillMaxSize().padding(pad)) {
 
-                // ── Search bar ────────────────────────────────────────────────────
+                // ── Search bar ──────────────────────────────────────────────────────────
                 Surface(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     shape = RoundedCornerShape(24.dp),
@@ -207,7 +259,7 @@ package com.vela.app.ui.vault
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
                 }
 
-                // ── Content ───────────────────────────────────────────────────────
+                // ── Content ─────────────────────────────────────────────────────────────
                 if (isSearchMode) {
                     // Search results
                     if (isSearching) {
@@ -328,8 +380,195 @@ package com.vela.app.ui.vault
         )
     }
 
-    // ─── File viewer ──────────────────────────────────────────────────────────────
+    // ─── VaultFileListPane ─────────────────────────────────────────────────────────
 
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    private fun VaultFileListPane(
+        vault:      VaultEntity?,
+        viewModel:  VaultBrowserViewModel,
+        onOpenFile: (String) -> Unit,
+        modifier:   Modifier = Modifier,
+    ) {
+        val entries       by viewModel.entries.collectAsState()
+        val currentPath   by viewModel.currentPath.collectAsState()
+        val searchResults by viewModel.searchResults.collectAsState()
+        val isSearching   by viewModel.isSearching.collectAsState()
+        val indexProgress by viewModel.indexProgress.collectAsState()
+        val isConfigured  by viewModel.isConfigured.collectAsState()
+
+        var query by remember { mutableStateOf("") }
+        val isSearchMode = query.isNotBlank()
+
+        Scaffold(
+            modifier = modifier,
+            topBar = {
+                TopAppBar(
+                    navigationIcon = {
+                        IconButton(onClick = {
+                            if (currentPath.isNotEmpty()) viewModel.navigateUp()
+                            else viewModel.clearVault()
+                        }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                        }
+                    },
+                    title = {
+                        Column {
+                            Text(vault?.name ?: "", style = MaterialTheme.typography.titleMedium)
+                            if (currentPath.isNotEmpty()) {
+                                Text(currentPath, style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    },
+                    actions = {
+                        indexProgress?.let { (done, total) ->
+                            val inf = rememberInfiniteTransition(label = "idx")
+                            val alpha by inf.animateFloat(0.3f, 1f,
+                                infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "a")
+                            Text("Indexing $done/$total",
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.alpha(alpha).padding(end = 12.dp),
+                                color = MaterialTheme.colorScheme.primary)
+                        }
+                    },
+                )
+            },
+        ) { pad ->
+            Column(Modifier.fillMaxSize().padding(pad)) {
+
+                // ── Search bar ────────────────────────────────────────────────────
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    tonalElevation = 2.dp,
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Default.Search, null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Box(Modifier.weight(1f)) {
+                            if (query.isEmpty()) Text("Search files…",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f))
+                            BasicTextField(
+                                value = query,
+                                onValueChange = { q -> query = q; viewModel.search(q) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                    color = MaterialTheme.colorScheme.onSurface),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            )
+                        }
+                        if (query.isNotEmpty()) {
+                            IconButton(onClick = { query = ""; viewModel.search("") },
+                                modifier = Modifier.size(20.dp)) {
+                                Icon(Icons.Default.Close, null, modifier = Modifier.size(14.dp))
+                            }
+                        }
+                    }
+                }
+
+                if (!isConfigured && isSearchMode) {
+                    Text("Semantic search unavailable — configure a Google or OpenAI key in Settings.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+                }
+
+                // ── Content ───────────────────────────────────────────────────────
+                if (isSearchMode) {
+                    if (isSearching) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    } else if (searchResults.isEmpty()) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("No results", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else {
+                        LazyColumn(contentPadding = PaddingValues(top = 4.dp, bottom = 16.dp)) {
+                            items(searchResults, key = { "${it.filePath}:${it.chunkText.hashCode()}" }) { result ->
+                                SearchResultRow(result, onClick = { onOpenFile(result.filePath) })
+                            }
+                        }
+                    }
+                } else {
+                    if (entries.isEmpty()) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("Empty folder", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else {
+                        LazyColumn(contentPadding = PaddingValues(vertical = 4.dp)) {
+                            items(entries, key = { it.relativePath }) { entry ->
+                                FileEntryRow(
+                                    entry = entry,
+                                    onClick = {
+                                        if (entry.isDirectory) viewModel.navigateTo(entry.relativePath)
+                                        else onOpenFile(entry.relativePath)
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ─── MiniAppContainerView ──────────────────────────────────────────────────────
+
+    @Composable
+    private fun MiniAppContainerView(
+        vault:    VaultEntity,
+        relPath:  String,
+        layout:   String,
+        modifier: Modifier = Modifier,
+    ) {
+        val itemPath = remember(vault.localPath, relPath) {
+            "${vault.localPath}/$relPath"
+        }
+        var itemContent by remember(itemPath) { mutableStateOf("") }
+        val contentType = remember(relPath) { detectContentType(relPath) }
+
+        LaunchedEffect(itemPath) {
+            itemContent = withContext(Dispatchers.IO) {
+                runCatching { File(itemPath).readText() }.getOrElse { "" }
+            }
+        }
+
+        MiniAppContainer(
+            itemPath    = itemPath,
+            itemContent = itemContent,
+            contentType = contentType,
+            layout      = layout,
+            modifier    = modifier,
+        )
+    }
+
+    // ─── Content-type detection ────────────────────────────────────────────────────
+
+    internal fun detectContentType(relPath: String): String {
+        val ext = relPath.substringAfterLast('.', "").lowercase()
+        return when (ext) {
+            "md"                         -> "markdown"
+            "jpg", "jpeg", "png", "webp" -> "image"
+            "pdf"                        -> "pdf"
+            "json"                       -> "json"
+            "csv"                        -> "csv"
+            "html", "htm"                -> "html"
+            else                         -> "text"
+        }
+    }
+
+    // ─── File viewer (legacy) ──────────────────────────────────────────────────────
+
+    @Deprecated("Replaced by MiniAppContainer — remove after rollout")
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun VaultFileViewerScreen(
@@ -502,4 +741,3 @@ package com.vela.app.ui.vault
         bytes < 1_048_576         -> "${"%.1f".format(bytes / 1_024.0)}KB"
         else                      -> "${"%.1f".format(bytes / 1_048_576.0)}MB"
     }
-    
