@@ -25,6 +25,14 @@ interface TurnDao {
     @Query("SELECT * FROM turns WHERE conversationId = :convId AND status = 'complete' ORDER BY timestamp ASC")
     suspend fun getCompletedTurnsWithEvents(convId: String): List<TurnWithEvents>
 
+    /**
+     * Returns the [limit] most recently completed turns across all conversations.
+     * Used by [ProfileWorker] to summarise recent session activity for the profile.
+     */
+    @Transaction
+    @Query("SELECT * FROM turns WHERE status = 'complete' ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun getRecentCompletedTurns(limit: Int = 30): List<TurnWithEvents>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(turn: TurnEntity)
 
