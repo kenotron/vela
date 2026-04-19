@@ -11,8 +11,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
+import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.vela.app.ui.conversation.ConversationRoot
+import com.vela.app.ui.NavigationScaffold
 import com.vela.app.ui.conversation.ConversationViewModel
 import com.vela.app.ui.theme.VelaTheme
 import com.vela.app.voice.SpeechTranscriber
@@ -36,15 +38,16 @@ class MainActivity : ComponentActivity() {
                 val vm: ConversationViewModel = hiltViewModel()
                 var showApiKeyDialog by remember { mutableStateOf(!vm.isConfigured) }
 
+                @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
+                val windowSizeClass = calculateWindowSizeClass(this@MainActivity)
+
                 if (showApiKeyDialog) {
-                    ApiKeyDialog(
-                        onConfirm = { key ->
-                            vm.setApiKey(key)
-                            showApiKeyDialog = false
-                        }
-                    )
+                    ApiKeyDialog(onConfirm = { key -> vm.setApiKey(key); showApiKeyDialog = false })
                 } else {
-                    ConversationRoot(speechTranscriber = speechTranscriber)
+                    NavigationScaffold(
+                        windowSizeClass = windowSizeClass,
+                        speechTranscriber = speechTranscriber,
+                    )
                 }
             }
         }

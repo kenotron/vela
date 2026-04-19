@@ -48,8 +48,9 @@ internal fun buildAttachedMessage(
 fun ConversationRoot(
     speechTranscriber: SpeechTranscriber? = null,
     viewModel: ConversationViewModel = hiltViewModel(),
+    modifier: Modifier = Modifier,
 ) {
-    ConversationScreen(speechTranscriber = speechTranscriber, viewModel = viewModel)
+    ConversationScreen(speechTranscriber = speechTranscriber, viewModel = viewModel, modifier = modifier)
 }
 
 // ---- Conversation screen ----------------------------------------------------
@@ -62,6 +63,7 @@ fun ConversationScreen(
     onOpenSessions: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onRecord: () -> Unit = {},
+    modifier: Modifier = Modifier,
 ) {
     val context          = LocalContext.current
     val turnsWithEvents  by viewModel.turnsWithEvents.collectAsState()
@@ -194,6 +196,7 @@ fun ConversationScreen(
     }
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             CenterAlignedTopAppBar(
                 navigationIcon = { IconButton(onClick = onOpenSessions) { Icon(Icons.Default.ChatBubbleOutline, null) } },

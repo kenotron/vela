@@ -40,6 +40,8 @@ package com.vela.app.ui.vault
     import androidx.compose.ui.text.input.TextFieldValue
     import androidx.compose.ui.unit.dp
     import androidx.compose.ui.viewinterop.AndroidView
+    import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
+    import androidx.compose.material3.windowsizeclass.WindowSizeClass
     import androidx.hilt.navigation.compose.hiltViewModel
     import com.vela.app.data.db.VaultEntity
     import com.vela.app.ui.components.MarkdownText
@@ -58,6 +60,51 @@ package com.vela.app.ui.vault
         entry.extension in PDF_EXTS   -> Icons.Default.PictureAsPdf
         entry.extension == "md"       -> Icons.Default.Article
         else                          -> Icons.AutoMirrored.Filled.InsertDriveFile
+    }
+
+    /** Tab-root overload — handles vault selection internally. */
+    @OptIn(ExperimentalMaterial3WindowSizeClassApi::class, ExperimentalMaterial3Api::class)
+    @Composable
+    fun VaultBrowserScreen(
+        windowSizeClass: WindowSizeClass,
+        modifier:        Modifier = Modifier,
+        viewModel:       VaultBrowserViewModel = hiltViewModel(),
+    ) {
+        val allVaults   by viewModel.allVaults.collectAsState()
+        val activeVault by viewModel.activeVault.collectAsState()
+
+        if (activeVault != null) {
+            VaultBrowserScreen(
+                vault      = activeVault!!,
+                onBack     = { viewModel.clearVault() },
+                onOpenFile = {},
+            )
+        } else {
+            Scaffold(
+                modifier = modifier,
+                topBar = {
+                    TopAppBar(title = { Text("Vault") })
+                },
+            ) { pad ->
+                LazyColumn(modifier = Modifier.fillMaxSize().padding(pad)) {
+                    items(allVaults) { vault ->
+                        ListItem(
+                            leadingContent  = { Icon(Icons.Default.Folder, contentDescription = null) },
+                            headlineContent = { Text(vault.name) },
+                            modifier        = Modifier.clickable { viewModel.setVault(vault) },
+                        )
+                    }
+                    if (allVaults.isEmpty()) {
+                        item {
+                            ListItem(
+                                headlineContent  = { Text("No vaults configured") },
+                                supportingContent = { Text("Add vaults in Profile → Settings → Vaults") },
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     @OptIn(ExperimentalMaterial3Api::class)

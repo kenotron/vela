@@ -38,6 +38,7 @@ import com.vela.app.ui.nodes.NodesViewModel
 @Composable
 fun ConnectorsScreen(
     viewModel: NodesViewModel = hiltViewModel(),
+    modifier: Modifier = Modifier,
 ) {
     val context  = LocalContext.current
     val nodes    by viewModel.nodes.collectAsState()
@@ -60,6 +61,7 @@ fun ConnectorsScreen(
     }
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             TopAppBar(
                 title = { Text("Connectors") },

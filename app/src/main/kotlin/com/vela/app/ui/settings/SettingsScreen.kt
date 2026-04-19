@@ -36,11 +36,13 @@ fun SettingsScreen(
     onNavigateToRecording: () -> Unit,
     onNavigateToGitHub: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
+    modifier: Modifier = Modifier,
 ) {
     val apiKey by viewModel.apiKey.collectAsState()
     val vaults by viewModel.vaults.collectAsState()
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             TopAppBar(
                 navigationIcon = {

@@ -43,6 +43,12 @@ package com.vela.app.ui.vault
             embeddingEngine.startIndexing(vault)
         }
 
+        fun clearVault() {
+            _activeVault.value = null
+            _currentPath.value = ""
+            _entries.value = emptyList()
+        }
+
         // --- File tree ----------------------------------------------------------------
         private val _currentPath = MutableStateFlow("")
         val currentPath: StateFlow<String> = _currentPath.asStateFlow()
