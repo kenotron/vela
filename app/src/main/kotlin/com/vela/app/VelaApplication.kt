@@ -3,6 +3,7 @@ package com.vela.app
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import com.vela.app.workers.ProfileWorkerScheduler
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 
@@ -12,9 +13,12 @@ class VelaApplication : Application(), Configuration.Provider {
     @Inject
     lateinit var workerFactory: HiltWorkerFactory
 
+    @Inject
+    lateinit var profileWorkerScheduler: ProfileWorkerScheduler
+
     override fun onCreate() {
         super.onCreate()
-        // (ProfileWorkerScheduler.schedule() will be called here in Task 6)
+        profileWorkerScheduler.schedule()
     }
 
     override val workManagerConfiguration: Configuration
