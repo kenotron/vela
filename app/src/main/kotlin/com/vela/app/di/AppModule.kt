@@ -65,6 +65,7 @@ object AppModule {
     @Provides fun provideVaultDao(db: VelaDatabase): VaultDao                             = db.vaultDao()
     @Provides fun provideVaultEmbeddingDao(db: VelaDatabase): VaultEmbeddingDao           = db.vaultEmbeddingDao()
     @Provides fun provideGitHubIdentityDao(db: VelaDatabase): com.vela.app.data.db.GitHubIdentityDao = db.gitHubIdentityDao()
+    @Provides fun provideMiniAppRegistryDao(db: VelaDatabase): MiniAppRegistryDao = db.miniAppRegistryDao()
 
     @Provides @Singleton
     fun provideGitHubIdentityManager(

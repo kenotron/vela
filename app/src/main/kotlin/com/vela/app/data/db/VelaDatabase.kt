@@ -30,6 +30,7 @@ abstract class VelaDatabase : RoomDatabase() {
     abstract fun vaultDao(): VaultDao
     abstract fun vaultEmbeddingDao(): VaultEmbeddingDao
     abstract fun gitHubIdentityDao(): GitHubIdentityDao
+    abstract fun miniAppRegistryDao(): MiniAppRegistryDao
 }
 
 /** v11→v12: add github_identities table for multi-account GitHub support. */
