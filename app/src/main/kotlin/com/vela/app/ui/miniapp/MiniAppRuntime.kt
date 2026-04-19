@@ -3,20 +3,45 @@ package com.vela.app.ui.miniapp
 import android.util.Log
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -28,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -43,9 +69,12 @@ import com.vela.app.events.EventBus
 import com.vela.app.ui.components.MarkdownText
 import com.vela.app.vault.VaultManager
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -72,14 +101,21 @@ data class VelaTheme(
 /**
  * Tracks the renderer lifecycle inside [MiniAppContainer].
  *
- * - [Loading]  — reserved; not used as the initial state after the blank-screen fix.
- * - [Ready]    — renderer HTML exists on disk; WebView loads it.
- * - [Fallback] — no cached renderer yet; show a native Compose viewer + "Generate" FAB.
+ * - [Loading]      — reserved; not used as the initial state after the blank-screen fix.
+ * - [Ready]        — renderer HTML exists on disk; WebView loads it.
+ * - [Fallback]     — no cached renderer yet; show a native Compose viewer + "Generate" FAB.
+ * - [Building]     — renderer generation is in progress; show full-screen build log.
+ * - [BuildFailed]  — generation failed; show error screen with retry option.
  */
 sealed class RendererState {
     object Loading : RendererState()
-    data class Ready(val rendererFile: File) : RendererState()
     data class Fallback(val contentType: String, val content: String) : RendererState()
+    data class Building(val rendererType: com.vela.app.ai.RendererType) : RendererState()
+    data class Ready(val rendererFile: File) : RendererState()
+    data class BuildFailed(
+        val rendererType: com.vela.app.ai.RendererType,
+        val cause: Throwable,
+    ) : RendererState()
 }
 
 // ────────────────────────────────────────────────────────────────────────────────
@@ -101,6 +137,9 @@ class MiniAppViewModel @Inject constructor(
         capabilitiesRepo.getAll()
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    private val _buildLog = MutableStateFlow("")
+    val buildLog: StateFlow<String> = _buildLog.asStateFlow()
+
     /** Factory — creates one [VelaJSInterface] per (itemPath, contentType) pair. */
     fun createJsInterface(itemPath: String, contentType: String): VelaJSInterface =
         VelaJSInterface(
@@ -119,6 +158,31 @@ class MiniAppViewModel @Inject constructor(
     fun getRendererFile(contentType: String): File? =
         vaultManager.resolve(".vela/renderers/$contentType/renderer.html")
             ?.takeIf { it.exists() }
+
+    /**
+     * Starts async renderer generation for [rendererType].
+     * Streams tokens into [buildLog] as they arrive.
+     * Returns the [GenerationResult] when complete.
+     */
+    suspend fun generateRenderer(
+        itemPath: String,
+        itemContent: String,
+        contentType: String,
+        theme: VelaTheme,
+        layout: String,
+        rendererType: com.vela.app.ai.RendererType,
+    ): com.vela.app.ai.GenerationResult {
+        _buildLog.value = ""
+        return rendererGenerator.generateRenderer(
+            itemPath     = itemPath,
+            itemContent  = itemContent,
+            contentType  = contentType,
+            theme        = theme,
+            layout       = layout,
+            rendererType = rendererType,
+            onToken      = { token -> _buildLog.update { it + token } },
+        )
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────────────────
@@ -146,7 +210,7 @@ fun MiniAppContainer(
     modifier: Modifier = Modifier,
     viewModel: MiniAppViewModel = hiltViewModel(),
 ) {
-    // ── Reactive state ────────────────────────────────────────────────────────────
+    // ── Reactive state ────────────────────────────────────────────────────────
     val capabilities by viewModel.capabilities.collectAsState()
     val isDark       = isSystemInDarkTheme()
     val primaryArgb  = MaterialTheme.colorScheme.primary.toArgb()
@@ -157,7 +221,7 @@ fun MiniAppContainer(
         buildContextJson(itemPath, itemContent, contentType, capabilities, theme, layout)
     }
 
-    // ── JS interface — stable for the composable's lifetime ──────────────────────
+    // ── JS interface — stable for the composable's lifetime ───────────────────
     val jsInterface = remember(itemPath, contentType) {
         viewModel.createJsInterface(itemPath, contentType)
     }
@@ -166,7 +230,7 @@ fun MiniAppContainer(
         onDispose { jsInterface.cancelAllSubscriptions() }
     }
 
-    // ── RendererState — drives which UI branch is shown ──────────────────────────
+    // ── RendererState — drives which UI branch is shown ───────────────────────
     // Default: if a cached renderer exists → Ready; otherwise → Fallback (show
     // native content immediately, no LLM call). Generation is user-initiated only.
     var rendererState by remember(contentType) {
@@ -177,122 +241,152 @@ fun MiniAppContainer(
         )
     }
 
-    // ── On-demand generation — only fires when the user taps "Generate mini app" ──
-    var isGenerating by remember { mutableStateOf(false) }
+    // ── Branch on state ───────────────────────────────────────────────────────
+    when (val s = rendererState) {
 
-    LaunchedEffect(isGenerating) {
-        if (!isGenerating) return@LaunchedEffect
-        val result = viewModel.rendererGenerator.generateRenderer(
-            itemPath    = itemPath,
-            itemContent = itemContent,
-            contentType = contentType,
-            theme       = theme,
-            layout      = layout,
-        )
-        rendererState = when (result) {
-            is GenerationResult.Success ->
-                viewModel.getRendererFile(contentType)
-                    ?.let { RendererState.Ready(it) }
-                    ?: RendererState.Fallback(contentType, itemContent)
-            is GenerationResult.Failure -> {
-                Log.w("MiniAppRuntime", "Renderer generation failed for $contentType, falling back", result.cause)
-                RendererState.Fallback(contentType, itemContent)
-            }
-        }
-        isGenerating = false
-    }
+        // ── Fallback: native content + icon-only FAB ──────────────────────────
+        is RendererState.Fallback -> {
+            var showTypeSheet by remember { mutableStateOf(false) }
 
-    // ── Branch on state ───────────────────────────────────────────────────────────
-    val state = rendererState
-    if (state is RendererState.Fallback) {
-        Box(modifier) {
-            FallbackRenderer(
-                contentType = state.contentType,
-                content     = state.content,
-                modifier    = Modifier.fillMaxSize(),
-            )
-            if (isGenerating) {
-                LinearProgressIndicator(
+            Box(modifier) {
+                FallbackRenderer(
+                    contentType = s.contentType,
+                    content     = s.content,
+                    modifier    = Modifier.fillMaxSize(),
+                )
+                FloatingActionButton(
+                    onClick  = { showTypeSheet = true },
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.TopStart),
+                        .align(Alignment.BottomEnd)
+                        .padding(16.dp),
+                ) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = "Generate mini app")
+                }
+            }
+
+            if (showTypeSheet) {
+                RendererTypeSheet(
+                    onDismiss = { showTypeSheet = false },
+                    onSelect  = { type ->
+                        showTypeSheet = false
+                        rendererState = RendererState.Building(type)
+                    },
                 )
             }
-            ExtendedFloatingActionButton(
-                text    = { Text("✨ Generate mini app") },
-                icon    = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
-                onClick = { if (!isGenerating) isGenerating = true },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(16.dp),
+        }
+
+        // ── Building: full-screen build log ───────────────────────────────────
+        is RendererState.Building -> {
+            val buildLog by viewModel.buildLog.collectAsState()
+
+            LaunchedEffect(s.rendererType) {
+                val result = viewModel.generateRenderer(
+                    itemPath     = itemPath,
+                    itemContent  = itemContent,
+                    contentType  = contentType,
+                    theme        = theme,
+                    layout       = layout,
+                    rendererType = s.rendererType,
+                )
+                rendererState = when (result) {
+                    is GenerationResult.Success ->
+                        viewModel.getRendererFile(contentType)
+                            ?.let { RendererState.Ready(it) }
+                            ?: RendererState.Fallback(contentType, itemContent)
+                    is GenerationResult.Failure -> {
+                        Log.w("MiniAppRuntime", "Build failed", result.cause)
+                        RendererState.BuildFailed(s.rendererType, result.cause)
+                    }
+                }
+            }
+
+            RendererBuildScreen(
+                rendererType = s.rendererType,
+                contentType  = contentType,
+                buildLog     = buildLog,
+                onCancel     = { rendererState = RendererState.Fallback(contentType, itemContent) },
+                modifier     = modifier,
             )
         }
-    } else {
-        // Ready — show WebView with the cached renderer
-        AndroidView(
-            factory = { ctx ->
-                WebView(ctx).apply {
-                    // Wire evaluateJavascript callback back to this WebView
-                    jsInterface.onEvaluateJs = { js ->
-                        post { evaluateJavascript(js, null) }
-                    }
 
-                    // Register the four SDK namespaces
-                    addJavascriptInterface(jsInterface.db,     "__vela_db")
-                    addJavascriptInterface(jsInterface.events, "__vela_events")
-                    addJavascriptInterface(jsInterface.ai,     "__vela_ai")
-                    addJavascriptInterface(jsInterface.vault,  "__vela_vault")
+        // ── BuildFailed: error + retry ─────────────────────────────────────────
+        is RendererState.BuildFailed -> {
+            RendererBuildFailedScreen(
+                rendererType = s.rendererType,
+                cause        = s.cause,
+                onRetry      = { rendererState = RendererState.Building(s.rendererType) },
+                onViewAsText = { rendererState = RendererState.Fallback(contentType, itemContent) },
+                modifier     = modifier,
+            )
+        }
 
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
+        // ── Ready / Loading: WebView ───────────────────────────────────────────
+        else -> {
+            AndroidView(
+                factory = { ctx ->
+                    WebView(ctx).apply {
+                        // Wire evaluateJavascript callback back to this WebView
+                        jsInterface.onEvaluateJs = { js ->
+                            post { evaluateJavascript(js, null) }
+                        }
 
-                    webViewClient = object : WebViewClient() {
-                        override fun onPageFinished(view: WebView, url: String) {
-                            // Assemble window.vela namespace + inject __VELA_CONTEXT__
-                            val script = buildString {
-                                append("(function(){")
-                                append("window.vela={")
-                                append("db:window.__vela_db,")
-                                append("events:window.__vela_events,")
-                                append("ai:window.__vela_ai,")
-                                append("vault:window.__vela_vault")
-                                append("};")
-                                append("window.__VELA_CONTEXT__=")
-                                append(contextJson)
-                                append(";")
-                                append("if(typeof window.onVelaReady==='function')window.onVelaReady();")
-                                append("})();")
+                        // Register the four SDK namespaces
+                        addJavascriptInterface(jsInterface.db,     "__vela_db")
+                        addJavascriptInterface(jsInterface.events, "__vela_events")
+                        addJavascriptInterface(jsInterface.ai,     "__vela_ai")
+                        addJavascriptInterface(jsInterface.vault,  "__vela_vault")
+
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+
+                        webViewClient = object : WebViewClient() {
+                            override fun onPageFinished(view: WebView, url: String) {
+                                // Assemble window.vela namespace + inject __VELA_CONTEXT__
+                                val script = buildString {
+                                    append("(function(){")
+                                    append("window.vela={")
+                                    append("db:window.__vela_db,")
+                                    append("events:window.__vela_events,")
+                                    append("ai:window.__vela_ai,")
+                                    append("vault:window.__vela_vault")
+                                    append("};")
+                                    append("window.__VELA_CONTEXT__=")
+                                    append(contextJson)
+                                    append(";")
+                                    append("if(typeof window.onVelaReady==='function')window.onVelaReady();")
+                                    append("})();")
+                                }
+                                view.evaluateJavascript(script, null)
                             }
-                            view.evaluateJavascript(script, null)
+                        }
+
+                        // Load renderer if it exists, otherwise show the loading placeholder
+                        val rendererFile = viewModel.getRendererFile(contentType)
+                        if (rendererFile != null) {
+                            loadUrl("file://${rendererFile.absolutePath}")
+                        } else {
+                            loadData(LOADING_PLACEHOLDER_HTML, "text/html", "UTF-8")
                         }
                     }
-
-                    // Load renderer if it exists, otherwise show the loading placeholder
-                    val rendererFile = viewModel.getRendererFile(contentType)
-                    if (rendererFile != null) {
-                        loadUrl("file://${rendererFile.absolutePath}")
-                    } else {
-                        loadData(LOADING_PLACEHOLDER_HTML, "text/html", "UTF-8")
+                },
+                update = { webView ->
+                    val currentState = rendererState
+                    if (currentState is RendererState.Ready) {
+                        // Transition from Fallback → Ready: load renderer if not yet loaded
+                        val fileUrl = "file://${currentState.rendererFile.absolutePath}"
+                        if (webView.url != fileUrl) {
+                            webView.loadUrl(fileUrl)
+                        }
                     }
-                }
-            },
-            update = { webView ->
-                val s = rendererState
-                if (s is RendererState.Ready) {
-                    // Transition from Fallback → Ready: load renderer if not yet loaded
-                    val fileUrl = "file://${s.rendererFile.absolutePath}"
-                    if (webView.url != fileUrl) {
-                        webView.loadUrl(fileUrl)
+                    // Push the latest __VELA_CONTEXT__ (e.g. after theme change
+                    // or after a new mini app joins the capabilities graph)
+                    webView.post {
+                        webView.evaluateJavascript("window.__VELA_CONTEXT__=$contextJson;", null)
                     }
-                }
-                // Push the latest __VELA_CONTEXT__ (e.g. after theme change
-                // or after a new mini app joins the capabilities graph)
-                webView.post {
-                    webView.evaluateJavascript("window.__VELA_CONTEXT__=$contextJson;", null)
-                }
-            },
-            modifier = modifier.fillMaxSize(),
-        )
+                },
+                modifier = modifier.fillMaxSize(),
+            )
+        }
     }
 }
 
@@ -317,6 +411,173 @@ private fun FallbackRenderer(
         else -> Box(modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
             Text(text = content, style = MaterialTheme.typography.bodySmall)
         }
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────────────────
+// RendererTypeSheet — bottom sheet for selecting renderer type
+// ────────────────────────────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RendererTypeSheet(
+    onDismiss: () -> Unit,
+    onSelect: (com.vela.app.ai.RendererType) -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Text(
+            "What kind of mini app?",
+            style    = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+        )
+        Spacer(Modifier.height(8.dp))
+        com.vela.app.ai.RendererType.entries.forEach { type ->
+            ListItem(
+                headlineContent   = { Text(type.label) },
+                supportingContent = { Text(type.promptStyle.take(72) + "…") },
+                leadingContent    = {
+                    Icon(
+                        imageVector = when (type) {
+                            com.vela.app.ai.RendererType.READER      -> Icons.Default.MenuBook
+                            com.vela.app.ai.RendererType.INTERACTIVE -> Icons.Default.TouchApp
+                            com.vela.app.ai.RendererType.DASHBOARD   -> Icons.Default.Dashboard
+                        },
+                        contentDescription = null,
+                    )
+                },
+                modifier = Modifier.clickable { onSelect(type) },
+            )
+        }
+        Spacer(Modifier.height(32.dp))
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────────────────
+// RendererBuildScreen — full-screen streaming build log
+// ────────────────────────────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RendererBuildScreen(
+    rendererType: com.vela.app.ai.RendererType,
+    contentType: String,
+    buildLog: String,
+    onCancel: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val listState  = rememberLazyListState()
+    val tokenCount = buildLog.length
+
+    // Auto-scroll to bottom as tokens arrive
+    LaunchedEffect(tokenCount) {
+        if (tokenCount > 0) listState.animateScrollToItem(0)
+    }
+
+    // Phase label based on progress
+    val phase = when {
+        tokenCount == 0    -> "Starting…"
+        tokenCount < 200   -> "Analysing your ${contentType}…"
+        tokenCount < 800   -> "Designing the layout…"
+        tokenCount < 2_000 -> "Writing components…"
+        else               -> "Finalising…"
+    }
+
+    Column(modifier.fillMaxSize()) {
+        // Header
+        TopAppBar(
+            title = {
+                Column {
+                    Text("Building ${rendererType.label}", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        phase,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            navigationIcon = {
+                IconButton(onClick = onCancel) {
+                    Icon(Icons.Default.Close, contentDescription = "Cancel")
+                }
+            },
+        )
+        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+
+        // Live build log (newest lines at bottom; rendered reversed in a reversed LazyColumn)
+        val lines = buildLog.takeLast(4_000).lines()
+        LazyColumn(
+            state          = listState,
+            reverseLayout  = true,
+            modifier       = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        ) {
+            items(lines.reversed()) { line ->
+                Text(
+                    text  = line,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                )
+            }
+        }
+
+        // Footer
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            TextButton(onClick = onCancel) { Text("Cancel") }
+            Text(
+                "$tokenCount chars",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────────────────
+// RendererBuildFailedScreen — error screen with retry / view-as-text
+// ────────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun RendererBuildFailedScreen(
+    rendererType: com.vela.app.ai.RendererType,
+    cause: Throwable,
+    onRetry: () -> Unit,
+    onViewAsText: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier            = modifier.fillMaxSize().padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(
+            Icons.Default.ErrorOutline,
+            contentDescription = null,
+            tint     = MaterialTheme.colorScheme.error,
+            modifier = Modifier.size(48.dp),
+        )
+        Spacer(Modifier.height(16.dp))
+        Text("Build failed", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            cause.message ?: "Unknown error",
+            style     = MaterialTheme.typography.bodySmall,
+            color     = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(24.dp))
+        Button(onClick = onRetry) { Text("Try again") }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = onViewAsText) { Text("View as text") }
     }
 }
 

@@ -14,9 +14,28 @@ import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
-// ─────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────────
+// Renderer type
+// ────────────────────────────────────────────────────────────────────────────────
+
+enum class RendererType(val label: String, val promptStyle: String) {
+    READER(
+        label = "Reader",
+        promptStyle = "Create a beautiful, scroll-optimised reading experience. Focus on typography, spacing, and readability. Render text, images, and structured content elegantly.",
+    ),
+    INTERACTIVE(
+        label = "Interactive",
+        promptStyle = "Create an interactive mini app with buttons, checkboxes, and form inputs. Use window.vela.db to persist user actions (checked items, notes, progress). State must survive page reloads.",
+    ),
+    DASHBOARD(
+        label = "Dashboard",
+        promptStyle = "Create a data-focused dashboard. Visualise counts, lists, metrics, and key facts extracted from the content using cards, badges, and simple charts.",
+    ),
+}
+
+// ────────────────────────────────────────────────────────────────────────────────
 // Result type
-// ─────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────────
 
 /**
  * Discriminated union returned by [RendererGenerator.generateRenderer].
@@ -29,9 +48,9 @@ sealed class GenerationResult {
     data class Failure(val cause: Throwable)     : GenerationResult()
 }
 
-// ─────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────────
 // Generator
-// ─────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────────
 
 /**
  * Generates a new HTML/CSS/JS renderer for a vault content type.
@@ -60,11 +79,13 @@ class RendererGenerator @Inject constructor(
     private val vaultManager: VaultManager,
 ) {
     /**
-     * @param itemPath    Vault-relative path used in the prompt and for local: scoping context.
-     * @param itemContent Raw text content of the vault item.
-     * @param contentType The content type key, e.g. `"recipe"`. Used as the renderer directory name.
-     * @param theme       Current app theme — injected into the prompt and `__VELA_CONTEXT__`.
-     * @param layout      `"phone"` or `"tablet"` — the form factor to optimise for.
+     * @param itemPath      Vault-relative path used in the prompt and for local: scoping context.
+     * @param itemContent   Raw text content of the vault item.
+     * @param contentType   The content type key, e.g. `"recipe"`. Used as the renderer directory name.
+     * @param theme         Current app theme — injected into the prompt and `__VELA_CONTEXT__`.
+     * @param layout        `"phone"` or `"tablet"` — the form factor to optimise for.
+     * @param rendererType  Style/purpose of the renderer to generate.
+     * @param onToken       Optional streaming callback invoked for each token as it arrives.
      */
     suspend fun generateRenderer(
         itemPath: String,
@@ -72,6 +93,8 @@ class RendererGenerator @Inject constructor(
         contentType: String,
         theme: VelaTheme,
         layout: String,
+        rendererType: RendererType = RendererType.READER,
+        onToken: ((String) -> Unit)? = null,
     ): GenerationResult = withContext(Dispatchers.IO) {
         try {
             // 1. Snapshot dependencies
@@ -79,7 +102,7 @@ class RendererGenerator @Inject constructor(
 
             // 2. Assemble prompt
             val prompt = buildRendererPrompt(
-                itemPath, itemContent, contentType, capabilities, theme, layout
+                itemPath, itemContent, contentType, capabilities, theme, layout, rendererType
             )
 
             // 3. Call LLM
@@ -91,7 +114,10 @@ class RendererGenerator @Inject constructor(
                 systemPrompt      = RENDERER_SYSTEM_PROMPT,
                 onToolStart       = { _, _ -> "" },
                 onToolEnd         = { _, _ -> },
-                onToken           = { token -> sb.append(token) },
+                onToken           = { token ->
+                    sb.append(token)
+                    onToken?.invoke(token)
+                },
                 onProviderRequest = { null },
                 onServerTool      = { _, _ -> },
             )
@@ -137,9 +163,9 @@ class RendererGenerator @Inject constructor(
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
     // Prompt assembly
-    // ─────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
 
     private fun buildRendererPrompt(
         itemPath: String,
@@ -148,6 +174,7 @@ class RendererGenerator @Inject constructor(
         capabilities: List<MiniAppRegistryEntity>,
         theme: VelaTheme,
         layout: String,
+        rendererType: RendererType,
     ): String {
         val capabilitiesSection = if (capabilities.isEmpty()) {
             "(No mini apps registered yet — this will be the first.)"
@@ -181,6 +208,9 @@ class RendererGenerator @Inject constructor(
             appendLine("## Capabilities Graph (existing mini apps)")
             appendLine(capabilitiesSection)
             appendLine()
+            appendLine("## Renderer Style")
+            appendLine(rendererType.promptStyle)
+            appendLine()
             appendLine("## Context")
             appendLine("- Theme: ${if (theme.isDark) "dark" else "light"}, primary colour: ${theme.primaryColor}")
             appendLine("- Layout: $layout")
@@ -190,9 +220,9 @@ class RendererGenerator @Inject constructor(
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
     // Response parsing
-    // ─────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
 
     /**
      * Extracts the first complete `<html>…</html>` block from the LLM response.
@@ -229,9 +259,9 @@ class RendererGenerator @Inject constructor(
         }.getOrNull()
     }
 
-    // ─────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
     // Constants
-    // ─────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
 
     private companion object {
         val RENDERER_SYSTEM_PROMPT = """
@@ -282,9 +312,9 @@ Provide your complete response in EXACTLY this structure (nothing before the DOC
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────────
 // Private data
-// ─────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────────
 
 /** Parsed capability manifest extracted from the LLM response manifest block. */
 private data class CapabilityManifest(
