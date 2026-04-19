@@ -1098,3 +1098,26 @@ grep -n "onNavigateToConnections\|onNavigateToGitHub\|Connections\|GitHub" \
 **NFR scan:**
 - **All call sites updated:** The `onNavigateToConnections` and `onNavigateToGitHub` parameters must be removed from BOTH the composable signature AND every call site — a single missed call site causes a compile error that catches this
 - **`SettingsViewModel` unchanged:** The ViewModel behind `SettingsScreen` manages AI keys, vault CRUD, and GitHub identities (for vault PAT/OAuth). The GitHub identity management code remains — only the navigation row to a standalone GitHub settings screen is removed, not the underlying data model
+
+---
+
+## Amendment — Multi-Turn Generation Loop
+
+**Added:** 2026-04-19
+
+### Task 11 (follow-on): Update ProfileWorker to use InferenceEngine loop
+
+**Problem:** `ProfileWorker.doWork()` currently calls `AmplifierSession.runTurn()` once with a large prompt. This is a single-turn call with no tool access and no ability to self-correct.
+
+**Required change:** Replace the single `runTurn()` call with the `InferenceEngine` multi-turn loop so ProfileWorker can:
+- Use tools (read vault files incrementally, search)
+- Reason across multiple steps (analyse → draft → refine)
+- Match the quality bar of the main chat sessions
+
+**What to build:**
+- Inject `InferenceEngine` into `ProfileWorker` alongside or instead of `AmplifierSession`
+- Create an ephemeral inference session with a focused system prompt
+- Run the loop to completion; extract the final `.vela/profile.md` artifact from the session output
+- Remove the manual `StringBuilder` accumulation pattern
+
+**Deferred from current plan** — Tasks 1-10 cover the Profile screen UI and the infrastructure. This is a quality improvement to the generation backend.
