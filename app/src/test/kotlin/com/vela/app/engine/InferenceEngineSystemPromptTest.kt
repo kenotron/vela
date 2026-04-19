@@ -14,7 +14,9 @@ import com.vela.app.data.db.VaultEntity
 import com.vela.app.harness.SessionHarness
 import com.vela.app.hooks.HookRegistry
 import com.vela.app.vault.VaultRegistry
+import com.vela.app.vault.VaultManager
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.runBlocking
@@ -56,6 +58,8 @@ class InferenceEngineSystemPromptTest {
             onToolStart: suspend (String, String) -> String,
             onToolEnd: suspend (String, String) -> Unit,
             onToken: suspend (String) -> Unit,
+            onProviderRequest: suspend () -> String?,
+            onServerTool: suspend (String, String) -> Unit,
         ) {
             prompts.send(systemPrompt)
             onToken("ok")
@@ -130,10 +134,12 @@ class InferenceEngineSystemPromptTest {
         context         = fakeContext(),
         session         = session,
         toolRegistry    = ToolRegistry(emptyList()),
+        hookRegistry    = HookRegistry(emptyList()),
         turnDao         = fakeTurnDao(),
         turnEventDao    = fakeTurnEventDao(),
         conversationDao = fakeConversationDao(mode),
         vaultRegistry   = fakeVaultRegistry(),
+        vaultManager    = VaultManager(tmp.newFolder("vm"), MutableStateFlow(emptySet())),
         harness         = harness,
     )
 
@@ -171,10 +177,11 @@ class InferenceEngineSystemPromptTest {
 
     /**
      * Any conversation, second turn → harness already initialized →
-     * systemPrompt must be empty string (no duplicate injection).
+     * systemPrompt still contains date + lifeos-config (always injected),
+     * but hook addenda are NOT re-run (initialized set gates them to first turn only).
      */
     @Test
-    fun `any conversation second turn receives empty systemPrompt`() = runBlocking {
+    fun `any conversation second turn receives non-empty systemPrompt`() = runBlocking {
         val session = FakeSession()
         val engine  = makeEngine(session = session, mode = "default")
 
@@ -183,7 +190,8 @@ class InferenceEngineSystemPromptTest {
 
         engine.startTurn("conv-default-multi", "second message")
         val secondPrompt = session.prompts.receive()
-        assertThat(secondPrompt).isEmpty()
+        // SessionHarness always builds date + lifeos-config + system.md, even on second turn.
+        assertThat(secondPrompt).isNotEmpty()
     }
 
     /**
@@ -208,10 +216,12 @@ class InferenceEngineSystemPromptTest {
             context         = fakeContext(),
             session         = session,
             toolRegistry    = ToolRegistry(emptyList()),
+            hookRegistry    = HookRegistry(emptyList()),
             turnDao         = fakeTurnDao(),
             turnEventDao    = fakeTurnEventDao(),
             conversationDao = fakeConversationDao("default"),
             vaultRegistry   = fakeVaultRegistryWithVaults(listOf(entityA, entityB)),
+            vaultManager    = VaultManager(tmp.newFolder("vm2"), MutableStateFlow(emptySet())),
             harness         = fakeHarness(),
         )
 
@@ -224,10 +234,11 @@ class InferenceEngineSystemPromptTest {
 
     /**
      * Second turn of a vault-mode conversation → harness already initialized →
-     * systemPrompt must be empty string (no duplicate injection).
+     * systemPrompt still contains date + lifeos-config (always injected),
+     * but hook addenda are NOT re-run (initialized set gates them to first turn only).
      */
     @Test
-    fun `vault-mode second turn receives empty systemPrompt`() = runBlocking {
+    fun `vault-mode second turn receives non-empty systemPrompt`() = runBlocking {
         val harness = fakeHarness()
         val session = FakeSession()
         val engine  = makeEngine(session = session, mode = "vault", harness = harness)
@@ -237,9 +248,10 @@ class InferenceEngineSystemPromptTest {
         val firstPrompt = session.prompts.receive()
         assertThat(firstPrompt).isNotEmpty()
 
-        // Second turn — harness already initialized → must receive empty string
+        // Second turn — harness already initialized; date + lifeos-config still injected
         engine.startTurn("conv-vault-multi", "second message")
         val secondPrompt = session.prompts.receive()
-        assertThat(secondPrompt).isEmpty()
+        // SessionHarness always builds date + lifeos-config + system.md, even on second turn.
+        assertThat(secondPrompt).isNotEmpty()
     }
 }
