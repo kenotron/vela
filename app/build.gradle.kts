@@ -48,6 +48,11 @@
             resources.excludes += "META-INF/BCKEY.DSA"
             resources.excludes += "META-INF/BCKEY.SF"
         }
+
+        testOptions {
+            // Allow Android framework calls (e.g. Log.d) in JVM unit tests without crashing.
+            unitTests.isReturnDefaultValues = true
+        }
     }
 
     // ─── Chaquopy (embedded CPython) ─────────────────────────────────────────

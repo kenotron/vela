@@ -3,6 +3,7 @@ package com.vela.app.ui.miniapp
 import com.google.common.truth.Truth.assertThat
 import com.vela.app.ai.AmplifierSession
 import com.vela.app.ai.RendererGenerator
+import com.vela.app.ai.RendererType
 import com.vela.app.data.db.MiniAppDocumentDao
 import com.vela.app.data.db.MiniAppDocumentEntity
 import com.vela.app.data.db.MiniAppRegistryDao
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Before
@@ -169,5 +171,45 @@ class MiniAppRuntimeTest {
 
         val vm = buildViewModel(root)
         assertThat(vm.getRendererFile("recipe")).isNull()
+    }
+
+    // ── RendererSuggestion ────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `RendererSuggestion holds type label and description`() {
+        val suggestion = RendererSuggestion(
+            type        = RendererType.READER,
+            label       = "Step-by-step guide",
+            description = "Check off ingredients as you cook.",
+        )
+        assertThat(suggestion.type).isEqualTo(RendererType.READER)
+        assertThat(suggestion.label).isEqualTo("Step-by-step guide")
+        assertThat(suggestion.description).isEqualTo("Check off ingredients as you cook.")
+    }
+
+    // ── MiniAppViewModel.suggestRendererTypes ─────────────────────────────────────────────────────
+
+    @Test
+    fun `suggestRendererTypes falls back to all RendererType entries when session yields no output`() =
+        runTest {
+            val vm = buildViewModel(tempDir.newFolder())
+            // mockSession.runTurn does nothing by default (Unit return), so sb stays empty
+            // => JSONArray("") throws => fallback path is taken
+            val suggestions = vm.suggestRendererTypes("# Recipe: Carbonara\n...", "recipe")
+
+            assertThat(suggestions).hasSize(RendererType.entries.size)
+            assertThat(suggestions.map { it.type })
+                .containsExactlyElementsIn(RendererType.entries)
+                .inOrder()
+        }
+
+    @Test
+    fun `suggestRendererTypes fallback entries use RendererType label`() = runTest {
+        val vm = buildViewModel(tempDir.newFolder())
+        val suggestions = vm.suggestRendererTypes("some content", "note")
+
+        suggestions.zip(RendererType.entries).forEach { (suggestion, type) ->
+            assertThat(suggestion.label).isEqualTo(type.label)
+        }
     }
 }
