@@ -1,4 +1,4 @@
-package com.vela.app.ui.nodes
+package com.vela.app.ui.connectors
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -13,7 +13,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -33,11 +32,11 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vela.app.ssh.NodeType
 import com.vela.app.ssh.SshNode
+import com.vela.app.ui.nodes.NodesViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NodesScreen(
-    onBack: () -> Unit,
+fun ConnectorsScreen(
     viewModel: NodesViewModel = hiltViewModel(),
 ) {
     val context  = LocalContext.current
@@ -63,8 +62,7 @@ fun NodesScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-                title = { Text("Nodes") },
+                title = { Text("Connectors") },
                 actions = {
                     FilledTonalIconButton(onClick = { showAddSheet = true }) {
                         Icon(Icons.Default.Add, "Add node")
@@ -104,6 +102,23 @@ fun NodesScreen(
                     )
                 }
             }
+            item {
+                Spacer(Modifier.height(24.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    "External Service Connectors",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    // TODO: External service connectors — deferred to follow-on design
+                    "External connectors (GitHub, Linear, Notion, etc.) will appear here in a future update.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                )
+            }
         }
     }
 }
@@ -111,7 +126,7 @@ fun NodesScreen(
 // ── Device identity key card ────────────────────────────────────────────────
 
 @Composable
-internal fun DeviceKeyCard(publicKey: String, context: Context) {
+private fun DeviceKeyCard(publicKey: String, context: Context) {
     val cs = MaterialTheme.colorScheme
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -154,10 +169,10 @@ internal fun DeviceKeyCard(publicKey: String, context: Context) {
     }
 }
 
-// ── Node card (type-aware) ───────────────────────────────────────────────────
+// ── Node card (type-aware) ──────────────────────────────────────────────────
 
 @Composable
-internal fun NodeCard(
+private fun NodeCard(
     node: SshNode,
     onDelete: () -> Unit,
     onAddHost: (String) -> Unit,
@@ -314,7 +329,7 @@ private fun AmplifierdNodeBody(node: SshNode) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun AddNodeSheet(
+private fun AddNodeSheet(
     onDismiss: () -> Unit,
     onAddSsh: (label: String, host: String, port: String, user: String) -> Unit,
     onAddAmplifierd: (label: String, url: String, token: String) -> Unit,
@@ -340,7 +355,7 @@ internal fun AddNodeSheet(
         ) {
             Text("Add Node", style = MaterialTheme.typography.titleMedium)
 
-            // ── Type picker ───────────────────────────────────────────────
+            // ── Type picker ─────────────────────────────────────────────────
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 NodeType.entries.forEach { type ->
                     FilterChip(
@@ -358,7 +373,7 @@ internal fun AddNodeSheet(
                 }
             }
 
-            // ── Type-specific fields ──────────────────────────────────────
+            // ── Type-specific fields ────────────────────────────────────────
             if (selectedType == NodeType.SSH) {
                 OutlinedTextField(label.let { v -> v }, { label = it },
                     label = { Text("Label") }, singleLine = true,
@@ -410,5 +425,3 @@ internal fun AddNodeSheet(
         }
     }
 }
-
-
