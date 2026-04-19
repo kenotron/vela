@@ -542,13 +542,19 @@ package com.vela.app.ui.vault
             }
         }
 
-        MiniAppContainer(
-            itemPath    = itemPath,
-            itemContent = itemContent,
-            contentType = contentType,
-            layout      = layout,
-            modifier    = modifier,
-        )
+        if (itemContent.isEmpty()) {
+            Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else {
+            MiniAppContainer(
+                itemPath    = itemPath,
+                itemContent = itemContent,
+                contentType = contentType,
+                layout      = layout,
+                modifier    = modifier,
+            )
+        }
     }
 
     // ─── Content-type detection ────────────────────────────────────────────────────

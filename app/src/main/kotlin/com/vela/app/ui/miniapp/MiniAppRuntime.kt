@@ -6,9 +6,15 @@ import android.webkit.WebViewClient
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
@@ -65,9 +72,9 @@ data class VelaTheme(
 /**
  * Tracks the renderer lifecycle inside [MiniAppContainer].
  *
- * - [Loading]  — no cached renderer yet; generation is in flight.
+ * - [Loading]  — reserved; not used as the initial state after the blank-screen fix.
  * - [Ready]    — renderer HTML exists on disk; WebView loads it.
- * - [Fallback] — generation failed; show a native Compose fallback viewer.
+ * - [Fallback] — no cached renderer yet; show a native Compose viewer + "Generate" FAB.
  */
 sealed class RendererState {
     object Loading : RendererState()
@@ -139,7 +146,7 @@ fun MiniAppContainer(
     modifier: Modifier = Modifier,
     viewModel: MiniAppViewModel = hiltViewModel(),
 ) {
-    // ── Reactive state ──────────────────────────────────────────────────────────
+    // ── Reactive state ────────────────────────────────────────────────────────────
     val capabilities by viewModel.capabilities.collectAsState()
     val isDark       = isSystemInDarkTheme()
     val primaryArgb  = MaterialTheme.colorScheme.primary.toArgb()
@@ -159,48 +166,69 @@ fun MiniAppContainer(
         onDispose { jsInterface.cancelAllSubscriptions() }
     }
 
-    // ── RendererState — drives which UI branch is shown ─────────────────────────
+    // ── RendererState — drives which UI branch is shown ──────────────────────────
+    // Default: if a cached renderer exists → Ready; otherwise → Fallback (show
+    // native content immediately, no LLM call). Generation is user-initiated only.
     var rendererState by remember(contentType) {
         mutableStateOf<RendererState>(
             viewModel.getRendererFile(contentType)
                 ?.let { RendererState.Ready(it) }
-                ?: RendererState.Loading
+                ?: RendererState.Fallback(contentType, itemContent)
         )
     }
 
-    // Trigger renderer generation when no cached renderer exists
-    LaunchedEffect(contentType) {
-        if (rendererState is RendererState.Loading) {
-            val result = viewModel.rendererGenerator.generateRenderer(
-                itemPath    = itemPath,
-                itemContent = itemContent,
-                contentType = contentType,
-                theme       = theme,
-                layout      = layout,
-            )
-            rendererState = when (result) {
-                is GenerationResult.Success ->
-                    viewModel.getRendererFile(contentType)
-                        ?.let { RendererState.Ready(it) }
-                        ?: RendererState.Fallback(contentType, itemContent)
-                is GenerationResult.Failure -> {
-                    Log.w("MiniAppRuntime", "Renderer generation failed for $contentType, falling back", result.cause)
-                    RendererState.Fallback(contentType, itemContent)
-                }
+    // ── On-demand generation — only fires when the user taps "Generate mini app" ──
+    var isGenerating by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isGenerating) {
+        if (!isGenerating) return@LaunchedEffect
+        val result = viewModel.rendererGenerator.generateRenderer(
+            itemPath    = itemPath,
+            itemContent = itemContent,
+            contentType = contentType,
+            theme       = theme,
+            layout      = layout,
+        )
+        rendererState = when (result) {
+            is GenerationResult.Success ->
+                viewModel.getRendererFile(contentType)
+                    ?.let { RendererState.Ready(it) }
+                    ?: RendererState.Fallback(contentType, itemContent)
+            is GenerationResult.Failure -> {
+                Log.w("MiniAppRuntime", "Renderer generation failed for $contentType, falling back", result.cause)
+                RendererState.Fallback(contentType, itemContent)
             }
         }
+        isGenerating = false
     }
 
-    // ── Branch on state ─────────────────────────────────────────────────────────
+    // ── Branch on state ───────────────────────────────────────────────────────────
     val state = rendererState
     if (state is RendererState.Fallback) {
-        FallbackRenderer(
-            contentType = state.contentType,
-            content     = state.content,
-            modifier    = modifier,
-        )
+        Box(modifier) {
+            FallbackRenderer(
+                contentType = state.contentType,
+                content     = state.content,
+                modifier    = Modifier.fillMaxSize(),
+            )
+            if (isGenerating) {
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopStart),
+                )
+            }
+            ExtendedFloatingActionButton(
+                text    = { Text("✨ Generate mini app") },
+                icon    = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
+                onClick = { if (!isGenerating) isGenerating = true },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp),
+            )
+        }
     } else {
-        // Loading or Ready — show WebView (factory loads placeholder or renderer)
+        // Ready — show WebView with the cached renderer
         AndroidView(
             factory = { ctx ->
                 WebView(ctx).apply {
@@ -251,7 +279,7 @@ fun MiniAppContainer(
             update = { webView ->
                 val s = rendererState
                 if (s is RendererState.Ready) {
-                    // Transition from Loading → Ready: load renderer if not yet loaded
+                    // Transition from Fallback → Ready: load renderer if not yet loaded
                     val fileUrl = "file://${s.rendererFile.absolutePath}"
                     if (webView.url != fileUrl) {
                         webView.loadUrl(fileUrl)
@@ -273,7 +301,7 @@ fun MiniAppContainer(
 // ────────────────────────────────────────────────────────────────────────────────
 
 /**
- * Native Compose fallback shown when [RendererGenerator] fails to produce HTML.
+ * Native Compose fallback shown when no cached renderer exists (or generation fails).
  * Dispatches to content-type-appropriate viewers so there is never a blank screen.
  */
 @Composable
