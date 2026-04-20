@@ -158,6 +158,9 @@ class MiniAppViewModel @Inject constructor(
     private val _buildLog = MutableStateFlow("")
     val buildLog: StateFlow<String> = _buildLog.asStateFlow()
 
+    private val _buildActivity = MutableStateFlow("Starting…")
+    val buildActivity: StateFlow<String> = _buildActivity.asStateFlow()
+
     /** Factory — creates one [VelaJSInterface] per (itemPath, contentType) pair. */
     fun createJsInterface(itemPath: String, contentType: String): VelaJSInterface =
         VelaJSInterface(
@@ -191,6 +194,7 @@ class MiniAppViewModel @Inject constructor(
         rendererType: com.vela.app.ai.RendererType,
     ): com.vela.app.ai.GenerationResult {
         _buildLog.value = ""
+        _buildActivity.value = "Analysing content…"
         return rendererGenerator.generateRenderer(
             itemPath     = itemPath,
             itemContent  = itemContent,
@@ -199,6 +203,7 @@ class MiniAppViewModel @Inject constructor(
             layout       = layout,
             rendererType = rendererType,
             onToken      = { token -> _buildLog.update { it + token } },
+            onActivity   = { activity -> _buildActivity.value = activity },
         )
     }
 
@@ -366,7 +371,8 @@ fun MiniAppContainer(
 
         // ── Building: full-screen build log ───────────────────────────────────
         is RendererState.Building -> {
-            val buildLog by viewModel.buildLog.collectAsState()
+            val buildLog      by viewModel.buildLog.collectAsState()
+            val buildActivity by viewModel.buildActivity.collectAsState()
 
             LaunchedEffect(s.rendererType) {
                 val result = viewModel.generateRenderer(
@@ -390,11 +396,12 @@ fun MiniAppContainer(
             }
 
             RendererBuildScreen(
-                rendererType = s.rendererType,
-                contentType  = contentType,
-                buildLog     = buildLog,
-                onCancel     = { rendererState = RendererState.Fallback(contentType, itemContent) },
-                modifier     = modifier,
+                rendererType  = s.rendererType,
+                contentType   = contentType,
+                buildLog      = buildLog,
+                buildActivity = buildActivity,
+                onCancel      = { rendererState = RendererState.Fallback(contentType, itemContent) },
+                modifier      = modifier,
             )
         }
 
@@ -616,6 +623,7 @@ private fun RendererBuildScreen(
     rendererType: com.vela.app.ai.RendererType,
     contentType: String,
     buildLog: String,
+    buildActivity: String,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -627,15 +635,6 @@ private fun RendererBuildScreen(
         if (tokenCount > 0) listState.animateScrollToItem(0)
     }
 
-    // Phase label based on progress
-    val phase = when {
-        tokenCount == 0    -> "Starting…"
-        tokenCount < 200   -> "Analysing your ${contentType}…"
-        tokenCount < 800   -> "Designing the layout…"
-        tokenCount < 2_000 -> "Writing components…"
-        else               -> "Finalising…"
-    }
-
     Column(modifier.fillMaxSize()) {
         // Header
         TopAppBar(
@@ -643,7 +642,7 @@ private fun RendererBuildScreen(
                 Column {
                     Text("Building ${rendererType.label}", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        phase,
+                        buildActivity,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

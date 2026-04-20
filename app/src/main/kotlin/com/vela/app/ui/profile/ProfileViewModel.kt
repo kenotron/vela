@@ -59,6 +59,9 @@ class ProfileViewModel @Inject constructor(
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
+    private val _profileWorkerStatus = MutableStateFlow("")
+    val profileWorkerStatus: StateFlow<String> = _profileWorkerStatus.asStateFlow()
+
     init {
         viewModelScope.launch {
             vaultRegistry.enabledVaults.collect { vaults ->
@@ -72,13 +75,22 @@ class ProfileViewModel @Inject constructor(
         }
         viewModelScope.launch {
             workManager.getWorkInfosByTagFlow(ProfileWorker.TAG).collect { infos ->
-                _isRefreshing.value = infos.any { it.state == WorkInfo.State.RUNNING }
-                // Reload profile after a completed refresh
+                val running = infos.any { it.state == WorkInfo.State.RUNNING }
+                _isRefreshing.value = running
+                // Extract progress message from running worker
+                if (running) {
+                    val status = infos
+                        .firstOrNull { it.state == WorkInfo.State.RUNNING }
+                        ?.progress
+                        ?.getString("status")
+                    if (!status.isNullOrBlank()) _profileWorkerStatus.value = status
+                } else {
+                    _profileWorkerStatus.value = ""
+                }
+                // Reload profile after completion
                 if (infos.any { it.state == WorkInfo.State.SUCCEEDED }) {
                     val vaults = vaultRegistry.enabledVaults.value
-                    if (vaults.isNotEmpty()) {
-                        loadProfile(vaults.minByOrNull { it.createdAt }!!.localPath)
-                    }
+                    if (vaults.isNotEmpty()) loadProfile(vaults.minByOrNull { it.createdAt }!!.localPath)
                 }
             }
         }

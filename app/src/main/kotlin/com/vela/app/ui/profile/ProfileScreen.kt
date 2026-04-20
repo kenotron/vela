@@ -26,9 +26,10 @@ fun ProfileScreen(
     modifier: Modifier = Modifier,
     viewModel: ProfileViewModel = hiltViewModel(),
 ) {
-    val profileData  by viewModel.profileData.collectAsState()
-    val hasVault     by viewModel.hasVault.collectAsState()
-    val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val profileData         by viewModel.profileData.collectAsState()
+    val hasVault            by viewModel.hasVault.collectAsState()
+    val isRefreshing        by viewModel.isRefreshing.collectAsState()
+    val profileWorkerStatus by viewModel.profileWorkerStatus.collectAsState()
 
     Scaffold(
         modifier = modifier,
@@ -52,7 +53,17 @@ fun ProfileScreen(
     ) { innerPadding ->
         Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
             if (isRefreshing) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                Column {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    if (profileWorkerStatus.isNotBlank()) {
+                        Text(
+                            profileWorkerStatus,
+                            style    = MaterialTheme.typography.labelSmall,
+                            color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
+                }
             }
             when {
                 !hasVault       -> EmptyState(

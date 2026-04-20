@@ -86,6 +86,7 @@ class RendererGenerator @Inject constructor(
      * @param layout        `"phone"` or `"tablet"` — the form factor to optimise for.
      * @param rendererType  Style/purpose of the renderer to generate.
      * @param onToken       Optional streaming callback invoked for each token as it arrives.
+     * @param onActivity    Optional callback invoked when the AI starts a tool, with a human-readable label.
      */
     suspend fun generateRenderer(
         itemPath: String,
@@ -95,6 +96,7 @@ class RendererGenerator @Inject constructor(
         layout: String,
         rendererType: RendererType = RendererType.READER,
         onToken: ((String) -> Unit)? = null,
+        onActivity: ((String) -> Unit)? = null,
     ): GenerationResult = withContext(Dispatchers.IO) {
         try {
             // 1. Snapshot dependencies
@@ -112,7 +114,10 @@ class RendererGenerator @Inject constructor(
                 userInput         = prompt,
                 userContentJson   = null,
                 systemPrompt      = RENDERER_SYSTEM_PROMPT,
-                onToolStart       = { _, _ -> "" },
+                onToolStart       = { name, _ ->
+                    onActivity?.invoke(toolActivityLabel(name))
+                    ""  // stableId — unused
+                },
                 onToolEnd         = { _, _ -> },
                 onToken           = { token ->
                     sb.append(token)
@@ -257,6 +262,22 @@ class RendererGenerator @Inject constructor(
                 dbCollections = obj.optJSONArray("dbCollections")?.toString() ?: "[]",
             )
         }.getOrNull()
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Activity label helper
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private fun toolActivityLabel(toolName: String): String = when (toolName) {
+        "read_file"  -> "Reading vault content…"
+        "write_file" -> "Writing to vault…"
+        "edit_file"  -> "Updating vault content…"
+        "glob"       -> "Scanning vault files…"
+        "grep"       -> "Searching content…"
+        "fetch_url"  -> "Fetching web content…"
+        "search_web" -> "Searching the web…"
+        "todo"       -> "Tracking build steps…"
+        else         -> "${toolName.replace('_', ' ').replaceFirstChar { it.uppercase() }}…"
     }
 
     // ─────────────────────────────────────────────────────────────────────────

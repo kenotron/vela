@@ -10,6 +10,7 @@ import com.vela.app.data.db.TurnDao
 import com.vela.app.data.db.VaultEntity
 import com.vela.app.vault.VaultManager
 import com.vela.app.vault.VaultRegistry
+import androidx.work.workDataOf
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.flow.first
@@ -68,6 +69,8 @@ Return ONLY the complete updated profile.md. No markdown fences. No explanation.
 
         val prompt = buildPrompt(currentProfile, vaultDelta, sessionLines)
 
+        setProgress(workDataOf("status" to "Generating profile update…"))
+
         val sb = StringBuilder()
         try {
             amplifierSession.runTurn(
@@ -75,8 +78,13 @@ Return ONLY the complete updated profile.md. No markdown fences. No explanation.
                 userInput         = prompt,
                 userContentJson   = null,
                 systemPrompt      = SYSTEM_PROMPT,
-                onToolStart       = { _, _ -> "" },
-                onToolEnd         = { _, _ -> },
+                onToolStart       = { name, _ ->
+                    setProgress(workDataOf("status" to toolActivityLabel(name)))
+                    ""
+                },
+                onToolEnd         = { _, _ ->
+                    setProgress(workDataOf("status" to "Processing…"))
+                },
                 onToken           = { token -> sb.append(token) },
                 onProviderRequest = { null },
                 onServerTool      = { _, _ -> },
@@ -96,6 +104,15 @@ Return ONLY the complete updated profile.md. No markdown fences. No explanation.
         profileFile.writeText(updated)
         Log.i(TAG_LOG, "Profile updated: ${profileFile.absolutePath}")
         return Result.success()
+    }
+
+    private fun toolActivityLabel(toolName: String): String = when (toolName) {
+        "read_file"  -> "Reading vault content…"
+        "write_file" -> "Writing profile…"
+        "edit_file"  -> "Updating profile…"
+        "glob"       -> "Scanning vault files…"
+        "grep"       -> "Searching content…"
+        else         -> "${toolName.replace('_', ' ').replaceFirstChar { it.uppercase() }}…"
     }
 
     private fun parseLastUpdated(profile: String): Long {
