@@ -29,6 +29,7 @@ app/src/main/jniLibs/
 
     # Android NDK CMake cache
 app/.cxx/
-    EOF
-    echo "gitignore updated"
-    
+
+# Brainstorming session artifacts (Amplifier superpowers)
+.superpowers/
+
