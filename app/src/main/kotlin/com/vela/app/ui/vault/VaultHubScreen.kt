@@ -40,6 +40,7 @@ import androidx.compose.material3.windowsizeclass.WindowSizeClass
 @Composable
 fun VaultHubScreen(
     windowSizeClass: WindowSizeClass,
+    onFixWithChat:   (prompt: String) -> Unit = {},
     modifier:        Modifier = Modifier,
     settingsVm:      SettingsViewModel = hiltViewModel(),
     browserVm:       VaultBrowserViewModel = hiltViewModel(),
@@ -47,6 +48,8 @@ fun VaultHubScreen(
     val vaults           by settingsVm.vaults.collectAsState()
     val gitHubIdentities by settingsVm.gitHubIdentities.collectAsState()
     val syncMessage      by settingsVm.syncMessage.collectAsState()
+    val syncIsError      by settingsVm.syncIsError.collectAsState()
+    val syncVaultName    by settingsVm.syncVaultName.collectAsState()
 
     // Which vault is currently open in the file browser (null = show vault list)
     var browsingVault by remember { mutableStateOf<VaultEntity?>(null) }
@@ -129,36 +132,16 @@ fun VaultHubScreen(
                         onDelete         = { settingsVm.deleteVault(vault.id) },
                     )
                 }
-                // Sync status message (shown at the bottom, dismisses automatically)
+                // Sync status / error banner
                 if (!syncMessage.isNullOrBlank()) {
                     item {
-                        syncMessage?.let { msg ->
-                            Surface(
-                                color    = MaterialTheme.colorScheme.secondaryContainer,
-                                shape    = RoundedCornerShape(8.dp),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Row(
-                                    modifier              = Modifier.padding(12.dp),
-                                    verticalAlignment     = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    Icon(Icons.Default.Sync, null,
-                                         tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                         modifier = Modifier.size(16.dp))
-                                    Text(
-                                        msg,
-                                        style  = MaterialTheme.typography.bodySmall,
-                                        color  = MaterialTheme.colorScheme.onSecondaryContainer,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    TextButton(
-                                        onClick        = { settingsVm.clearSyncMessage() },
-                                        contentPadding = PaddingValues(0.dp),
-                                    ) { Text("Dismiss", style = MaterialTheme.typography.labelSmall) }
-                                }
-                            }
-                        }
+                        SyncStatusBanner(
+                            message      = syncMessage!!,
+                            isError      = syncIsError,
+                            vaultName    = syncVaultName,
+                            onDismiss    = { settingsVm.clearSyncMessage() },
+                            onFixWithChat = onFixWithChat,
+                        )
                     }
                 }
             }
@@ -176,6 +159,85 @@ fun VaultHubScreen(
         )
     }
 }
+
+// ── Sync status / error banner ────────────────────────────────────────────────
+
+@Composable
+private fun SyncStatusBanner(
+    message:      String,
+    isError:      Boolean,
+    vaultName:    String?,
+    onDismiss:    () -> Unit,
+    onFixWithChat: (String) -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val containerColor = if (isError) cs.errorContainer else cs.secondaryContainer
+    val contentColor   = if (isError) cs.onErrorContainer else cs.onSecondaryContainer
+
+    Surface(
+        color    = containerColor,
+        shape    = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                verticalAlignment     = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = if (isError) Icons.Default.SyncProblem else Icons.Default.Sync,
+                    contentDescription = null,
+                    tint     = contentColor,
+                    modifier = Modifier.size(16.dp).padding(top = 2.dp),
+                )
+                Text(
+                    text     = message,
+                    style    = MaterialTheme.typography.bodySmall,
+                    color    = contentColor,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
+            Row(
+                modifier              = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment     = Alignment.CenterVertically,
+            ) {
+                if (isError) {
+                    // Offer to open a chat session to fix the problem
+                    val name = vaultName ?: "vault"
+                    TextButton(
+                        onClick = {
+                            onFixWithChat(buildSyncErrorPrompt(name, message))
+                            onDismiss()
+                        },
+                        colors = ButtonDefaults.textButtonColors(contentColor = contentColor),
+                    ) {
+                        Icon(Icons.Default.Chat, null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Fix with Vela", style = MaterialTheme.typography.labelSmall)
+                    }
+                    Spacer(Modifier.width(4.dp))
+                }
+                TextButton(
+                    onClick = onDismiss,
+                    colors  = ButtonDefaults.textButtonColors(contentColor = contentColor),
+                ) {
+                    Text("Dismiss", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+    }
+}
+
+private fun buildSyncErrorPrompt(vaultName: String, errorMessage: String) =
+    """
+    My vault "$vaultName" hit an error while syncing with GitHub. Here's what happened:
+
+    $errorMessage
+
+    Can you help me fix this? Please check the git status of the vault, identify what's wrong, and walk me through resolving it — or just fix it directly if you can.
+    """.trimIndent()
 
 // ── Vault card ────────────────────────────────────────────────────────────────
 

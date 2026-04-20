@@ -54,6 +54,13 @@ package com.vela.app.ui.settings
                 "claude-haiku-4-5",
             )
 
+            /** Returns true when a sync result string indicates a failure. */
+            fun isSyncError(msg: String) =
+                msg.contains("Error",    ignoreCase = true) ||
+                msg.contains("failed",   ignoreCase = true) ||
+                msg.contains("rejected", ignoreCase = true) ||
+                msg.contains("conflict", ignoreCase = true)
+
             /** Exposed as internal so it can be unit-tested without Android. */
             internal fun normalizeRemoteUrl(input: String): String {
                 val trimmed = input.trim()
@@ -90,6 +97,16 @@ package com.vela.app.ui.settings
 
         private val _syncMessage = MutableStateFlow<String?>(null)
         val syncMessage: StateFlow<String?> = _syncMessage.asStateFlow()
+
+        /** Name of the vault that last triggered a sync — retained so the UI can label
+         *  the "Fix with Vela" prompt even after the vault list has scrolled. */
+        private val _syncVaultName = MutableStateFlow<String?>(null)
+        val syncVaultName: StateFlow<String?> = _syncVaultName.asStateFlow()
+
+        /** True when the most-recent sync message looks like a failure. */
+        val syncIsError: StateFlow<Boolean> = _syncMessage
+            .map { msg -> msg != null && isSyncError(msg) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
         fun setApiKey(key: String) {
             prefs.edit().putString(KEY_API_KEY, key).apply()
@@ -150,6 +167,7 @@ package com.vela.app.ui.settings
         fun syncVault(vaultId: String) {
             val vault = vaults.value.firstOrNull { it.id == vaultId } ?: return
             val vaultPath = File(vault.localPath)
+            _syncVaultName.value = vault.name
             viewModelScope.launch {
                 _syncMessage.value = "Syncing…"
                 val pullResult = vaultGitSync.pull(vaultId, vaultPath)

@@ -155,10 +155,16 @@ private fun MainContent(
             onSelect  = onNavigateBack,
         )
 
-        // Vaults: unified hub handles management + browsing
+        // Vaults: unified hub handles management + browsing.
+        // Error banner offers "Fix with Vela" → new chat pre-seeded with the error context.
         DrawerDestination.VAULT -> com.vela.app.ui.vault.VaultHubScreen(
             windowSizeClass = windowSizeClass,
             modifier        = modifier,
+            onFixWithChat   = { prompt ->
+                convViewModel.newSession()
+                convViewModel.setPendingInput(prompt)
+                onNavigateBack()   // onNavigateBack() returns to CHAT
+            },
         )
 
         DrawerDestination.CONNECTORS -> com.vela.app.ui.connectors.ConnectorsScreen(
