@@ -163,10 +163,11 @@ package com.vela.app.ui.vault
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun VaultBrowserScreen(
-        vault:           VaultEntity,
-        onBack:          () -> Unit,
-        onOpenFile:      (String) -> Unit,   // relative path
-        viewModel:       VaultBrowserViewModel = hiltViewModel(),
+        vault:                      VaultEntity,
+        onBack:                     () -> Unit,
+        onOpenFile:                 (String) -> Unit,   // relative path
+        onSetDrawerGesturesEnabled: (Boolean) -> Unit = {},
+        viewModel:                  VaultBrowserViewModel = hiltViewModel(),
     ) {
         LaunchedEffect(vault.id) { viewModel.setVault(vault) }
 
@@ -174,6 +175,8 @@ package com.vela.app.ui.vault
         // The caller (VaultHubScreen) passes a no-op for onOpenFile; we handle
         // file viewing internally so tapping a file always shows MiniAppContainerView.
         var selectedFilePath by remember { mutableStateOf<String?>(null) }
+
+        LaunchedEffect(selectedFilePath) { onSetDrawerGesturesEnabled(selectedFilePath == null) }
 
         BackHandler(enabled = selectedFilePath != null) { selectedFilePath = null }
 

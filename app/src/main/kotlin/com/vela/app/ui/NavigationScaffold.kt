@@ -32,6 +32,7 @@ fun NavigationScaffold(
     val profileViewModel = hiltViewModel<ProfileViewModel>()
 
     var currentDest by remember { mutableStateOf(DrawerDestination.CHAT) }
+    var drawerGesturesEnabled by remember { mutableStateOf(true) }
 
     // Emit system events whenever theme or layout changes
     val isDark     = isSystemInDarkTheme()
@@ -61,7 +62,7 @@ fun NavigationScaffold(
 
     ModalNavigationDrawer(
         drawerState     = drawerState,
-        gesturesEnabled = true,
+        gesturesEnabled = drawerGesturesEnabled,
         modifier        = modifier,
         drawerContent   = {
             ModalDrawerSheet {
@@ -101,13 +102,14 @@ fun NavigationScaffold(
         },
     ) {
         MainContent(
-            currentDest       = currentDest,
-            windowSizeClass   = windowSizeClass,
-            speechTranscriber = speechTranscriber,
-            convViewModel     = convViewModel,
-            onOpenDrawer      = { openDrawer() },
-            onNavigateBack    = { currentDest = DrawerDestination.CHAT },
-            modifier          = Modifier.fillMaxSize(),
+            currentDest                = currentDest,
+            windowSizeClass            = windowSizeClass,
+            speechTranscriber          = speechTranscriber,
+            convViewModel              = convViewModel,
+            onOpenDrawer               = { openDrawer() },
+            onNavigateBack             = { currentDest = DrawerDestination.CHAT },
+            onSetDrawerGesturesEnabled = { drawerGesturesEnabled = it },
+            modifier                   = Modifier.fillMaxSize(),
         )
     }
 }
@@ -117,13 +119,14 @@ fun NavigationScaffold(
 @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
 @Composable
 private fun MainContent(
-    currentDest:       DrawerDestination,
-    windowSizeClass:   WindowSizeClass,
-    speechTranscriber: com.vela.app.voice.SpeechTranscriber?,
-    convViewModel:     ConversationViewModel,
-    onOpenDrawer:      () -> Unit,
-    onNavigateBack:    () -> Unit,
-    modifier:          Modifier = Modifier,
+    currentDest:                DrawerDestination,
+    windowSizeClass:            WindowSizeClass,
+    speechTranscriber:          com.vela.app.voice.SpeechTranscriber?,
+    convViewModel:              ConversationViewModel,
+    onOpenDrawer:               () -> Unit,
+    onNavigateBack:             () -> Unit,
+    onSetDrawerGesturesEnabled: (Boolean) -> Unit,
+    modifier:                   Modifier = Modifier,
 ) {
     when (currentDest) {
 
@@ -158,9 +161,10 @@ private fun MainContent(
         // Vaults: unified hub handles management + browsing.
         // Error banner offers "Fix with Vela" → new chat pre-seeded with the error context.
         DrawerDestination.VAULT -> com.vela.app.ui.vault.VaultHubScreen(
-            windowSizeClass = windowSizeClass,
-            modifier        = modifier,
-            onFixWithChat   = { prompt ->
+            windowSizeClass            = windowSizeClass,
+            modifier                   = modifier,
+            onSetDrawerGesturesEnabled = onSetDrawerGesturesEnabled,
+            onFixWithChat              = { prompt ->
                 convViewModel.newSession()
                 convViewModel.setPendingInput(prompt)
                 onNavigateBack()   // onNavigateBack() returns to CHAT

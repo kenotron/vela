@@ -216,10 +216,16 @@ class RendererGenerator @Inject constructor(
             appendLine("Study the vault item below. Think about what it IS semantically, what the user")
             appendLine("wants to DO with it, and what UI experience would serve that intent best.")
             appendLine()
-            appendLine("## Vault Item")
+            appendLine("## Vault Item — FOR STRUCTURAL ANALYSIS ONLY")
             appendLine("Path: $itemPath")
             appendLine("Base content type hint: $contentType (use this as a starting point only — ")
             appendLine("the actual semantic type may be much more specific)")
+            appendLine()
+            appendLine("IMPORTANT: The content below is for DATA SCHEMA analysis only.")
+            appendLine("DO NOT copy, embed, or reference this content in your generated HTML/JS.")
+            appendLine("Your renderer MUST call:")
+            appendLine("  window.vela.vault.read(window.__VELA_CONTEXT__.itemPath, 'json')")
+            appendLine("at runtime to load the live data.")
             appendLine()
             appendLine("```")
             appendLine(safeContent)
@@ -366,8 +372,24 @@ DO NOT default to a plain markdown-to-HTML dump. Instead:
 - Call window.onVelaReady for post-SDK-init setup.
 - Adapt for phone/tablet via CSS vars --vela-layout, --vela-is-dark, --vela-primary-color.
 - Connect to other mini apps shown in the capabilities graph via shared db collections.
-- Render content dynamically in JavaScript — don't just embed raw text as static HTML.
-  Parse the content string, extract structure, and build UI components from it.
+## Critical data-loading rule
+- DO NOT inline vault content into your HTML. Content in the prompt is for schema analysis ONLY.
+- ALWAYS fetch data at runtime via the Vela SDK. The vault content changes — your renderer must always read the live version.
+- Use this exact pattern for initial data load:
+
+  ```js
+  window.onVelaReady = async function() {
+    const data = await window.vela.vault.read(
+      window.__VELA_CONTEXT__.itemPath, 'json'
+    );
+    // data.frontmatter — key/value pairs from YAML front matter
+    // data.sections   — array of {type, text, level?, items?}
+    renderApp(data);
+  };
+  ```
+
+- For structured markdown, prefer vault.read(path, 'json') — it gives parsed frontmatter and section objects.
+- window.__VELA_CONTEXT__.itemContent exists but MUST NOT be used — it is stale. Always call vault.read() instead.
 
 The manifest block documents what this mini app provides and consumes.""".trimIndent()
 

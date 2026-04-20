@@ -39,11 +39,12 @@ import androidx.compose.material3.windowsizeclass.WindowSizeClass
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3WindowSizeClassApi::class)
 @Composable
 fun VaultHubScreen(
-    windowSizeClass: WindowSizeClass,
-    onFixWithChat:   (prompt: String) -> Unit = {},
-    modifier:        Modifier = Modifier,
-    settingsVm:      SettingsViewModel = hiltViewModel(),
-    browserVm:       VaultBrowserViewModel = hiltViewModel(),
+    windowSizeClass:            WindowSizeClass,
+    onFixWithChat:              (prompt: String) -> Unit = {},
+    onSetDrawerGesturesEnabled: (Boolean) -> Unit = {},
+    modifier:                   Modifier = Modifier,
+    settingsVm:                 SettingsViewModel = hiltViewModel(),
+    browserVm:                  VaultBrowserViewModel = hiltViewModel(),
 ) {
     val vaults           by settingsVm.vaults.collectAsState()
     val gitHubIdentities by settingsVm.gitHubIdentities.collectAsState()
@@ -60,9 +61,10 @@ fun VaultHubScreen(
     if (bv != null) {
         BackHandler { browsingVault = null }
         VaultBrowserScreen(
-            vault      = bv,
-            onBack     = { browsingVault = null },
-            onOpenFile = { /* MiniAppContainerView handles it internally */ },
+            vault                      = bv,
+            onBack                     = { browsingVault = null },
+            onOpenFile                 = { /* MiniAppContainerView handles it internally */ },
+            onSetDrawerGesturesEnabled = onSetDrawerGesturesEnabled,
         )
         return
     }
