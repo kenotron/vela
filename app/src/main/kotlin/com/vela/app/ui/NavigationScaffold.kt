@@ -25,8 +25,8 @@ fun NavigationScaffold(
     speechTranscriber: com.vela.app.voice.SpeechTranscriber? = null,
     modifier: Modifier = Modifier,
 ) {
-    val scope          = rememberCoroutineScope()
-    val drawerState    = rememberDrawerState(DrawerValue.Closed)
+    val scope            = rememberCoroutineScope()
+    val drawerState      = rememberDrawerState(DrawerValue.Closed)
     val navViewModel     = hiltViewModel<NavigationViewModel>()
     val convViewModel    = hiltViewModel<ConversationViewModel>()
     val profileViewModel = hiltViewModel<ProfileViewModel>()
@@ -35,7 +35,7 @@ fun NavigationScaffold(
 
     // Emit system events whenever theme or layout changes
     val isDark     = isSystemInDarkTheme()
-    val layoutMode = "phone"   // simplified — extend for tablets later
+    val layoutMode = "phone"
 
     LaunchedEffect(isDark) {
         navViewModel.eventBus.tryPublish("vela:theme-changed", """{"isDark":$isDark}""")
@@ -44,7 +44,6 @@ fun NavigationScaffold(
         navViewModel.eventBus.tryPublish("vela:layout-changed", """{"layout":"$layoutMode"}""")
     }
 
-    // Close drawer on back press when it's open; navigate to CHAT otherwise
     BackHandler(enabled = drawerState.isOpen) {
         scope.launch { drawerState.close() }
     }
@@ -52,48 +51,48 @@ fun NavigationScaffold(
         currentDest = DrawerDestination.CHAT
     }
 
-    val conversations       by convViewModel.conversations.collectAsState()
-    val activeConvId        by convViewModel.activeConversationId.collectAsState()
-    val profileData         by profileViewModel.profileData.collectAsState()
-    val userName            = profileData?.name?.takeIf { it.isNotBlank() } ?: ""
+    val conversations by convViewModel.conversations.collectAsState()
+    val activeConvId  by convViewModel.activeConversationId.collectAsState()
+    val profileData   by profileViewModel.profileData.collectAsState()
+    val userName      = profileData?.name?.takeIf { it.isNotBlank() } ?: ""
 
-    fun openDrawer() = scope.launch { drawerState.open() }
+    fun openDrawer()  = scope.launch { drawerState.open() }
     fun closeDrawer() = scope.launch { drawerState.close() }
 
     ModalNavigationDrawer(
-        drawerState   = drawerState,
+        drawerState     = drawerState,
         gesturesEnabled = true,
-        modifier      = modifier,
-        drawerContent = {
+        modifier        = modifier,
+        drawerContent   = {
             ModalDrawerSheet {
                 VelaDrawerContent(
-                    conversations         = conversations,
-                    activeConversationId  = activeConvId,
-                    currentDestination    = currentDest,
-                    userName              = userName,
-                    onNewChat             = {
+                    conversations        = conversations,
+                    activeConversationId = activeConvId,
+                    currentDestination   = currentDest,
+                    userName             = userName,
+                    onNewChat            = {
                         convViewModel.newSession()
                         currentDest = DrawerDestination.CHAT
                         closeDrawer()
                     },
-                    onSearch              = {
+                    onSearch             = {
                         currentDest = DrawerDestination.CHAT_SEARCH
                         closeDrawer()
                     },
-                    onVaults              = {
+                    onVaults             = {
                         currentDest = DrawerDestination.VAULT
                         closeDrawer()
                     },
-                    onConnectors          = {
+                    onConnectors         = {
                         currentDest = DrawerDestination.CONNECTORS
                         closeDrawer()
                     },
-                    onSelectConversation  = { id ->
+                    onSelectConversation = { id ->
                         convViewModel.switchSession(id)
                         currentDest = DrawerDestination.CHAT
                         closeDrawer()
                     },
-                    onProfile             = {
+                    onProfile            = {
                         currentDest = DrawerDestination.PROFILE
                         closeDrawer()
                     },
@@ -101,7 +100,6 @@ fun NavigationScaffold(
             }
         },
     ) {
-        // ── Main content area ─────────────────────────────────────────────
         MainContent(
             currentDest       = currentDest,
             windowSizeClass   = windowSizeClass,
@@ -109,7 +107,6 @@ fun NavigationScaffold(
             convViewModel     = convViewModel,
             onOpenDrawer      = { openDrawer() },
             onNavigateBack    = { currentDest = DrawerDestination.CHAT },
-            onNavigateTo      = { currentDest = it },
             modifier          = Modifier.fillMaxSize(),
         )
     }
@@ -126,7 +123,6 @@ private fun MainContent(
     convViewModel:     ConversationViewModel,
     onOpenDrawer:      () -> Unit,
     onNavigateBack:    () -> Unit,
-    onNavigateTo:      (DrawerDestination) -> Unit,
     modifier:          Modifier = Modifier,
 ) {
     when (currentDest) {
@@ -153,15 +149,14 @@ private fun MainContent(
             }
         }
 
-        DrawerDestination.CHAT_SEARCH -> {
-            ChatSearchScreen(
-                viewModel = convViewModel,
-                onBack    = onNavigateBack,
-                onSelect  = onNavigateBack,   // go back to CHAT after picking
-            )
-        }
+        DrawerDestination.CHAT_SEARCH -> ChatSearchScreen(
+            viewModel = convViewModel,
+            onBack    = onNavigateBack,
+            onSelect  = onNavigateBack,
+        )
 
-        DrawerDestination.VAULT -> com.vela.app.ui.vault.VaultBrowserScreen(
+        // Vaults: unified hub handles management + browsing
+        DrawerDestination.VAULT -> com.vela.app.ui.vault.VaultHubScreen(
             windowSizeClass = windowSizeClass,
             modifier        = modifier,
         )
@@ -182,7 +177,6 @@ private fun MainContent(
                     com.vela.app.ui.settings.SettingsScreen(
                         onNavigateBack        = { profilePage = ProfilePage.PROFILE },
                         onNavigateToAi        = { profilePage = ProfilePage.AI },
-                        onNavigateToVaults    = { profilePage = ProfilePage.VAULTS },
                         onNavigateToRecording = { profilePage = ProfilePage.RECORDING },
                         modifier              = modifier,
                     )
@@ -191,13 +185,6 @@ private fun MainContent(
                     BackHandler { profilePage = ProfilePage.SETTINGS }
                     com.vela.app.ui.settings.AiSettingsScreen(
                         onNavigateBack = { profilePage = ProfilePage.SETTINGS },
-                    )
-                }
-                ProfilePage.VAULTS -> {
-                    BackHandler { profilePage = ProfilePage.SETTINGS }
-                    com.vela.app.ui.settings.VaultsSettingsScreen(
-                        onNavigateBack          = { profilePage = ProfilePage.SETTINGS },
-                        onNavigateToVaultDetail = {},
                     )
                 }
                 ProfilePage.RECORDING -> {
@@ -212,4 +199,4 @@ private fun MainContent(
     }
 }
 
-private enum class ProfilePage { PROFILE, SETTINGS, AI, VAULTS, RECORDING }
+private enum class ProfilePage { PROFILE, SETTINGS, AI, RECORDING }

@@ -29,13 +29,11 @@ import com.vela.app.github.GitHubIdentity
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
     onNavigateToAi: () -> Unit,
-    onNavigateToVaults: () -> Unit,
     onNavigateToRecording: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
     modifier: Modifier = Modifier,
 ) {
     val apiKey by viewModel.apiKey.collectAsState()
-    val vaults by viewModel.vaults.collectAsState()
 
     Scaffold(
         modifier = modifier,
@@ -57,15 +55,6 @@ fun SettingsScreen(
                     title    = "AI",
                     subtitle = if (apiKey.isBlank()) "API key not set" else "Configured",
                     onClick  = onNavigateToAi,
-                )
-            }
-            item {
-                SettingsNavRow(
-                    icon     = Icons.Default.Folder,
-                    title    = "Vaults",
-                    subtitle = if (vaults.isEmpty()) "No vaults"
-                               else "${vaults.size} vault${if (vaults.size != 1) "s" else ""}",
-                    onClick  = onNavigateToVaults,
                 )
             }
             item {
