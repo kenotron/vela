@@ -138,6 +138,8 @@ package com.vela.app.engine
         ) {
             val seq        = AtomicInteger(0)
             val textBuffer = StringBuilder()
+            var anyTextEmitted  = false   // tracks whether the LLM produced ANY text this turn
+            var toolsStarted    = 0       // counts tool calls so we know if tools ran
 
             // Per-turn hook state ── reset fresh for each turn
             val recentToolNames            = ArrayDeque<String>()            // ring buffer, max MAX_RECENT_TOOLS
@@ -147,6 +149,7 @@ package com.vela.app.engine
             fun flushText() {
                 val text = textBuffer.toString().trim()
                 if (text.isNotEmpty()) {
+                    anyTextEmitted = true
                     scope.launch {
                         turnEventDao.insert(TurnEventEntity(
                             id     = UUID.randomUUID().toString(),
@@ -213,6 +216,8 @@ package com.vela.app.engine
                         metadata       = mapOf("toolName" to name, "toolArgsJson" to argsJson),
                     )
                     val denyReason = hookRegistry.checkToolPre(preCtx)
+
+                    toolsStarted++                          // ← track for silent-completion check
 
                     val eventId = UUID.randomUUID().toString()
                     val tool    = toolRegistry.find(name)
@@ -311,6 +316,22 @@ package com.vela.app.engine
             )
 
             flushText()
+
+            // If the LLM ran tools but produced no text at all, the user sees the
+            // tool rows then nothing — the "working" indicator disappears silently.
+            // Inject a brief italic status note so the turn is never visually empty.
+            if (!anyTextEmitted && toolsStarted > 0) {
+                Log.w(TAG, "Turn $turnId: tools ran but no text generated — injecting status note")
+                turnEventDao.insert(TurnEventEntity(
+                    id     = UUID.randomUUID().toString(),
+                    turnId = turnId,
+                    seq    = seq.getAndIncrement(),
+                    type   = "text",
+                    text   = "_Tool actions completed — no summary was returned. " +
+                             "You can ask me to explain what I did or try again._",
+                ))
+            }
+
             } finally {
                 vaultManager.clearSessionVaultPaths()
 

@@ -19,6 +19,7 @@ package com.vela.app.ui.conversation
     import androidx.compose.ui.Modifier
     import androidx.compose.ui.draw.alpha
     import androidx.compose.ui.draw.clip
+    import androidx.compose.ui.draw.rotate
     import androidx.compose.ui.platform.LocalConfiguration
     import androidx.compose.ui.unit.Dp
     import androidx.compose.ui.unit.dp
@@ -159,17 +160,80 @@ package com.vela.app.ui.conversation
 
             // In-memory streaming text for the live turn (not yet committed as a text TurnEvent)
             if (isLive) {
-                val hasStreamingContent = !streamingText.isNullOrEmpty()
-                val hasNoTextEvents     = twe.sortedEvents.none { it.type == "text" }
-
-                if (hasStreamingContent) {
+                if (!streamingText.isNullOrEmpty()) {
                     TextEventRow(streamingText!!, streaming = true, maxW = maxW)
-                } else if (hasNoTextEvents) {
-                    // Waiting for first content — show a pulsing indicator
-                    val inf   = rememberInfiniteTransition(label = "wait")
-                    val alpha by inf.animateFloat(0.2f, 0.7f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "a")
-                    Box(Modifier.size(8.dp).alpha(alpha).background(cs.onSurface.copy(alpha = 0.3f), CircleShape))
+                } else {
+                    // Always show a "working" indicator while the turn is live,
+                    // regardless of whether pre-tool text events already exist.
+                    // The old `hasNoTextEvents` guard hid the indicator whenever
+                    // the LLM had written anything before its first tool call.
+                    LiveWorkingRow(
+                        runningToolName = twe.sortedEvents
+                            .lastOrNull { it.type == "tool" && it.toolStatus == "running" }
+                            ?.let { it.toolDisplayName ?: it.toolName },
+                    )
                 }
+            }
+        }
+    }
+
+    /**
+     * Shown whenever the turn is live but no text is streaming yet.
+     *
+     * Two states:
+     *  • A named tool is still "running"  → "[icon] tool-name…" with a spinner ring
+     *  • Between tools / waiting for LLM  → animated "Thinking…" dots
+     *
+     * Previously this was a tiny 8dp pulsing dot that disappeared whenever any
+     * pre-tool text event existed (the old `hasNoTextEvents` guard).  Now it
+     * always shows while the turn is live so the user always has feedback.
+     */
+    @Composable
+    private fun LiveWorkingRow(runningToolName: String?) {
+        val cs  = MaterialTheme.colorScheme
+        val inf = rememberInfiniteTransition(label = "live")
+
+        Row(
+            verticalAlignment     = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (runningToolName != null) {
+                // A specific tool is in-flight — show its name with a spinner
+                val angle by inf.animateFloat(
+                    initialValue   = 0f,
+                    targetValue    = 360f,
+                    animationSpec  = infiniteRepeatable(tween(900, easing = androidx.compose.animation.core.LinearEasing)),
+                    label          = "spin",
+                )
+                androidx.compose.foundation.Canvas(modifier = Modifier.size(14.dp).rotate(angle)) {
+                    drawArc(
+                        color      = cs.primary.copy(alpha = 0.7f),
+                        startAngle = 0f,
+                        sweepAngle = 270f,
+                        useCenter  = false,
+                        style      = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()),
+                    )
+                }
+                Text(
+                    text  = "$runningToolName…",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = cs.onSurfaceVariant,
+                )
+            } else {
+                // Between tools or waiting for first LLM token — animated dots
+                val dot1 by inf.animateFloat(0.2f, 0.9f, infiniteRepeatable(tween(500), RepeatMode.Reverse), label = "d1")
+                val dot2 by inf.animateFloat(0.2f, 0.9f, infiniteRepeatable(tween(500, delayMillis = 160), RepeatMode.Reverse), label = "d2")
+                val dot3 by inf.animateFloat(0.2f, 0.9f, infiniteRepeatable(tween(500, delayMillis = 320), RepeatMode.Reverse), label = "d3")
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf(dot1, dot2, dot3).forEach { a ->
+                        Box(Modifier.size(6.dp).alpha(a).background(cs.onSurfaceVariant, CircleShape))
+                    }
+                }
+                Text(
+                    text  = "Thinking…",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = cs.onSurfaceVariant,
+                )
             }
         }
     }
