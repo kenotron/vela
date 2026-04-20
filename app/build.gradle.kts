@@ -145,6 +145,13 @@
             implementation("io.noties.markwon:ext-tasklist:4.6.2")
             implementation("io.noties.markwon:linkify:4.6.2")
 
+        // Ktor embedded server for mini app backend
+        implementation("io.ktor:ktor-server-core:2.3.13")
+        implementation("io.ktor:ktor-server-cio:2.3.13")
+
+        // CommonMark for server-side markdown → JSON transform
+        implementation("org.commonmark:commonmark:0.22.0")
+
         // Local on-device embedding — all-MiniLM-L6-v2 via ONNX Runtime
             implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
 

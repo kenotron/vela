@@ -63,10 +63,8 @@ internal fun ComposerBox(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            // No imePadding / navigationBarsPadding here — the parent Scaffold
-            // already uses windowInsetsPadding(safeContent.only(Bottom)) which
-            // repositions the entire layout above the keyboard and gesture bar.
-            // Adding inset modifiers here would double-count them.
+            .navigationBarsPadding()
+            .imePadding()
             .padding(horizontal = 12.dp, vertical = 8.dp),
         shape = RoundedCornerShape(28.dp),
         tonalElevation = 3.dp,
