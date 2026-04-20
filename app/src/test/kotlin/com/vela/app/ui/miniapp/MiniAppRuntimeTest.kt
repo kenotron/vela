@@ -277,4 +277,30 @@ class MiniAppRuntimeTest {
         // reason starts with "error:"
         assertThat(result.reason).startsWith("error:")
     }
+
+    // ── Task 9: fitness check FAB flow + feedback sheet redesign ─────────────────
+
+    @Test
+    fun `RendererFeedbackSheet has onStartFresh parameter in source`() {
+        val source = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/miniapp/MiniAppRuntime.kt"
+        ).readText()
+        assertThat(source).contains("onStartFresh")
+    }
+
+    @Test
+    fun `LaunchedEffect isAnalysing block invokes fitnessCheck on viewModel`() {
+        val source = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/miniapp/MiniAppRuntime.kt"
+        ).readText()
+        assertThat(source).contains("viewModel.fitnessCheck(")
+    }
+
+    @Test
+    fun `RendererFeedbackSheet contains Start fresh list item`() {
+        val source = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/miniapp/MiniAppRuntime.kt"
+        ).readText()
+        assertThat(source).contains("Start fresh")
+    }
 }

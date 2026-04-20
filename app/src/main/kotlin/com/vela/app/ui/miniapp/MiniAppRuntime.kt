@@ -64,9 +64,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.rotate
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
@@ -452,6 +454,25 @@ fun MiniAppContainer(
             LaunchedEffect(isAnalysing) {
                 if (isAnalysing && !showTypeSheet) {
                     delay(280)
+                    // Run fitness check against existing renderer types
+                    val vault = viewModel.primaryVault()
+                    val renderersDir = vault?.let { java.io.File(it.localPath, ".vela/renderers") }
+                    val existingTypes = renderersDir
+                        ?.listFiles()
+                        ?.filter { it.isDirectory && java.io.File(it, "renderer.html").exists() }
+                        ?.map { it.name }
+                        ?: emptyList()
+                    val fitness = viewModel.fitnessCheck(contentType, itemContent.take(400), existingTypes)
+                    if (fitness.confidence >= 0.7f && fitness.match != null) {
+                        val rendererFile = vault?.let {
+                            java.io.File(it.localPath, ".vela/renderers/${fitness.match}/renderer.html")
+                        }
+                        if (rendererFile?.exists() == true) {
+                            rendererState = RendererState.Ready(rendererFile)
+                            isAnalysing = false
+                            return@LaunchedEffect
+                        }
+                    }
                     showTypeSheet = true
                 }
             }
@@ -644,6 +665,7 @@ fun MiniAppContainer(
             }
             } // end of serverReady else-branch
 
+            val feedbackScope = rememberCoroutineScope()
             if (showFeedbackSheet && rendererState is RendererState.Ready) {
                 RendererFeedbackSheet(
                     viewModel       = viewModel,
@@ -656,6 +678,23 @@ fun MiniAppContainer(
                             rendererType = com.vela.app.ai.RendererType.READER,
                             feedback     = feedback,
                         )
+                    },
+                    onStartFresh    = {
+                        showFeedbackSheet = false
+                        feedbackScope.launch {
+                            try {
+                                val port = viewModel.serverPort.value
+                                val conn = java.net.URL("http://localhost:$port/miniapps/$contentType")
+                                    .openConnection() as java.net.HttpURLConnection
+                                conn.requestMethod = "DELETE"
+                                conn.connect()
+                                conn.responseCode
+                                conn.disconnect()
+                            } catch (e: Exception) {
+                                android.util.Log.w("MiniApp", "DELETE renderer failed: ${e.message}")
+                            }
+                        }
+                        rendererState = RendererState.Fallback(contentType, itemContent)
                     },
                 )
             }
@@ -820,13 +859,14 @@ private fun RendererFeedbackSheet(
     rendererType: com.vela.app.ai.RendererType,
     onDismiss: () -> Unit,
     onApplyFeedback: (String) -> Unit,
+    onStartFresh: () -> Unit,
 ) {
-    var feedbackSuggestions by remember { mutableStateOf<List<String>?>(null) }
-    var selectedSuggestion  by remember { mutableStateOf<String?>(null) }
-    var customFeedback      by remember { mutableStateOf("") }
+    var suggestions      by remember { mutableStateOf<List<String>?>(null) }
+    var selectedFeedback by remember { mutableStateOf<String?>(null) }
+    var customText       by remember { mutableStateOf("") }
 
     LaunchedEffect(contentType, rendererType) {
-        feedbackSuggestions = viewModel.suggestFeedback(contentType, rendererType)
+        suggestions = viewModel.suggestFeedback(contentType, rendererType)
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -836,51 +876,53 @@ private fun RendererFeedbackSheet(
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
         )
 
-        if (feedbackSuggestions == null) {
+        if (suggestions == null) {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp))
             Spacer(Modifier.height(16.dp))
         } else {
-            // 2 quick-pick suggestion chips
-            Row(
-                modifier              = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                feedbackSuggestions!!.forEach { s ->
-                    FilterChip(
-                        selected = selectedSuggestion == s,
-                        onClick  = {
-                            selectedSuggestion = if (selectedSuggestion == s) null else s
-                            if (selectedSuggestion == s) customFeedback = ""
-                        },
-                        label    = { Text(s, style = MaterialTheme.typography.labelMedium) },
-                    )
-                }
+            suggestions!!.forEach { suggestion ->
+                val selected = selectedFeedback == suggestion
+                ListItem(
+                    headlineContent = { Text(suggestion) },
+                    modifier        = Modifier.clickable {
+                        selectedFeedback = if (selected) null else suggestion
+                        if (!selected) customText = ""
+                    },
+                    colors = ListItemDefaults.colors(
+                        containerColor = if (selected)
+                            MaterialTheme.colorScheme.secondaryContainer
+                        else
+                            MaterialTheme.colorScheme.surface,
+                    ),
+                )
             }
         }
 
-        // Manual input
         OutlinedTextField(
-            value         = customFeedback,
-            onValueChange = { customFeedback = it; selectedSuggestion = null },
-            placeholder   = { Text("Or describe what you'd like…") },
-            modifier      = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+            value         = customText,
+            onValueChange = { customText = it; selectedFeedback = null },
+            placeholder   = { Text("Or describe what you'd like\u2026") },
+            modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             maxLines      = 3,
         )
 
-        // Action buttons
+        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+        ListItem(
+            headlineContent   = { Text("Start fresh") },
+            supportingContent = { Text("Choose a different renderer type") },
+            leadingContent    = { Icon(Icons.Default.Refresh, contentDescription = null) },
+            modifier          = Modifier.clickable { onStartFresh() },
+        )
+
         Row(
-            modifier              = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier              = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
         ) {
             TextButton(onClick = onDismiss) { Text("Cancel") }
-            val feedbackText = customFeedback.ifBlank { selectedSuggestion ?: "" }
+            val feedback = customText.ifBlank { selectedFeedback ?: "" }
             Button(
-                onClick  = { if (feedbackText.isNotBlank()) onApplyFeedback(feedbackText) },
-                enabled  = feedbackText.isNotBlank(),
+                onClick  = { if (feedback.isNotBlank()) onApplyFeedback(feedback) },
+                enabled  = feedback.isNotBlank(),
             ) { Text("Apply feedback") }
         }
         Spacer(Modifier.height(32.dp))
