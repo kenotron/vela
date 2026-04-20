@@ -401,6 +401,7 @@ fun MiniAppContainer(
         // ── Fallback: native content + icon-only FAB ──────────────────────────
         is RendererState.Fallback -> {
             var showTypeSheet by remember { mutableStateOf(false) }
+            var isAnalysing   by remember { mutableStateOf(false) }
 
             Box(modifier) {
                 FallbackRenderer(
@@ -409,31 +410,51 @@ fun MiniAppContainer(
                     modifier    = Modifier.fillMaxSize(),
                 )
                 FloatingActionButton(
-                    onClick  = { showTypeSheet = true },
-                    modifier = Modifier
+                    onClick  = {
+                        if (!showTypeSheet) {
+                            showTypeSheet = true
+                            isAnalysing   = true
+                        }
+                    },
+                    modifier       = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(16.dp),
+                    containerColor = if (isAnalysing)
+                        MaterialTheme.colorScheme.tertiaryContainer
+                    else
+                        MaterialTheme.colorScheme.primaryContainer,
                 ) {
-                    Icon(Icons.Default.AutoAwesome, contentDescription = "Generate mini app")
+                    if (isAnalysing) {
+                        CircularProgressIndicator(
+                            modifier    = Modifier.size(24.dp),
+                            strokeWidth = 2.5.dp,
+                            color       = MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
+                    } else {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = "Generate mini app")
+                    }
                 }
             }
 
             if (showTypeSheet) {
                 RendererTypeSheet(
-                    viewModel      = viewModel,
-                    itemContent    = itemContent,
-                    contentType    = contentType,
-                    onDismiss      = { showTypeSheet = false },
-                    onSelect       = { type ->
+                    viewModel          = viewModel,
+                    itemContent        = itemContent,
+                    contentType        = contentType,
+                    onDismiss          = { showTypeSheet = false; isAnalysing = false },
+                    onSelect           = { type ->
                         showTypeSheet = false
+                        isAnalysing   = false
                         rendererState = RendererState.Building(type)
                     },
-                    onOpenExisting = {
+                    onOpenExisting     = {
                         showTypeSheet = false
+                        isAnalysing   = false
                         viewModel.getRendererFile(contentType)?.let { file ->
                             rendererState = RendererState.Ready(file)
                         }
                     },
+                    onSuggestionsReady = { isAnalysing = false },
                 )
             }
         }
@@ -625,6 +646,7 @@ private fun RendererTypeSheet(
     onDismiss: () -> Unit,
     onSelect: (com.vela.app.ai.RendererType) -> Unit,
     onOpenExisting: () -> Unit,
+    onSuggestionsReady: () -> Unit = {},
 ) {
     var suggestions  by remember { mutableStateOf<List<RendererSuggestion>?>(null) }
     var existingFile by remember { mutableStateOf<java.io.File?>(null) }
@@ -634,6 +656,7 @@ private fun RendererTypeSheet(
         suggestions = null   // reset on re-roll
         existingFile = viewModel.getRendererFile(contentType)
         suggestions  = viewModel.suggestRendererTypes(itemContent, contentType)
+        onSuggestionsReady()   // signal FAB to stop its loading animation
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
