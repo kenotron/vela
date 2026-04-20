@@ -5,13 +5,11 @@ import org.junit.Test
 import java.io.File
 
 /**
- * Guards against the double-insets bug in NavigationScaffold.
+ * Sanity checks for the NavigationScaffold source file.
  *
- * The outer Scaffold's innerPadding already absorbs status-bar and nav-bar insets.
- * If `consumeWindowInsets(innerPadding)` is absent, every child Scaffold independently
- * re-applies those insets → double status-bar padding on phone layout.
- *
- * This test fails until the fix is present and will catch any future regression.
+ * The scaffold was refactored from a bottom-nav Scaffold (which had a
+ * double-insets risk) to a [ModalNavigationDrawer] architecture where each
+ * individual screen owns its own Scaffold and insets.
  */
 class NavigationScaffoldInsetsTest {
 
@@ -25,14 +23,14 @@ class NavigationScaffoldInsetsTest {
     }
 
     @Test
-    fun `NavigationScaffold consumes window insets to prevent double status-bar padding`() {
+    fun `NavigationScaffold uses ModalNavigationDrawer`() {
         val source = sourceFile.readText()
-        assertThat(source).contains("consumeWindowInsets(innerPadding)")
+        assertThat(source).contains("ModalNavigationDrawer")
     }
 
     @Test
-    fun `NavigationScaffold imports consumeWindowInsets`() {
+    fun `NavigationScaffold uses VelaDrawerContent`() {
         val source = sourceFile.readText()
-        assertThat(source).contains("import androidx.compose.foundation.layout.consumeWindowInsets")
+        assertThat(source).contains("VelaDrawerContent")
     }
 }

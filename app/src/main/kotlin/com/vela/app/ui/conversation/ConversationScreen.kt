@@ -8,12 +8,14 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ChatBubbleOutline
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,6 +25,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.vela.app.data.db.VaultEntity
 import com.vela.app.ui.components.ConversationBackground
 import com.vela.app.voice.SpeechTranscriber
 import com.vela.app.voice.TranscriptState
@@ -48,21 +51,27 @@ internal fun buildAttachedMessage(
 fun ConversationRoot(
     speechTranscriber: SpeechTranscriber? = null,
     viewModel: ConversationViewModel = hiltViewModel(),
+    onOpenDrawer: () -> Unit = {},
     onRecord: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    ConversationScreen(speechTranscriber = speechTranscriber, viewModel = viewModel, onRecord = onRecord, modifier = modifier)
+    ConversationScreen(
+        speechTranscriber = speechTranscriber,
+        viewModel         = viewModel,
+        onOpenDrawer      = onOpenDrawer,
+        onRecord          = onRecord,
+        modifier          = modifier,
+    )
 }
 
-// ---- Conversation screen ----------------------------------------------------
+// ── Conversation screen ────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConversationScreen(
     speechTranscriber: SpeechTranscriber? = null,
     viewModel: ConversationViewModel = hiltViewModel(),
-    onOpenSessions: () -> Unit = {},
-    onOpenSettings: () -> Unit = {},
+    onOpenDrawer: () -> Unit = {},
     onRecord: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -72,6 +81,10 @@ fun ConversationScreen(
     val activeTurnId     by viewModel.activeTurnId.collectAsState()
     val streamingTextMap by viewModel.streamingText.collectAsState()
     val pendingInput     by viewModel.pendingInput.collectAsState()
+
+    // Vault pills state
+    val allVaults           by viewModel.allVaults.collectAsState()
+    val sessionActiveVaultIds by viewModel.sessionActiveVaultIds.collectAsState()
 
     var textInput by remember { mutableStateOf("") }
     LaunchedEffect(pendingInput) {
@@ -118,9 +131,6 @@ fun ConversationScreen(
         ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
-            // Resolve the actual MIME type from the content resolver.
-            // "image/*" is a wildcard that the Claude API rejects — it requires
-            // specific types like image/jpeg, image/png, image/gif, image/webp.
             val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
             attachments.add(AttachmentItem(
                 uri         = uri,
@@ -200,38 +210,64 @@ fun ConversationScreen(
         modifier = modifier,
         topBar = {
             CenterAlignedTopAppBar(
-                navigationIcon = { IconButton(onClick = onOpenSessions) { Icon(Icons.Default.ChatBubbleOutline, null) } },
-                title = { Text(activeTitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium) },
+                // ── Hamburger — opens drawer ──────────────────────────────
+                navigationIcon = {
+                    IconButton(onClick = onOpenDrawer) {
+                        Icon(Icons.Default.Menu, contentDescription = "Open menu")
+                    }
+                },
+                title = {
+                    Text(
+                        text     = activeTitle,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style    = MaterialTheme.typography.titleMedium,
+                    )
+                },
                 actions = {
-                    IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    // New chat shortcut
                     IconButton(onClick = { viewModel.newSession() }) {
-                        Icon(Icons.Default.Add, null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Default.Add, contentDescription = "New chat", tint = MaterialTheme.colorScheme.primary)
                     }
                 },
             )
         },
         bottomBar = {
-            ComposerBox(
-                value              = textInput,
-                onValueChange      = { textInput = it },
-                onSend             = { handleSend() },
-                onRecord           = onRecord,
-                speechTranscriber  = speechTranscriber,
-                isListening        = isListening,
-                onMicClick         = { handleMic() },
-                attachments        = attachments,
-                onRemoveAttachment = { id -> attachments.removeIf { it.id == id } },
-                onPickPhoto        = { photoLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                onPickFile         = { fileLauncher.launch(arrayOf("*/*")) },
-                onCamera           = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) },
-            )
+            Column {
+                // ── Vault pills (active vault filters) ───────────────────
+                if (allVaults.isNotEmpty()) {
+                    VaultPillsRow(
+                        vaults    = allVaults,
+                        activeIds = sessionActiveVaultIds,
+                        onToggle  = viewModel::toggleVaultForSession,
+                    )
+                }
+                ComposerBox(
+                    value              = textInput,
+                    onValueChange      = { textInput = it },
+                    onSend             = { handleSend() },
+                    onRecord           = onRecord,
+                    speechTranscriber  = speechTranscriber,
+                    isListening        = isListening,
+                    onMicClick         = { handleMic() },
+                    attachments        = attachments,
+                    onRemoveAttachment = { id -> attachments.removeIf { it.id == id } },
+                    onPickPhoto        = { photoLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                    onPickFile         = { fileLauncher.launch(arrayOf("*/*")) },
+                    onCamera           = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) },
+                )
+            }
         },
     ) { pad ->
         Box(Modifier.fillMaxSize().padding(pad)) {
             ConversationBackground()
             if (turnsWithEvents.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Start a conversation", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        text  = "Start a conversation",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             } else {
                 LazyColumn(
@@ -240,8 +276,6 @@ fun ConversationScreen(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    // ONE rendering path for ALL turns — live or complete, events always present.
-                    // TurnWithEvents.sortedEvents gives us seq-ordered events from @Relation.
                     items(turnsWithEvents, key = { it.turn.id }) { twe ->
                         TurnRow(
                             twe           = twe,
@@ -251,6 +285,39 @@ fun ConversationScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+// ── Vault pills row ───────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun VaultPillsRow(
+    vaults: List<VaultEntity>,
+    activeIds: Set<String>,
+    onToggle: (String) -> Unit,
+) {
+    LazyRow(
+        contentPadding      = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        items(vaults, key = { it.id }) { vault ->
+            val selected = vault.id in activeIds
+            FilterChip(
+                selected    = selected,
+                onClick     = { onToggle(vault.id) },
+                label       = {
+                    Text(
+                        text  = vault.name,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                },
+                leadingIcon = when {
+                    selected -> {{ Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }}
+                    else     -> {{ Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(14.dp)) }}
+                },
+            )
         }
     }
 }

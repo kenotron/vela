@@ -2,76 +2,38 @@ package com.vela.app.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.consumeWindowInsets
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChatBubbleOutline
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Hub
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
 import androidx.compose.material3.windowsizeclass.WindowSizeClass
-import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.vela.app.ui.conversation.ChatSearchScreen
+import com.vela.app.ui.conversation.ConversationViewModel
+import kotlinx.coroutines.launch
 
-private enum class AppDestination(
-    val label: String,
-    val icon: ImageVector,
-    val contentDescription: String,
-) {
-    PROJECTS(
-        label = "Projects",
-        icon = Icons.Default.ChatBubbleOutline,
-        contentDescription = "Projects — chat sessions",
-    ),
-    VAULT(
-        label = "Vault",
-        icon = Icons.Default.Folder,
-        contentDescription = "Vault — files and mini apps",
-    ),
-    CONNECTORS(
-        label = "Connectors",
-        icon = Icons.Default.Hub,
-        contentDescription = "Connectors — SSH nodes and services",
-    ),
-    PROFILE(
-        label = "Profile",
-        icon = Icons.Default.Person,
-        contentDescription = "Profile — settings",
-    ),
-}
-
-@OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
+@OptIn(ExperimentalMaterial3WindowSizeClassApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun NavigationScaffold(
     windowSizeClass: WindowSizeClass,
     speechTranscriber: com.vela.app.voice.SpeechTranscriber? = null,
     modifier: Modifier = Modifier,
 ) {
-    val navViewModel: NavigationViewModel = hiltViewModel()
-    var currentDestination by remember { mutableStateOf(AppDestination.PROJECTS) }
+    val scope          = rememberCoroutineScope()
+    val drawerState    = rememberDrawerState(DrawerValue.Closed)
+    val navViewModel   = hiltViewModel<NavigationViewModel>()
+    val convViewModel  = hiltViewModel<ConversationViewModel>()
+
+    var currentDest by remember { mutableStateOf(DrawerDestination.CHAT) }
 
     // Emit system events whenever theme or layout changes
-    val isDark = isSystemInDarkTheme()
-    val layoutMode = if (windowSizeClass.widthSizeClass == WindowWidthSizeClass.Compact) "phone" else "tablet"
+    val isDark     = isSystemInDarkTheme()
+    val layoutMode = "phone"   // simplified — extend for tablets later
 
     LaunchedEffect(isDark) {
         navViewModel.eventBus.tryPublish("vela:theme-changed", """{"isDark":$isDark}""")
@@ -80,75 +42,92 @@ fun NavigationScaffold(
         navViewModel.eventBus.tryPublish("vela:layout-changed", """{"layout":"$layoutMode"}""")
     }
 
-    // Back gesture on phone navigates to PROJECTS before exiting
-    BackHandler(enabled = currentDestination != AppDestination.PROJECTS) {
-        currentDestination = AppDestination.PROJECTS
+    // Close drawer on back press when it's open; navigate to CHAT otherwise
+    BackHandler(enabled = drawerState.isOpen) {
+        scope.launch { drawerState.close() }
+    }
+    BackHandler(enabled = !drawerState.isOpen && currentDest != DrawerDestination.CHAT) {
+        currentDest = DrawerDestination.CHAT
     }
 
-    when (windowSizeClass.widthSizeClass) {
-        WindowWidthSizeClass.Compact -> {
-            Scaffold(
-                modifier = modifier,
-                bottomBar = {
-                    NavigationBar {
-                        AppDestination.entries.forEach { dest ->
-                            NavigationBarItem(
-                                selected = currentDestination == dest,
-                                onClick = { currentDestination = dest },
-                                icon = { Icon(dest.icon, contentDescription = dest.contentDescription) },
-                                label = { Text(dest.label) },
-                            )
-                        }
-                    }
-                },
-            ) { innerPadding ->
-                DestinationContent(
-                    destination = currentDestination,
-                    speechTranscriber = speechTranscriber,
-                    windowSizeClass = windowSizeClass,
-                    modifier = Modifier
-                        .padding(innerPadding)
-                        .consumeWindowInsets(innerPadding),
+    val conversations       by convViewModel.conversations.collectAsState()
+    val activeConvId        by convViewModel.activeConversationId.collectAsState()
+
+    fun openDrawer() = scope.launch { drawerState.open() }
+    fun closeDrawer() = scope.launch { drawerState.close() }
+
+    ModalNavigationDrawer(
+        drawerState   = drawerState,
+        gesturesEnabled = true,
+        modifier      = modifier,
+        drawerContent = {
+            ModalDrawerSheet {
+                VelaDrawerContent(
+                    conversations         = conversations,
+                    activeConversationId  = activeConvId,
+                    currentDestination    = currentDest,
+                    onNewChat             = {
+                        convViewModel.newSession()
+                        currentDest = DrawerDestination.CHAT
+                        closeDrawer()
+                    },
+                    onSearch              = {
+                        currentDest = DrawerDestination.CHAT_SEARCH
+                        closeDrawer()
+                    },
+                    onVaults              = {
+                        currentDest = DrawerDestination.VAULT
+                        closeDrawer()
+                    },
+                    onConnectors          = {
+                        currentDest = DrawerDestination.CONNECTORS
+                        closeDrawer()
+                    },
+                    onSelectConversation  = { id ->
+                        convViewModel.switchSession(id)
+                        currentDest = DrawerDestination.CHAT
+                        closeDrawer()
+                    },
+                    onProfile             = {
+                        currentDest = DrawerDestination.PROFILE
+                        closeDrawer()
+                    },
                 )
             }
-        }
-        else -> {
-            Row(modifier = modifier.fillMaxSize()) {
-                NavigationRail {
-                    Spacer(Modifier.weight(1f))
-                    AppDestination.entries.forEach { dest ->
-                        NavigationRailItem(
-                            selected = currentDestination == dest,
-                            onClick = { currentDestination = dest },
-                            icon = { Icon(dest.icon, contentDescription = dest.contentDescription) },
-                            label = { Text(dest.label) },
-                        )
-                    }
-                    Spacer(Modifier.weight(1f))
-                }
-                DestinationContent(
-                    destination = currentDestination,
-                    speechTranscriber = speechTranscriber,
-                    windowSizeClass = windowSizeClass,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
+        },
+    ) {
+        // ── Main content area ─────────────────────────────────────────────
+        MainContent(
+            currentDest       = currentDest,
+            windowSizeClass   = windowSizeClass,
+            speechTranscriber = speechTranscriber,
+            convViewModel     = convViewModel,
+            onOpenDrawer      = { openDrawer() },
+            onNavigateBack    = { currentDest = DrawerDestination.CHAT },
+            onNavigateTo      = { currentDest = it },
+            modifier          = Modifier.fillMaxSize(),
+        )
     }
 }
 
+// ── Main content switcher ─────────────────────────────────────────────────────
+
 @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
 @Composable
-private fun DestinationContent(
-    destination: AppDestination,
+private fun MainContent(
+    currentDest:       DrawerDestination,
+    windowSizeClass:   WindowSizeClass,
     speechTranscriber: com.vela.app.voice.SpeechTranscriber?,
-    windowSizeClass: WindowSizeClass,
-    modifier: Modifier = Modifier,
+    convViewModel:     ConversationViewModel,
+    onOpenDrawer:      () -> Unit,
+    onNavigateBack:    () -> Unit,
+    onNavigateTo:      (DrawerDestination) -> Unit,
+    modifier:          Modifier = Modifier,
 ) {
-    when (destination) {
-        AppDestination.PROJECTS -> {
+    when (currentDest) {
+
+        DrawerDestination.CHAT -> {
             var showRecording by remember { mutableStateOf(false) }
-            val convViewModel: com.vela.app.ui.conversation.ConversationViewModel = hiltViewModel()
             if (showRecording) {
                 BackHandler { showRecording = false }
                 com.vela.app.ui.recording.RecordingScreen(
@@ -162,19 +141,31 @@ private fun DestinationContent(
                 com.vela.app.ui.conversation.ConversationRoot(
                     speechTranscriber = speechTranscriber,
                     viewModel         = convViewModel,
+                    onOpenDrawer      = onOpenDrawer,
                     onRecord          = { showRecording = true },
                     modifier          = modifier,
                 )
             }
         }
-        AppDestination.VAULT -> com.vela.app.ui.vault.VaultBrowserScreen(
+
+        DrawerDestination.CHAT_SEARCH -> {
+            ChatSearchScreen(
+                viewModel = convViewModel,
+                onBack    = onNavigateBack,
+                onSelect  = onNavigateBack,   // go back to CHAT after picking
+            )
+        }
+
+        DrawerDestination.VAULT -> com.vela.app.ui.vault.VaultBrowserScreen(
             windowSizeClass = windowSizeClass,
+            modifier        = modifier,
+        )
+
+        DrawerDestination.CONNECTORS -> com.vela.app.ui.connectors.ConnectorsScreen(
             modifier = modifier,
         )
-        AppDestination.CONNECTORS -> com.vela.app.ui.connectors.ConnectorsScreen(
-            modifier = modifier,
-        )
-        AppDestination.PROFILE -> {
+
+        DrawerDestination.PROFILE -> {
             var profilePage by remember { mutableStateOf(ProfilePage.PROFILE) }
             when (profilePage) {
                 ProfilePage.PROFILE -> com.vela.app.ui.profile.ProfileScreen(
