@@ -194,7 +194,8 @@ class MiniAppViewModel @Inject constructor(
         rendererType: com.vela.app.ai.RendererType,
     ): com.vela.app.ai.GenerationResult {
         _buildLog.value = ""
-        _buildActivity.value = "Analysing content…"
+        _buildActivity.value = "Preparing…"
+        var tokensSeen = 0
         return rendererGenerator.generateRenderer(
             itemPath     = itemPath,
             itemContent  = itemContent,
@@ -202,7 +203,16 @@ class MiniAppViewModel @Inject constructor(
             theme        = theme,
             layout       = layout,
             rendererType = rendererType,
-            onToken      = { token -> _buildLog.update { it + token } },
+            onToken      = { token ->
+                _buildLog.update { it + token }
+                tokensSeen++
+                when (tokensSeen) {
+                    1    -> _buildActivity.value = "Generating renderer…"
+                    200  -> _buildActivity.value = "Writing HTML structure…"
+                    800  -> _buildActivity.value = "Adding styles and scripts…"
+                    2000 -> _buildActivity.value = "Finalising…"
+                }
+            },
             onActivity   = { activity -> _buildActivity.value = activity },
         )
     }
