@@ -157,14 +157,24 @@ private fun DestinationContent(
         AppDestination.CONNECTORS -> com.vela.app.ui.connectors.ConnectorsScreen(
             modifier = modifier,
         )
-        AppDestination.PROFILE -> com.vela.app.ui.settings.SettingsScreen(
-            onNavigateBack = {},
-            onNavigateToAi = {},
-            onNavigateToConnections = {},
-            onNavigateToVaults = {},
-            onNavigateToRecording = {},
-            onNavigateToGitHub = {},
-            modifier = modifier,
-        )
+        AppDestination.PROFILE -> {
+            var showSettings by remember { mutableStateOf(false) }
+            if (showSettings) {
+                com.vela.app.ui.settings.SettingsScreen(
+                    onNavigateBack        = { showSettings = false },
+                    onNavigateToAi        = {},
+                    onNavigateToConnections = {},
+                    onNavigateToVaults    = {},
+                    onNavigateToRecording = {},
+                    onNavigateToGitHub    = {},
+                    modifier              = modifier,
+                )
+            } else {
+                com.vela.app.ui.profile.ProfileScreen(
+                    onNavigateToSettings = { showSettings = true },
+                    modifier             = modifier,
+                )
+            }
+        }
     }
 }
