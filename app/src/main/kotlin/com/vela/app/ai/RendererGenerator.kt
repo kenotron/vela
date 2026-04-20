@@ -87,6 +87,8 @@ class RendererGenerator @Inject constructor(
      * @param rendererType  Style/purpose of the renderer to generate.
      * @param onToken       Optional streaming callback invoked for each token as it arrives.
      * @param onActivity    Optional callback invoked when the AI starts a tool, with a human-readable label.
+     * @param feedback      Optional user improvement feedback for regeneration.
+     * @param existingHtml  Current renderer HTML, supplied when applying feedback updates.
      */
     suspend fun generateRenderer(
         itemPath: String,
@@ -97,6 +99,8 @@ class RendererGenerator @Inject constructor(
         rendererType: RendererType = RendererType.READER,
         onToken: ((String) -> Unit)? = null,
         onActivity: ((String) -> Unit)? = null,
+        feedback: String? = null,             // user's improvement feedback
+        existingHtml: String? = null,         // current renderer HTML for feedback updates
     ): GenerationResult = withContext(Dispatchers.IO) {
         try {
             // 1. Snapshot dependencies
@@ -104,7 +108,7 @@ class RendererGenerator @Inject constructor(
 
             // 2. Assemble prompt
             val prompt = buildRendererPrompt(
-                itemPath, itemContent, contentType, capabilities, theme, layout, rendererType
+                itemPath, itemContent, contentType, capabilities, theme, layout, rendererType, feedback, existingHtml
             )
 
             // 3. Call LLM
@@ -180,6 +184,8 @@ class RendererGenerator @Inject constructor(
         theme: VelaTheme,
         layout: String,
         rendererType: RendererType,
+        feedback: String? = null,
+        existingHtml: String? = null,
     ): String {
         val capabilitiesSection = if (capabilities.isEmpty()) {
             "(No mini apps registered yet — this will be the first.)"
@@ -221,6 +227,18 @@ class RendererGenerator @Inject constructor(
             appendLine("- Layout: $layout")
             appendLine("- Vela SDK available in window.vela: db.put/get/delete/watch, events.publish/subscribe, ai.ask/stream, vault.read/write/list/sync")
             appendLine()
+            if (!feedback.isNullOrBlank() && !existingHtml.isNullOrBlank()) {
+                appendLine("## Current Renderer (update this based on the feedback below)")
+                appendLine("```html")
+                appendLine(existingHtml.take(32_768))
+                appendLine("```")
+                appendLine()
+                appendLine("## User Feedback")
+                appendLine(feedback)
+                appendLine()
+                appendLine("Update the renderer incorporating the user's feedback. Keep what works; improve what they asked for.")
+                appendLine()
+            }
             appendLine(RESPONSE_FORMAT_INSTRUCTIONS)
         }
     }
@@ -250,7 +268,7 @@ class RendererGenerator @Inject constructor(
      */
     private fun extractManifest(response: String): CapabilityManifest? {
         val regex = Regex(
-            """```manifest\s*(\{.*?})\s*```""",
+            """```manifest\s*(\{[^`]*?\})\s*```""",
             setOf(RegexOption.DOT_MATCHES_ALL),
         )
         val jsonText = regex.find(response)?.groupValues?.getOrNull(1) ?: return null

@@ -25,6 +25,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
+    import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.MenuBook
@@ -35,6 +37,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -45,6 +48,8 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -128,7 +133,10 @@ data class RendererSuggestion(
 sealed class RendererState {
     object Loading : RendererState()
     data class Fallback(val contentType: String, val content: String) : RendererState()
-    data class Building(val rendererType: com.vela.app.ai.RendererType) : RendererState()
+    data class Building(
+        val rendererType: com.vela.app.ai.RendererType,
+        val feedback: String? = null,
+    ) : RendererState()
     data class Ready(val rendererFile: File) : RendererState()
     data class BuildFailed(
         val rendererType: com.vela.app.ai.RendererType,
@@ -184,6 +192,9 @@ class MiniAppViewModel @Inject constructor(
      * Starts async renderer generation for [rendererType].
      * Streams tokens into [buildLog] as they arrive.
      * Returns the [GenerationResult] when complete.
+     *
+     * When [feedback] is supplied the current on-disk renderer is read and passed
+     * to the generator so the LLM can update it in place.
      */
     suspend fun generateRenderer(
         itemPath: String,
@@ -192,10 +203,12 @@ class MiniAppViewModel @Inject constructor(
         theme: VelaTheme,
         layout: String,
         rendererType: com.vela.app.ai.RendererType,
+        feedback: String? = null,
     ): com.vela.app.ai.GenerationResult {
         _buildLog.value = ""
         _buildActivity.value = "Preparing…"
         var tokensSeen = 0
+        val existingHtml = if (feedback != null) getRendererFile(contentType)?.readText() else null
         return rendererGenerator.generateRenderer(
             itemPath     = itemPath,
             itemContent  = itemContent,
@@ -203,11 +216,13 @@ class MiniAppViewModel @Inject constructor(
             theme        = theme,
             layout       = layout,
             rendererType = rendererType,
+            feedback     = feedback,
+            existingHtml = existingHtml,
             onToken      = { token ->
                 _buildLog.update { it + token }
                 tokensSeen++
                 when (tokensSeen) {
-                    1    -> _buildActivity.value = "Generating renderer…"
+                    1    -> _buildActivity.value = if (feedback != null) "Applying feedback…" else "Generating renderer…"
                     200  -> _buildActivity.value = "Writing HTML structure…"
                     800  -> _buildActivity.value = "Adding styles and scripts…"
                     2000 -> _buildActivity.value = "Finalising…"
@@ -275,6 +290,45 @@ Order them from most useful to least useful for this content.
             }.takeIf { it.size == 3 } ?: fallback
         } catch (e: Exception) {
             Log.d("MiniAppViewModel", "suggestRendererTypes fallback: ${e.message}")
+            fallback
+        }
+    }
+
+    /**
+     * Generates 2 short feedback suggestions for the user to improve the current mini app.
+     * Falls back to generic suggestions if the LLM call fails.
+     */
+    suspend fun suggestFeedback(
+        contentType: String,
+        rendererType: com.vela.app.ai.RendererType,
+    ): List<String> {
+        val fallback = when (rendererType) {
+            com.vela.app.ai.RendererType.READER      -> listOf("Make it more visual", "Add a summary section")
+            com.vela.app.ai.RendererType.INTERACTIVE -> listOf("Add more checkboxes", "Include a progress tracker")
+            com.vela.app.ai.RendererType.DASHBOARD   -> listOf("Show more metrics", "Add visual charts")
+        }
+        return try {
+            val prompt = """
+For a $contentType mini app built as a ${rendererType.label.lowercase()} renderer,
+suggest exactly 2 short improvement ideas (10 words max each).
+Return ONLY a JSON array of 2 strings: ["idea 1", "idea 2"]
+            """.trimIndent()
+            val sb = StringBuilder()
+            amplifierSession.runTurn(
+                historyJson       = "[]",
+                userInput         = prompt,
+                userContentJson   = null,
+                systemPrompt      = "Return ONLY valid JSON. No explanation.",
+                onToolStart       = { _, _ -> "" },
+                onToolEnd         = { _, _ -> },
+                onToken           = { token -> sb.append(token) },
+                onProviderRequest = { null },
+                onServerTool      = { _, _ -> },
+            )
+            val raw = sb.toString().trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+            val arr = org.json.JSONArray(raw)
+            listOf(arr.getString(0), arr.getString(1)).takeIf { it.size == 2 } ?: fallback
+        } catch (e: Exception) {
             fallback
         }
     }
@@ -384,7 +438,7 @@ fun MiniAppContainer(
             val buildLog      by viewModel.buildLog.collectAsState()
             val buildActivity by viewModel.buildActivity.collectAsState()
 
-            LaunchedEffect(s.rendererType) {
+            LaunchedEffect(s.rendererType, s.feedback) {
                 val result = viewModel.generateRenderer(
                     itemPath     = itemPath,
                     itemContent  = itemContent,
@@ -392,6 +446,7 @@ fun MiniAppContainer(
                     theme        = theme,
                     layout       = layout,
                     rendererType = s.rendererType,
+                    feedback     = s.feedback,
                 )
                 rendererState = when (result) {
                     is GenerationResult.Success ->
@@ -428,70 +483,102 @@ fun MiniAppContainer(
 
         // ── Ready / Loading: WebView ───────────────────────────────────────────
         else -> {
-            AndroidView(
-                factory = { ctx ->
-                    WebView(ctx).apply {
-                        // Wire evaluateJavascript callback back to this WebView
-                        jsInterface.onEvaluateJs = { js ->
-                            post { evaluateJavascript(js, null) }
-                        }
+            var showFeedbackSheet by remember { mutableStateOf(false) }
 
-                        // Register the four SDK namespaces
-                        addJavascriptInterface(jsInterface.db,     "__vela_db")
-                        addJavascriptInterface(jsInterface.events, "__vela_events")
-                        addJavascriptInterface(jsInterface.ai,     "__vela_ai")
-                        addJavascriptInterface(jsInterface.vault,  "__vela_vault")
+            Box(modifier) {
+                AndroidView(
+                    factory = { ctx ->
+                        WebView(ctx).apply {
+                            // Wire evaluateJavascript callback back to this WebView
+                            jsInterface.onEvaluateJs = { js ->
+                                post { evaluateJavascript(js, null) }
+                            }
 
-                        settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = true
+                            // Register the four SDK namespaces
+                            addJavascriptInterface(jsInterface.db,     "__vela_db")
+                            addJavascriptInterface(jsInterface.events, "__vela_events")
+                            addJavascriptInterface(jsInterface.ai,     "__vela_ai")
+                            addJavascriptInterface(jsInterface.vault,  "__vela_vault")
 
-                        webViewClient = object : WebViewClient() {
-                            override fun onPageFinished(view: WebView, url: String) {
-                                // Assemble window.vela namespace + inject __VELA_CONTEXT__
-                                val script = buildString {
-                                    append("(function(){")
-                                    append("window.vela={")
-                                    append("db:window.__vela_db,")
-                                    append("events:window.__vela_events,")
-                                    append("ai:window.__vela_ai,")
-                                    append("vault:window.__vela_vault")
-                                    append("};")
-                                    append("window.__VELA_CONTEXT__=")
-                                    append(contextJson)
-                                    append(";")
-                                    append("if(typeof window.onVelaReady==='function')window.onVelaReady();")
-                                    append("})();")
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+
+                            webViewClient = object : WebViewClient() {
+                                override fun onPageFinished(view: WebView, url: String) {
+                                    // Assemble window.vela namespace + inject __VELA_CONTEXT__
+                                    val script = buildString {
+                                        append("(function(){")
+                                        append("window.vela={")
+                                        append("db:window.__vela_db,")
+                                        append("events:window.__vela_events,")
+                                        append("ai:window.__vela_ai,")
+                                        append("vault:window.__vela_vault")
+                                        append("};")
+                                        append("window.__VELA_CONTEXT__=")
+                                        append(contextJson)
+                                        append(";")
+                                        append("if(typeof window.onVelaReady==='function')window.onVelaReady();")
+                                        append("})();")
+                                    }
+                                    view.evaluateJavascript(script, null)
                                 }
-                                view.evaluateJavascript(script, null)
+                            }
+
+                            // Load renderer if it exists, otherwise show the loading placeholder
+                            val rendererFile = viewModel.getRendererFile(contentType)
+                            if (rendererFile != null) {
+                                loadUrl("file://${rendererFile.absolutePath}")
+                            } else {
+                                loadData(LOADING_PLACEHOLDER_HTML, "text/html", "UTF-8")
                             }
                         }
+                    },
+                    update = { webView ->
+                        val currentState = rendererState
+                        if (currentState is RendererState.Ready) {
+                            // Transition from Fallback → Ready: load renderer if not yet loaded
+                            val fileUrl = "file://${currentState.rendererFile.absolutePath}"
+                            if (webView.url != fileUrl) {
+                                webView.loadUrl(fileUrl)
+                            }
+                        }
+                        // Push the latest __VELA_CONTEXT__ (e.g. after theme change
+                        // or after a new mini app joins the capabilities graph)
+                        webView.post {
+                            webView.evaluateJavascript("window.__VELA_CONTEXT__=$contextJson;", null)
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
 
-                        // Load renderer if it exists, otherwise show the loading placeholder
-                        val rendererFile = viewModel.getRendererFile(contentType)
-                        if (rendererFile != null) {
-                            loadUrl("file://${rendererFile.absolutePath}")
-                        } else {
-                            loadData(LOADING_PLACEHOLDER_HTML, "text/html", "UTF-8")
-                        }
+                // Only show feedback FAB when renderer is ready (not loading)
+                if (rendererState is RendererState.Ready) {
+                    FloatingActionButton(
+                        onClick  = { showFeedbackSheet = true },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(16.dp),
+                    ) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = "Improve mini app")
                     }
-                },
-                update = { webView ->
-                    val currentState = rendererState
-                    if (currentState is RendererState.Ready) {
-                        // Transition from Fallback → Ready: load renderer if not yet loaded
-                        val fileUrl = "file://${currentState.rendererFile.absolutePath}"
-                        if (webView.url != fileUrl) {
-                            webView.loadUrl(fileUrl)
-                        }
-                    }
-                    // Push the latest __VELA_CONTEXT__ (e.g. after theme change
-                    // or after a new mini app joins the capabilities graph)
-                    webView.post {
-                        webView.evaluateJavascript("window.__VELA_CONTEXT__=$contextJson;", null)
-                    }
-                },
-                modifier = modifier.fillMaxSize(),
-            )
+                }
+            }
+
+            if (showFeedbackSheet && rendererState is RendererState.Ready) {
+                RendererFeedbackSheet(
+                    viewModel       = viewModel,
+                    contentType     = contentType,
+                    rendererType    = com.vela.app.ai.RendererType.READER,
+                    onDismiss       = { showFeedbackSheet = false },
+                    onApplyFeedback = { feedback ->
+                        showFeedbackSheet = false
+                        rendererState = RendererState.Building(
+                            rendererType = com.vela.app.ai.RendererType.READER,
+                            feedback     = feedback,
+                        )
+                    },
+                )
+            }
         }
     }
 }
@@ -534,39 +621,55 @@ private fun RendererTypeSheet(
     onSelect: (com.vela.app.ai.RendererType) -> Unit,
     onOpenExisting: () -> Unit,
 ) {
-    // State
     var suggestions  by remember { mutableStateOf<List<RendererSuggestion>?>(null) }
     var existingFile by remember { mutableStateOf<java.io.File?>(null) }
+    var rerollKey    by remember { mutableStateOf(0) }
 
-    // Kick off both lookups when the sheet appears
-    LaunchedEffect(contentType) {
+    LaunchedEffect(contentType, rerollKey) {
+        suggestions = null   // reset on re-roll
         existingFile = viewModel.getRendererFile(contentType)
         suggestions  = viewModel.suggestRendererTypes(itemContent, contentType)
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Text(
-            "What kind of mini app?",
-            style    = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-        )
+        Row(
+            modifier              = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 8.dp),
+            verticalAlignment     = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text("What kind of mini app?", style = MaterialTheme.typography.titleMedium)
+            if (suggestions != null) {
+                IconButton(onClick = { rerollKey++ }) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Try different ideas")
+                }
+            }
+        }
 
         if (suggestions == null) {
-            // Loading state
-            Box(
-                modifier         = Modifier
+            // Loading state — better than just a spinner
+            Column(
+                modifier            = Modifier
                     .fillMaxWidth()
-                    .height(160.dp),
-                contentAlignment = Alignment.Center,
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator()
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        "Analysing your content…",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                Text(
+                    "Analysing your $contentType…",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                // Shimmer placeholders
+                repeat(3) {
+                    Surface(
+                        shape    = MaterialTheme.shapes.medium,
+                        color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(64.dp),
+                    ) {}
                 }
             }
         } else {
@@ -599,7 +702,6 @@ private fun RendererTypeSheet(
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             }
 
-            // AI-personalised choices
             suggestions!!.forEach { suggestion ->
                 ListItem(
                     headlineContent   = { Text(suggestion.label) },
@@ -619,6 +721,85 @@ private fun RendererTypeSheet(
             }
         }
 
+        Spacer(Modifier.height(32.dp))
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// RendererFeedbackSheet — post-generation improvement sheet
+// ────────────────────────────────────────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RendererFeedbackSheet(
+    viewModel: MiniAppViewModel,
+    contentType: String,
+    rendererType: com.vela.app.ai.RendererType,
+    onDismiss: () -> Unit,
+    onApplyFeedback: (String) -> Unit,
+) {
+    var feedbackSuggestions by remember { mutableStateOf<List<String>?>(null) }
+    var selectedSuggestion  by remember { mutableStateOf<String?>(null) }
+    var customFeedback      by remember { mutableStateOf("") }
+
+    LaunchedEffect(contentType, rendererType) {
+        feedbackSuggestions = viewModel.suggestFeedback(contentType, rendererType)
+    }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Text(
+            "How would you improve it?",
+            style    = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+        )
+
+        if (feedbackSuggestions == null) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp))
+            Spacer(Modifier.height(16.dp))
+        } else {
+            // 2 quick-pick suggestion chips
+            Row(
+                modifier              = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                feedbackSuggestions!!.forEach { s ->
+                    FilterChip(
+                        selected = selectedSuggestion == s,
+                        onClick  = {
+                            selectedSuggestion = if (selectedSuggestion == s) null else s
+                            if (selectedSuggestion == s) customFeedback = ""
+                        },
+                        label    = { Text(s, style = MaterialTheme.typography.labelMedium) },
+                    )
+                }
+            }
+        }
+
+        // Manual input
+        OutlinedTextField(
+            value         = customFeedback,
+            onValueChange = { customFeedback = it; selectedSuggestion = null },
+            placeholder   = { Text("Or describe what you'd like…") },
+            modifier      = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            maxLines      = 3,
+        )
+
+        // Action buttons
+        Row(
+            modifier              = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+        ) {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+            val feedbackText = customFeedback.ifBlank { selectedSuggestion ?: "" }
+            Button(
+                onClick  = { if (feedbackText.isNotBlank()) onApplyFeedback(feedbackText) },
+                enabled  = feedbackText.isNotBlank(),
+            ) { Text("Apply feedback") }
+        }
         Spacer(Modifier.height(32.dp))
     }
 }
