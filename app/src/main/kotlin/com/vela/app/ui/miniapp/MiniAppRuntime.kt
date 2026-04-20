@@ -568,10 +568,17 @@ fun MiniAppContainer(
                                 }
                             }
 
-                            // Load renderer if it exists, otherwise show the loading placeholder
+                            // Load renderer if it exists, otherwise show the loading placeholder.
+                            // Use loadDataWithBaseURL so the WebView never needs file:// access
+                            // to external storage (vault paths are outside the app sandbox).
                             val rendererFile = viewModel.getRendererFile(contentType)
                             if (rendererFile != null) {
-                                loadUrl("file://${rendererFile.absolutePath}")
+                                tag = rendererFile.absolutePath  // track what's loaded
+                                loadDataWithBaseURL(
+                                    "file://${rendererFile.parent}/",
+                                    rendererFile.readText(),
+                                    "text/html", "UTF-8", null,
+                                )
                             } else {
                                 loadData(LOADING_PLACEHOLDER_HTML, "text/html", "UTF-8")
                             }
@@ -580,10 +587,16 @@ fun MiniAppContainer(
                     update = { webView ->
                         val currentState = rendererState
                         if (currentState is RendererState.Ready) {
-                            // Transition from Fallback → Ready: load renderer if not yet loaded
-                            val fileUrl = "file://${currentState.rendererFile.absolutePath}"
-                            if (webView.url != fileUrl) {
-                                webView.loadUrl(fileUrl)
+                            // Transition from Fallback → Ready: load renderer if not yet loaded.
+                            // Track by tag (file path) since loadDataWithBaseURL doesn't update webView.url.
+                            val path = currentState.rendererFile.absolutePath
+                            if (webView.tag != path) {
+                                webView.tag = path
+                                webView.loadDataWithBaseURL(
+                                    "file://${currentState.rendererFile.parent}/",
+                                    currentState.rendererFile.readText(),
+                                    "text/html", "UTF-8", null,
+                                )
                             }
                         }
                         // Push the latest __VELA_CONTEXT__ (e.g. after theme change
