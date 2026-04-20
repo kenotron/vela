@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Folder
@@ -180,6 +181,10 @@ fun ConversationScreen(
 
     Scaffold(
         modifier = modifier,
+        // Disable Scaffold's automatic inset handling — ComposerBox owns its
+        // own navigationBarsPadding + imePadding so the Scaffold must not also
+        // apply them, otherwise the composer jumps up twice when the keyboard opens.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             CenterAlignedTopAppBar(
                 navigationIcon = {
