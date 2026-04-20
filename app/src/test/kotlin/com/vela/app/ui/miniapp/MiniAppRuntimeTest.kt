@@ -143,23 +143,6 @@ class MiniAppRuntimeTest {
         assertThat(theme.primaryColor).isEqualTo("#6200EE")
     }
 
-    // ── MiniAppViewModel.createJsInterface ────────────────────────────────────────────────────────
-
-    @Test
-    fun `createJsInterface returns non-null VelaJSInterface`() {
-        val vm = buildViewModel(tempDir.newFolder())
-        val jsInterface = vm.createJsInterface("recipes/carbonara.md", "recipe")
-        assertThat(jsInterface).isNotNull()
-    }
-
-    @Test
-    fun `createJsInterface for different paths returns independent instances`() {
-        val vm = buildViewModel(tempDir.newFolder())
-        val a = vm.createJsInterface("notes/todo.md", "note")
-        val b = vm.createJsInterface("recipes/pasta.md", "recipe")
-        assertThat(a).isNotSameInstanceAs(b)
-    }
-
     // ── MiniAppViewModel.getRendererFile ──────────────────────────────────────────────────────────
 
     @Test

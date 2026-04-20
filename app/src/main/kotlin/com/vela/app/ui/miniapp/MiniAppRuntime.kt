@@ -26,7 +26,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
-    import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.MenuBook
@@ -182,17 +181,6 @@ class MiniAppViewModel @Inject constructor(
 
     val serverPort: StateFlow<Int> = server.port
     val serverReady: StateFlow<Boolean> = server.isReady
-
-    /** Factory — creates one [VelaJSInterface] per (itemPath, contentType) pair. */
-    fun createJsInterface(itemPath: String, contentType: String): VelaJSInterface =
-        VelaJSInterface(
-            documentStore    = documentStore,
-            eventBus         = eventBus,
-            amplifierSession = amplifierSession,
-            vaultManager     = vaultManager,
-            itemScopePath    = itemPath,
-            contentType      = contentType,
-        )
 
     /**
      * Returns the cached renderer HTML [File], or `null` if generation has not
@@ -387,15 +375,6 @@ fun MiniAppContainer(
 
     val contextJson = remember(itemPath, itemContent, contentType, capabilities, isDark, primaryHex, layout) {
         buildContextJson(itemPath, itemContent, contentType, capabilities, theme, layout)
-    }
-
-    // ── JS interface — stable for the composable's lifetime ───────────────────
-    val jsInterface = remember(itemPath, contentType) {
-        viewModel.createJsInterface(itemPath, contentType)
-    }
-
-    DisposableEffect(jsInterface) {
-        onDispose { jsInterface.cancelAllSubscriptions() }
     }
 
     // ── RendererState — drives which UI branch is shown ───────────────────────
