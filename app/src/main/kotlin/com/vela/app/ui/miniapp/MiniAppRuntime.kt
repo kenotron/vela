@@ -53,6 +53,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -61,6 +66,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.rotate
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
@@ -403,6 +410,23 @@ fun MiniAppContainer(
             var showTypeSheet by remember { mutableStateOf(false) }
             var isAnalysing   by remember { mutableStateOf(false) }
 
+            // Delay sheet opening so user sees the FAB spin for a beat before the modal covers it
+            LaunchedEffect(isAnalysing) {
+                if (isAnalysing && !showTypeSheet) {
+                    delay(280)
+                    showTypeSheet = true
+                }
+            }
+
+            // Continuous rotation for the ✨ icon while analysing
+            val infiniteTransition = rememberInfiniteTransition(label = "fab-spin")
+            val fabRotation by infiniteTransition.animateFloat(
+                initialValue  = 0f,
+                targetValue   = 360f,
+                animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing)),
+                label         = "fab-rotation",
+            )
+
             Box(modifier) {
                 FallbackRenderer(
                     contentType = s.contentType,
@@ -410,12 +434,7 @@ fun MiniAppContainer(
                     modifier    = Modifier.fillMaxSize(),
                 )
                 FloatingActionButton(
-                    onClick  = {
-                        if (!showTypeSheet) {
-                            showTypeSheet = true
-                            isAnalysing   = true
-                        }
-                    },
+                    onClick        = { if (!isAnalysing) isAnalysing = true },
                     modifier       = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(16.dp),
@@ -424,15 +443,14 @@ fun MiniAppContainer(
                     else
                         MaterialTheme.colorScheme.primaryContainer,
                 ) {
-                    if (isAnalysing) {
-                        CircularProgressIndicator(
-                            modifier    = Modifier.size(24.dp),
-                            strokeWidth = 2.5.dp,
-                            color       = MaterialTheme.colorScheme.onTertiaryContainer,
-                        )
-                    } else {
-                        Icon(Icons.Default.AutoAwesome, contentDescription = "Generate mini app")
-                    }
+                    Icon(
+                        imageVector        = Icons.Default.AutoAwesome,
+                        contentDescription = "Generate mini app",
+                        modifier           = if (isAnalysing)
+                            Modifier.rotate(fabRotation)
+                        else
+                            Modifier,
+                    )
                 }
             }
 
@@ -653,10 +671,11 @@ private fun RendererTypeSheet(
     var rerollKey    by remember { mutableStateOf(0) }
 
     LaunchedEffect(contentType, rerollKey) {
-        suggestions = null   // reset on re-roll
+        suggestions = null          // reset — triggers loading skeleton
+        delay(50)                   // one frame: guarantee skeleton renders before new results arrive
         existingFile = viewModel.getRendererFile(contentType)
         suggestions  = viewModel.suggestRendererTypes(itemContent, contentType)
-        onSuggestionsReady()   // signal FAB to stop its loading animation
+        onSuggestionsReady()        // signal FAB to stop spinning
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
