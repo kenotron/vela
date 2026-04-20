@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material.icons.Icons
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Menu
@@ -179,14 +180,25 @@ fun ConversationScreen(
         if (turnsWithEvents.isNotEmpty()) listState.scrollToItem(turnsWithEvents.size - 1)
     }
 
+    // Star field lives BEHIND the Scaffold so it bleeds edge-to-edge:
+    // top bar area, full content column, and behind the composer strip.
+    Box(modifier = modifier.fillMaxSize()) {
+        ConversationBackground()
+    }
+
     Scaffold(
         modifier = modifier,
+        containerColor = Color.Transparent,        // let the star field show through
         // Disable Scaffold's automatic inset handling — ComposerBox owns its
         // own navigationBarsPadding + imePadding so the Scaffold must not also
         // apply them, otherwise the composer jumps up twice when the keyboard opens.
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             CenterAlignedTopAppBar(
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor          = Color.Transparent,
+                    scrolledContainerColor  = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                ),
                 navigationIcon = {
                     IconButton(onClick = onOpenDrawer) {
                         Icon(Icons.Default.Menu, contentDescription = "Open menu")
@@ -257,7 +269,6 @@ fun ConversationScreen(
         },
     ) { pad ->
         Box(Modifier.fillMaxSize().padding(pad)) {
-            ConversationBackground()
             if (turnsWithEvents.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("Start a conversation", style = MaterialTheme.typography.bodyMedium,

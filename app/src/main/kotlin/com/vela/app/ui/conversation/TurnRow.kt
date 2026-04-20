@@ -181,7 +181,9 @@ package com.vela.app.ui.conversation
         val alpha by inf.animateFloat(0.3f, 1f, infiniteRepeatable(tween(600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "a")
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
-            Box(Modifier.widthIn(max = maxW).background(cs.surface, AssistantShape).padding(horizontal = 14.dp, vertical = 10.dp)) {
+            // surfaceContainerHigh gives a noticeably lighter card tone than cs.surface
+            // so the bubble stands out clearly against the dark star-field background.
+            Box(Modifier.widthIn(max = maxW).background(cs.surfaceContainerHigh, AssistantShape).padding(horizontal = 14.dp, vertical = 10.dp)) {
                 Column {
                     MarkdownText(text = text, color = cs.onSurface)
                     if (streaming) {
