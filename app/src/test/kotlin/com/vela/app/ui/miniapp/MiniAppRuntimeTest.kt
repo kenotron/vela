@@ -226,4 +226,55 @@ class MiniAppRuntimeTest {
             assertThat(suggestion.label).isEqualTo(type.label)
         }
     }
+
+    // ── FitnessResult ──────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `FitnessResult holds match confidence and reason`() {
+        val result = MiniAppViewModel.FitnessResult(
+            match      = "recipe",
+            confidence = 0.9f,
+            reason     = "content describes cooking steps",
+        )
+        assertThat(result.match).isEqualTo("recipe")
+        assertThat(result.confidence).isEqualTo(0.9f)
+        assertThat(result.reason).isEqualTo("content describes cooking steps")
+    }
+
+    @Test
+    fun `FitnessResult with null match represents no-match`() {
+        val result = MiniAppViewModel.FitnessResult(match = null, confidence = 0f, reason = "no existing mini apps")
+        assertThat(result.match).isNull()
+    }
+
+    // ── MiniAppViewModel.fitnessCheck ──────────────────────────────────────────────────────────
+
+    @Test
+    fun `fitnessCheck returns no-match FitnessResult when existingTypes is empty`() = runTest {
+        val vm = buildViewModel(tempDir.newFolder())
+        val result = vm.fitnessCheck(
+            contentType    = "recipe",
+            contentSnippet = "Spaghetti carbonara instructions...",
+            existingTypes  = emptyList(),
+        )
+        assertThat(result.match).isNull()
+        assertThat(result.confidence).isEqualTo(0f)
+        assertThat(result.reason).isEqualTo("no existing mini apps")
+    }
+
+    @Test
+    fun `fitnessCheck falls back to error FitnessResult when session yields no output`() = runTest {
+        val vm = buildViewModel(tempDir.newFolder())
+        // mockSession.runTurn does nothing by default → sb stays empty → JSONObject("") throws
+        val result = vm.fitnessCheck(
+            contentType    = "recipe",
+            contentSnippet = "Carbonara recipe...",
+            existingTypes  = listOf("recipe", "note"),
+        )
+        assertThat(result.match).isNull()
+        // confidence stays 0 on error
+        assertThat(result.confidence).isEqualTo(0f)
+        // reason starts with "error:"
+        assertThat(result.reason).startsWith("error:")
+    }
 }

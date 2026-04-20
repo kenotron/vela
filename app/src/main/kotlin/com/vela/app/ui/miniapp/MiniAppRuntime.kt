@@ -257,16 +257,19 @@ class MiniAppViewModel @Inject constructor(
         return try {
             val preview = itemContent.take(600).replace("\"", "'")
             val prompt = """
-You are helping a user choose how to turn a vault file into a mini app.
-Content type: $contentType
-Content preview:
-\"\"\"
-$preview
-\"\"\"
+You are helping a user decide what to build as an interactive mini app for their vault content.
 
-Return ONLY a valid JSON array (no explanation, no markdown fences) with exactly 3 objects:
-[{"type":"READER|INTERACTIVE|DASHBOARD","label":"2-4 word title","description":"one sentence specific to this content"}]
-Order them from most useful to least useful for this content.
+Content type: "$contentType"
+Content preview:
+$preview
+
+Suggest exactly 3 specific things the user could DO with this content as an interactive app.
+Focus on UTILITY and ACTIONS the user can take — not visual style or aesthetics.
+Good examples: "Track which recipes you've tried", "Build a step-by-step cook-along guide"
+Bad examples: "Reader view", "Interactive layout", "Dashboard style"
+
+Return ONLY valid JSON array of exactly 3 objects:
+[{"type":"READER|INTERACTIVE|DASHBOARD","label":"short action title (max 6 words)","description":"what the user can do (max 12 words)"}]
             """.trimIndent()
 
             val sb = StringBuilder()
@@ -337,6 +340,55 @@ Return ONLY a JSON array of 2 strings: ["idea 1", "idea 2"]
             listOf(arr.getString(0), arr.getString(1)).takeIf { it.size == 2 } ?: fallback
         } catch (e: Exception) {
             fallback
+        }
+    }
+
+    data class FitnessResult(
+        val match: String?,
+        val confidence: Float,
+        val reason: String,
+    )
+
+    suspend fun fitnessCheck(
+        contentType: String,
+        contentSnippet: String,
+        existingTypes: List<String>,
+    ): FitnessResult {
+        if (existingTypes.isEmpty()) return FitnessResult(null, 0f, "no existing mini apps")
+        val prompt = buildString {
+            appendLine("Vault file content type: \"$contentType\"")
+            appendLine("Opening content:")
+            appendLine(contentSnippet.take(400))
+            appendLine()
+            appendLine("Existing mini app types: ${existingTypes.joinToString()}")
+            appendLine()
+            appendLine("Does one of these types fit this content well?")
+            append("Reply ONLY with valid JSON: {\"match\": \"type_name_or_null\", \"confidence\": 0.0_to_1.0, \"reason\": \"brief\"}")
+        }
+        return try {
+            val sb = StringBuilder()
+            amplifierSession.runTurn(
+                historyJson       = "[]",
+                userInput         = prompt,
+                userContentJson   = null,
+                systemPrompt      = "Return only valid JSON. No explanation.",
+                onToolStart       = { _, _ -> "" },
+                onToolEnd         = { _, _ -> },
+                onToken           = { sb.append(it) },
+                onProviderRequest = { null },
+                onServerTool      = { _, _ -> },
+            )
+            val raw = sb.toString().trim()
+                .removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+            val json = org.json.JSONObject(raw)
+            val matchVal = json.optString("match").takeIf { it.isNotBlank() && it != "null" }
+            FitnessResult(
+                match      = matchVal,
+                confidence = json.optDouble("confidence", 0.0).toFloat(),
+                reason     = json.optString("reason", ""),
+            )
+        } catch (e: Exception) {
+            FitnessResult(null, 0f, "error: ${e.message}")
         }
     }
 }
