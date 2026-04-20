@@ -91,6 +91,7 @@ package com.vela.app.ui.vault
                         relPath  = selectedFilePath!!,
                         layout   = "phone",
                         modifier = modifier.fillMaxSize(),
+                        onBack   = { selectedFilePath = null },
                     )
                 } else {
                     VaultFileListPane(
@@ -182,6 +183,7 @@ package com.vela.app.ui.vault
                 relPath  = selectedFilePath!!,
                 layout   = "phone",
                 modifier = Modifier.fillMaxSize(),
+                onBack   = { selectedFilePath = null },
             )
             return
         }
@@ -540,12 +542,14 @@ package com.vela.app.ui.vault
 
     // ─── MiniAppContainerView ──────────────────────────────────────────────────────
 
+    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     private fun MiniAppContainerView(
         vault:    VaultEntity,
         relPath:  String,
         layout:   String,
         modifier: Modifier = Modifier,
+        onBack:   (() -> Unit)? = null,
     ) {
         val itemPath = remember(vault.localPath, relPath) {
             "${vault.localPath}/$relPath"
@@ -559,18 +563,46 @@ package com.vela.app.ui.vault
             }
         }
 
-        if (itemContent.isEmpty()) {
-            Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+        Scaffold(
+            modifier = modifier,
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = relPath.substringAfterLast("/").removeSuffix(".md"),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                    navigationIcon = {
+                        if (onBack != null) {
+                            IconButton(onClick = onBack) {
+                                Icon(
+                                    imageVector        = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                )
+                            }
+                        }
+                    },
+                )
+            },
+        ) { innerPadding ->
+            if (itemContent.isEmpty()) {
+                Box(
+                    modifier          = Modifier.fillMaxSize().padding(innerPadding),
+                    contentAlignment  = Alignment.Center,
+                ) {
+                    CircularProgressIndicator()
+                }
+            } else {
+                MiniAppContainer(
+                    itemPath    = itemPath,
+                    itemContent = itemContent,
+                    contentType = contentType,
+                    layout      = layout,
+                    modifier    = Modifier.padding(innerPadding),
+                )
             }
-        } else {
-            MiniAppContainer(
-                itemPath    = itemPath,
-                itemContent = itemContent,
-                contentType = contentType,
-                layout      = layout,
-                modifier    = modifier,
-            )
         }
     }
 
