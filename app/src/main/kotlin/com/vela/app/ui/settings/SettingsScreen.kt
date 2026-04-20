@@ -335,7 +335,7 @@ fun VaultsSettingsScreen(
 // ── Shared dialogs ────────────────────────────────────────────────────────────
 
 @Composable
-private fun ApiKeyDialog(
+internal fun ApiKeyDialog(
     title: String,
     currentKey: String,
     onDismiss: () -> Unit,
@@ -390,12 +390,15 @@ private fun ModelPickerDialog(currentModel: String, onDismiss: () -> Unit, onSel
 // ── Shared composables ────────────────────────────────────────────────────────
 
 @Composable
-internal fun SectionHeader(title: String) {
+internal fun SectionHeader(
+    title: String,
+    modifier: Modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+) {
     Text(
         text     = title,
         style    = MaterialTheme.typography.titleSmall,
         color    = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = modifier,
     )
 }
 
@@ -522,5 +525,109 @@ internal fun AddVaultSheet(
                 ) { Text("Create Vault") }
             }
         }
+    }
+}
+
+// ── Recording sub-screen ──────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun RecordingSettingsScreen(
+    onNavigateBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    viewModel: SettingsViewModel = hiltViewModel(),
+) {
+    val googleKey  by viewModel.googleApiKey.collectAsState()
+    val openAiKey  by viewModel.openAiApiKey.collectAsState()
+    var editingKey by remember { mutableStateOf<String?>(null) }   // "google" | "openai" | null
+
+    Scaffold(
+        modifier = modifier,
+        topBar = {
+            TopAppBar(
+                title = { Text("Recording") },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+            )
+        },
+    ) { innerPadding ->
+        LazyColumn(
+            modifier       = Modifier.padding(innerPadding),
+            contentPadding = PaddingValues(bottom = 16.dp),
+        ) {
+            item {
+                SectionHeader(
+                    title    = "Transcription",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+            item {
+                ListItem(
+                    headlineContent   = { Text("Active provider") },
+                    supportingContent = {
+                        Text(
+                            when {
+                                googleKey.isNotBlank()  -> "Gemini Flash (Google key configured)"
+                                openAiKey.isNotBlank()  -> "Whisper (OpenAI key configured)"
+                                else                    -> "No API key configured — add a key below"
+                            }
+                        )
+                    },
+                    leadingContent = { Icon(Icons.Default.Mic, contentDescription = null) },
+                )
+            }
+            item {
+                SectionHeader(
+                    title    = "Google · Gemini Flash",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+            item {
+                ListItem(
+                    headlineContent   = { Text("API Key") },
+                    supportingContent = {
+                        Text(if (googleKey.isBlank()) "(not set)" else "…${googleKey.takeLast(4)}")
+                    },
+                    trailingContent = {
+                        TextButton(onClick = { editingKey = "google" }) { Text("Edit") }
+                    },
+                )
+            }
+            item {
+                SectionHeader(
+                    title    = "OpenAI · Whisper",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+            item {
+                ListItem(
+                    headlineContent   = { Text("API Key") },
+                    supportingContent = {
+                        Text(if (openAiKey.isBlank()) "(not set)" else "…${openAiKey.takeLast(4)}")
+                    },
+                    trailingContent = {
+                        TextButton(onClick = { editingKey = "openai" }) { Text("Edit") }
+                    },
+                )
+            }
+        }
+    }
+
+    when (editingKey) {
+        "google" -> ApiKeyDialog(
+            title      = "Google API Key",
+            currentKey = googleKey,
+            onConfirm  = { viewModel.setGoogleApiKey(it); editingKey = null },
+            onDismiss  = { editingKey = null },
+        )
+        "openai" -> ApiKeyDialog(
+            title      = "OpenAI API Key",
+            currentKey = openAiKey,
+            onConfirm  = { viewModel.setOpenAiApiKey(it); editingKey = null },
+            onDismiss  = { editingKey = null },
+        )
     }
 }

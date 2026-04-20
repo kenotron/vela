@@ -187,7 +187,7 @@ private fun DestinationContent(
                         onNavigateBack        = { profilePage = ProfilePage.PROFILE },
                         onNavigateToAi        = { profilePage = ProfilePage.AI },
                         onNavigateToVaults    = { profilePage = ProfilePage.VAULTS },
-                        onNavigateToRecording = {},
+                        onNavigateToRecording = { profilePage = ProfilePage.RECORDING },
                         modifier              = modifier,
                     )
                 }
@@ -204,9 +204,16 @@ private fun DestinationContent(
                         onNavigateToVaultDetail = {},
                     )
                 }
+                ProfilePage.RECORDING -> {
+                    BackHandler { profilePage = ProfilePage.SETTINGS }
+                    com.vela.app.ui.settings.RecordingSettingsScreen(
+                        onNavigateBack = { profilePage = ProfilePage.SETTINGS },
+                        modifier       = modifier,
+                    )
+                }
             }
         }
     }
 }
 
-private enum class ProfilePage { PROFILE, SETTINGS, AI, VAULTS }
+private enum class ProfilePage { PROFILE, SETTINGS, AI, VAULTS, RECORDING }
