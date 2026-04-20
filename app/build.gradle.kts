@@ -139,22 +139,47 @@
 
             // Markdown rendering — Markwon (Java-based, version-agnostic, full GFM)
             // Headers, bold/italic/strikethrough, code blocks, tables, task lists, links
-            // Exclude com.atlassian.commonmark (old groupId) — conflicts with org.commonmark:0.22.0
+            //
+            // Dependency conflict background:
+            //   Markwon 4.6.2 was built against com.atlassian.commonmark (old groupId, 0.13.x).
+            //   We also need org.commonmark:commonmark:0.22.0 for the Ktor mini-app server.
+            //   Both artifact groups publish classes in the org.commonmark.* Java package, so
+            //   having both on the classpath causes duplicate-class build errors.
+            //
+            // Strategy:
+            //   • Exclude com.atlassian.commonmark:commonmark (core) from all Markwon deps —
+            //     org.commonmark:commonmark:0.22.0 fills that role, and Markwon core is
+            //     binary-compatible with the 0.22.0 API at every call site it uses.
+            //   • ext-strikethrough: allow com.atlassian.commonmark:commonmark-ext-gfm-strikethrough
+            //     back in (inline-only extension, no block-parser API calls — compatible with 0.22.0).
+            //   • ext-tables: exclude ALL com.atlassian.commonmark (the 0.13.0 tables extension
+            //     calls ParserState.getLine():CharSequence which was removed in 0.22.0 → crash).
+            //     Replaced below with org.commonmark:commonmark-ext-gfm-tables:0.22.0 which is
+            //     compiled against the same core API.
+            //   • ext-tasklist / linkify: narrow exclusion is safe — no ext artifact is pulled in.
             implementation("io.noties.markwon:core:4.6.2") {
-                exclude(group = "com.atlassian.commonmark")
+                exclude(group = "com.atlassian.commonmark", module = "commonmark")
             }
             implementation("io.noties.markwon:ext-strikethrough:4.6.2") {
-                exclude(group = "com.atlassian.commonmark")
+                exclude(group = "com.atlassian.commonmark", module = "commonmark")
             }
             implementation("io.noties.markwon:ext-tables:4.6.2") {
+                // Broad exclusion: prevents com.atlassian.commonmark:commonmark-ext-gfm-tables:0.13.0
+                // (incompatible with org.commonmark:commonmark:0.22.0 — ParserState.getLine() removed).
+                // org.commonmark:commonmark-ext-gfm-tables:0.22.0 added explicitly below.
                 exclude(group = "com.atlassian.commonmark")
             }
             implementation("io.noties.markwon:ext-tasklist:4.6.2") {
-                exclude(group = "com.atlassian.commonmark")
+                exclude(group = "com.atlassian.commonmark", module = "commonmark")
             }
             implementation("io.noties.markwon:linkify:4.6.2") {
-                exclude(group = "com.atlassian.commonmark")
+                exclude(group = "com.atlassian.commonmark", module = "commonmark")
             }
+            // Tables extension compatible with org.commonmark:commonmark:0.22.0.
+            // Replaces the excluded com.atlassian.commonmark:commonmark-ext-gfm-tables:0.13.0.
+            // Markwon's ext-tables module uses only stable public API (TablesExtension.create(),
+            // TableBlock/TableRow/TableCell AST nodes) — all present and unchanged in 0.22.0.
+            implementation("org.commonmark:commonmark-ext-gfm-tables:0.22.0")
 
         // Ktor embedded server for mini app backend
         implementation("io.ktor:ktor-server-core:2.3.13")
