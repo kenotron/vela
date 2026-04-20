@@ -212,24 +212,31 @@ class RendererGenerator @Inject constructor(
         }
 
         return buildString {
+            appendLine("## Step 1 — Read and understand the content")
+            appendLine("Study the vault item below. Think about what it IS semantically, what the user")
+            appendLine("wants to DO with it, and what UI experience would serve that intent best.")
+            appendLine()
             appendLine("## Vault Item")
             appendLine("Path: $itemPath")
-            appendLine("Content type: $contentType")
+            appendLine("Base content type hint: $contentType (use this as a starting point only — ")
+            appendLine("the actual semantic type may be much more specific)")
             appendLine()
             appendLine("```")
             appendLine(safeContent)
             appendLine("```")
             appendLine()
-            appendLine("## Capabilities Graph (existing mini apps)")
+            appendLine("## Capabilities Graph (existing mini apps you can connect to)")
             appendLine(capabilitiesSection)
             appendLine()
-            appendLine("## Renderer Style")
+            appendLine("## Step 2 — Choose the ideal experience")
+            appendLine("Based on the content's semantic purpose, pick the right paradigm:")
             appendLine(rendererType.promptStyle)
+            appendLine("Override this hint if you identify a better paradigm for this specific content.")
             appendLine()
             appendLine("## Context")
             appendLine("- Theme: ${if (theme.isDark) "dark" else "light"}, primary colour: ${theme.primaryColor}")
             appendLine("- Layout: $layout")
-            appendLine("- Vela SDK available in window.vela: db.put/get/delete/watch, events.publish/subscribe, ai.ask/stream, vault.read/write/list/sync")
+            appendLine("- Vela SDK: window.vela.db.put/get/delete/watch, events.publish/subscribe, ai.ask/stream, vault.read/write/list/sync")
             appendLine()
             if (!feedback.isNullOrBlank() && !existingHtml.isNullOrBlank()) {
                 appendLine("## Current Renderer (update this based on the feedback below)")
@@ -308,24 +315,48 @@ class RendererGenerator @Inject constructor(
 
     private companion object {
         val RENDERER_SYSTEM_PROMPT = """
-You are a mini app renderer generator for Vela, a personal intelligence platform.
+You are an intelligent mini app renderer generator for Vela, a personal intelligence platform.
 
-Your job is to generate a beautiful, functional, self-contained HTML/CSS/JS page
-that renders the provided vault item in a rich, interactive way.
+Your job is to study vault content deeply and generate a BESPOKE, beautiful, functional
+HTML/CSS/JS experience that is the IDEAL way for a human to interact with that specific content.
 
-Rules:
+## Step 1 — Understand what this content IS
+Before writing a single line of HTML, reason about:
+- What is the semantic purpose of this content? (recipe, habit tracker, meeting notes,
+  journal, project plan, reference doc, dashboard, reading list, contact info, …)
+- What does the user actually WANT to do with it? (cook from it, track progress,
+  review decisions, look something up, check off tasks, visualise trends, …)
+- What UI paradigm serves that intent best? (reading view, interactive checklist,
+  card-based dashboard, calendar/timeline, data table, kanban, form, …)
+
+## Step 2 — Design the right experience
+DO NOT default to a plain markdown-to-HTML dump. Instead:
+- For a recipe → show ingredients list with serving-size multiplier, step-by-step
+  cooking cards with timers, and a "shopping list" export.
+- For a habit/task list → show interactive checkboxes with streak counters, progress
+  rings, and persistent state via window.vela.db.
+- For meeting notes → extract agenda, decisions, and action items into distinct blocks;
+  show attendees as avatars; highlight open actions.
+- For a project status → build a mini dashboard: progress bars, status chips,
+  key metrics at the top, detail sections below.
+- For a journal/diary → beautiful prose reader with date header, mood indicator,
+  linked tags.
+- For data/CSV/JSON → pick the right visualisation: table, chart, summary cards.
+- For a contacts/people list → card grid with quick-action buttons.
+- For a reading list/bookmarks → card list with open-URL actions.
+- For anything else → invent the right experience based on the content's intent.
+
+## Rules
 - Respond ONLY with the HTML page followed by a manifest block. No explanation.
 - The HTML page must be a complete document starting with <!DOCTYPE html>.
-- Use window.vela.db for persistence. Use the scope prefix that best matches the
-  data's intended visibility: local: (this item only), global: (shared across all
-  mini apps), or type: (shared across all renderers of the same content type).
-- Document your scope reasoning in JS comments.
-- Use window.vela.events to publish/subscribe to cross-app events.
-- Call window.onVelaReady if you need to run setup after the SDK is ready.
-- Adapt layout for the given form factor (phone/tablet) using CSS variables
-  --vela-layout, --vela-is-dark, --vela-primary-color.
-- Where the capabilities graph shows other mini apps that your renderer could
-  connect to, wire those connections via vela.db shared collections or vela.events.
+- Include substantial CSS — make it look genuinely polished and native-feeling.
+- Use window.vela.db for persistence (scope: local:, type:, or global: with JS comments).
+- Use window.vela.events to publish/subscribe cross-app events.
+- Call window.onVelaReady for post-SDK-init setup.
+- Adapt for phone/tablet via CSS vars --vela-layout, --vela-is-dark, --vela-primary-color.
+- Connect to other mini apps shown in the capabilities graph via shared db collections.
+- Render content dynamically in JavaScript — don't just embed raw text as static HTML.
+  Parse the content string, extract structure, and build UI components from it.
 
 The manifest block documents what this mini app provides and consumes.""".trimIndent()
 

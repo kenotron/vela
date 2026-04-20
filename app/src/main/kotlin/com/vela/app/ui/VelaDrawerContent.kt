@@ -5,9 +5,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Person
@@ -29,52 +29,48 @@ internal enum class DrawerDestination {
 /**
  * Content of the left-side navigation drawer.
  *
- * Layout (top → bottom):
- *  ┌─────────────────────────────────┐
- *  │  Vela               [🔍] [✏️]  │
- *  │  Vaults                         │
- *  │  Connectors                     │
- *  │  ─────────────────────────────  │
- *  │  Recents                        │
- *  │    chat 1                       │
- *  │    chat 2  …(scrollable)        │
- *  │  ─────────────────────────────  │
- *  │  (👤) Profile                   │
- *  └─────────────────────────────────┘
+ *  ┌──────────────────────────────┐
+ *  │  Vela                [🔍][+] │
+ *  │  Vaults                      │
+ *  │  Connectors                  │
+ *  │  ──────────────────────────  │
+ *  │  Recents                     │
+ *  │    chat 1                    │
+ *  │    chat 2   …(scrollable)    │
+ *  │  ──────────────────────────  │
+ *  │  (●) Ken Chau                │
+ *  └──────────────────────────────┘
  */
 @Composable
 internal fun VelaDrawerContent(
-    conversations: List<Conversation>,
+    conversations:        List<Conversation>,
     activeConversationId: String?,
-    currentDestination: DrawerDestination,
-    onNewChat: () -> Unit,
-    onSearch: () -> Unit,
-    onVaults: () -> Unit,
-    onConnectors: () -> Unit,
+    currentDestination:   DrawerDestination,
+    userName:             String,
+    onNewChat:            () -> Unit,
+    onSearch:             () -> Unit,
+    onVaults:             () -> Unit,
+    onConnectors:         () -> Unit,
     onSelectConversation: (String) -> Unit,
-    onProfile: () -> Unit,
-    modifier: Modifier = Modifier,
+    onProfile:            () -> Unit,
+    modifier:             Modifier = Modifier,
 ) {
     val cs = MaterialTheme.colorScheme
 
-    Column(
-        modifier = modifier.fillMaxHeight(),
-    ) {
+    Column(modifier = modifier.fillMaxHeight()) {
 
-        // ── Header row: brand + action icons ─────────────────────────────
+        // ── Header: brand + icon actions ─────────────────────────────────
         Spacer(Modifier.height(20.dp))
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            modifier              = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            verticalAlignment     = Alignment.CenterVertically,
         ) {
             Text(
-                text = "Vela",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = cs.onSurface,
-                modifier = Modifier.weight(1f),
+                text      = "Vela",
+                style     = MaterialTheme.typography.titleLarge,
+                fontWeight= FontWeight.Bold,
+                color     = cs.onSurface,
+                modifier  = Modifier.weight(1f),
             )
             IconButton(onClick = onSearch) {
                 Icon(Icons.Default.Search, contentDescription = "Search chats", tint = cs.onSurfaceVariant)
@@ -88,62 +84,53 @@ internal fun VelaDrawerContent(
 
         // ── Top nav: Vaults & Connectors ─────────────────────────────────
         NavigationDrawerItem(
-            icon = { Icon(Icons.Default.Folder, contentDescription = null) },
-            label = { Text("Vaults") },
+            icon     = { Icon(Icons.Default.Folder, contentDescription = null) },
+            label    = { Text("Vaults") },
             selected = currentDestination == DrawerDestination.VAULT,
-            onClick = onVaults,
+            onClick  = onVaults,
             modifier = Modifier.padding(horizontal = 12.dp),
         )
         NavigationDrawerItem(
-            icon = { Icon(Icons.Default.Hub, contentDescription = null) },
-            label = { Text("Connectors") },
+            icon     = { Icon(Icons.Default.Hub, contentDescription = null) },
+            label    = { Text("Connectors") },
             selected = currentDestination == DrawerDestination.CONNECTORS,
-            onClick = onConnectors,
+            onClick  = onConnectors,
             modifier = Modifier.padding(horizontal = 12.dp),
         )
 
         HorizontalDivider(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-            color = cs.outlineVariant.copy(alpha = 0.5f),
+            color    = cs.outlineVariant.copy(alpha = 0.5f),
         )
 
-        // ── Conversation list (scrollable, fills remaining space) ─────────
-        val pinned  = emptyList<Conversation>()   // future: filter by conv.isPinned
+        // ── Chat list ─────────────────────────────────────────────────────
         val recents = conversations.sortedByDescending { it.updatedAt }
 
         LazyColumn(
-            modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(horizontal = 12.dp),
+            modifier       = Modifier.weight(1f),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
         ) {
-            if (pinned.isNotEmpty()) {
-                item { DrawerSectionLabel("Pinned") }
-                items(pinned, key = { "p_${it.id}" }) { conv ->
-                    DrawerConversationItem(
-                        conv     = conv,
-                        isActive = conv.id == activeConversationId,
-                        onClick  = { onSelectConversation(conv.id) },
-                    )
-                }
-                item { Spacer(Modifier.height(4.dp)) }
-            }
-
             if (recents.isNotEmpty()) {
-                item { DrawerSectionLabel("Recents") }
-                items(recents, key = { "r_${it.id}" }) { conv ->
-                    DrawerConversationItem(
+                item {
+                    Text(
+                        text     = "Recents",
+                        style    = MaterialTheme.typography.labelMedium,
+                        color    = cs.onSurfaceVariant,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+                }
+                items(recents, key = { it.id }) { conv ->
+                    CompactConversationRow(
                         conv     = conv,
                         isActive = conv.id == activeConversationId,
                         onClick  = { onSelectConversation(conv.id) },
                     )
                 }
-            }
-
-            if (conversations.isEmpty()) {
+            } else {
                 item {
                     Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 32.dp),
+                        modifier         = Modifier.fillMaxWidth().padding(vertical = 24.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
@@ -159,69 +146,60 @@ internal fun VelaDrawerContent(
         // ── Bottom: profile row (fixed) ───────────────────────────────────
         HorizontalDivider(
             modifier = Modifier.padding(horizontal = 16.dp),
-            color = cs.outlineVariant.copy(alpha = 0.5f),
+            color    = cs.outlineVariant.copy(alpha = 0.5f),
         )
         NavigationDrawerItem(
             icon = {
+                val initial = userName.firstOrNull()?.uppercaseChar()?.toString() ?: "?"
                 Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .background(cs.primary, CircleShape),
+                    modifier         = Modifier.size(28.dp).background(cs.primary, CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        imageVector        = Icons.Default.Person,
-                        contentDescription = null,
-                        tint               = cs.onPrimary,
-                        modifier           = Modifier.size(16.dp),
+                    Text(
+                        text  = initial,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = cs.onPrimary,
+                        fontWeight = FontWeight.Bold,
                     )
                 }
             },
-            label = { Text("Profile", maxLines = 1) },
+            label    = {
+                Text(
+                    text     = userName.ifBlank { "Profile" },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            },
             selected = currentDestination == DrawerDestination.PROFILE,
-            onClick = onProfile,
+            onClick  = onProfile,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
         )
         Spacer(Modifier.height(12.dp))
     }
 }
 
-// ── Private helpers ───────────────────────────────────────────────────────────
+// ── Compact conversation row (no icon, just title) ────────────────────────────
 
 @Composable
-private fun DrawerSectionLabel(text: String) {
-    Text(
-        text     = text,
-        style    = MaterialTheme.typography.labelMedium,
-        color    = MaterialTheme.colorScheme.onSurfaceVariant,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 2.dp),
-    )
-}
-
-@Composable
-private fun DrawerConversationItem(
-    conv: Conversation,
+private fun CompactConversationRow(
+    conv:     Conversation,
     isActive: Boolean,
-    onClick: () -> Unit,
+    onClick:  () -> Unit,
 ) {
-    NavigationDrawerItem(
-        icon = {
-            Icon(
-                imageVector        = Icons.Default.ChatBubbleOutline,
-                contentDescription = null,
-                modifier           = Modifier.size(18.dp),
-            )
-        },
-        label = {
-            Text(
-                text     = conv.title,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style    = MaterialTheme.typography.bodyMedium,
-            )
-        },
-        selected = isActive,
-        onClick  = onClick,
-    )
+    val cs = MaterialTheme.colorScheme
+    Surface(
+        onClick           = onClick,
+        color             = if (isActive) cs.secondaryContainer else androidx.compose.ui.graphics.Color.Transparent,
+        shape             = RoundedCornerShape(8.dp),
+        modifier          = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            text     = conv.title,
+            style    = MaterialTheme.typography.bodyMedium,
+            color    = if (isActive) cs.onSecondaryContainer else cs.onSurface.copy(alpha = 0.85f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+        )
+    }
 }

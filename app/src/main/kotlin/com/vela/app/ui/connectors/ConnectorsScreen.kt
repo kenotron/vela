@@ -5,10 +5,15 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -18,10 +23,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -34,396 +39,505 @@ import com.vela.app.ssh.NodeType
 import com.vela.app.ssh.SshNode
 import com.vela.app.ui.nodes.NodesViewModel
 
+// ── Connector catalog model ───────────────────────────────────────────────────
+
+private enum class ConnectorType(
+    val displayName: String,
+    val tagline: String,
+    val icon: ImageVector,
+    val iconTint: Color,
+    val available: Boolean,
+) {
+    SSH(
+        displayName = "SSH Server",
+        tagline     = "Connect to a Linux or macOS machine over SSH",
+        icon        = Icons.Default.Terminal,
+        iconTint    = Color(0xFF4A90D9),
+        available   = true,
+    ),
+    AMPLIFIER(
+        displayName = "Amplifier Server",
+        tagline     = "Connect to a self-hosted Amplifier daemon",
+        icon        = Icons.Default.Hub,
+        iconTint    = Color(0xFF7C4DFF),
+        available   = true,
+    ),
+    GITHUB(
+        displayName = "GitHub",
+        tagline     = "Browse repos, pull requests, and issues",
+        icon        = Icons.Default.Code,
+        iconTint    = Color(0xFF24292F),
+        available   = false,
+    ),
+    GMAIL(
+        displayName = "Gmail",
+        tagline     = "Read, search, and summarise your inbox",
+        icon        = Icons.Default.Mail,
+        iconTint    = Color(0xFFEA4335),
+        available   = false,
+    ),
+}
+
+// ── Screen ────────────────────────────────────────────────────────────────────
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConnectorsScreen(
     viewModel: NodesViewModel = hiltViewModel(),
     modifier: Modifier = Modifier,
 ) {
-    val context  = LocalContext.current
-    val nodes    by viewModel.nodes.collectAsState()
-    val addError by viewModel.addError.collectAsState()
-    var showAddSheet by remember { mutableStateOf(false) }
+    val nodes       by viewModel.nodes.collectAsState()
+    val addError    by viewModel.addError.collectAsState()
+    val context     = LocalContext.current
 
-    if (showAddSheet) {
-        AddNodeSheet(
-            onDismiss       = { showAddSheet = false; viewModel.clearError() },
-            onAddSsh        = { label, host, port, user ->
-                viewModel.addNode(label, host, port, user)
-                showAddSheet = false
-            },
-            onAddAmplifierd = { label, url, token ->
-                viewModel.addAmplifierdNode(label, url, token)
-                showAddSheet = false
-            },
-            error = addError,
-        )
-    }
+    var expanded    by remember { mutableStateOf<ConnectorType?>(null) }
+    var showSshForm by remember { mutableStateOf(false) }
+    var showAmpForm by remember { mutableStateOf(false) }
 
     Scaffold(
         modifier = modifier,
-        topBar = {
-            TopAppBar(
-                title = { Text("Connectors") },
-                actions = {
-                    FilledTonalIconButton(onClick = { showAddSheet = true }) {
-                        Icon(Icons.Default.Add, "Add node")
-                    }
-                },
-            )
+        topBar   = {
+            TopAppBar(title = { Text("Connectors") })
         },
     ) { pad ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(pad),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier       = Modifier.fillMaxSize().padding(pad),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            item { DeviceKeyCard(publicKey = viewModel.publicKey, context = context) }
-            item {
-                Text("Connected Nodes",
-                     style = MaterialTheme.typography.titleSmall,
-                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+            // ── Connector catalog ─────────────────────────────────────────
+            items(ConnectorType.entries.toList()) { connector ->
+                val connectedNodes = when (connector) {
+                    ConnectorType.SSH       -> nodes.filter { it.type == NodeType.SSH }
+                    ConnectorType.AMPLIFIER -> nodes.filter { it.type == NodeType.AMPLIFIERD }
+                    else                    -> emptyList()
+                }
+                val isExpanded = expanded == connector
+
+                ConnectorCard(
+                    connector      = connector,
+                    connectedCount = connectedNodes.size,
+                    isExpanded     = isExpanded,
+                    onClick        = {
+                        expanded = if (isExpanded) null else connector
+                        showSshForm = false
+                        showAmpForm = false
+                        viewModel.clearError()
+                    },
+                ) {
+                    // ── Expanded detail ───────────────────────────────────
+                    when (connector) {
+
+                        ConnectorType.SSH -> SshDetail(
+                            nodes        = connectedNodes,
+                            publicKey    = viewModel.publicKey,
+                            context      = context,
+                            showForm     = showSshForm,
+                            addError     = addError,
+                            onToggleForm = { showSshForm = it; viewModel.clearError() },
+                            onAdd        = { label, host, port, user ->
+                                viewModel.addNode(label, host, port, user)
+                                showSshForm = false
+                            },
+                            onAddHost    = { id, h -> viewModel.addHostToNode(id, h) },
+                            onRemoveHost = { id, h -> viewModel.removeHostFromNode(id, h) },
+                            onDelete     = { viewModel.removeNode(it) },
+                        )
+
+                        ConnectorType.AMPLIFIER -> AmplifierDetail(
+                            nodes        = connectedNodes,
+                            showForm     = showAmpForm,
+                            addError     = addError,
+                            onToggleForm = { showAmpForm = it; viewModel.clearError() },
+                            onAdd        = { label, url, token ->
+                                viewModel.addAmplifierdNode(label, url, token)
+                                showAmpForm = false
+                            },
+                            onDelete     = { viewModel.removeNode(it) },
+                        )
+
+                        else -> ComingSoonDetail(connector.displayName)
+                    }
+                }
             }
-            if (nodes.isEmpty()) {
-                item {
-                    Box(Modifier.fillMaxWidth().padding(vertical = 24.dp), Alignment.Center) {
+
+            item { Spacer(Modifier.height(40.dp)) }
+        }
+    }
+}
+
+// ── Connector card ────────────────────────────────────────────────────────────
+
+@Composable
+private fun ConnectorCard(
+    connector:      ConnectorType,
+    connectedCount: Int,
+    isExpanded:     Boolean,
+    onClick:        () -> Unit,
+    expandedContent: @Composable () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    Surface(
+        shape  = RoundedCornerShape(16.dp),
+        color  = cs.surfaceContainerLow,
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (isExpanded) Modifier.border(1.dp, cs.primary.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                else Modifier
+            ),
+    ) {
+        Column {
+            // ── Header row ────────────────────────────────────────────────
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onClick)
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                // Icon badge
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .background(connector.iconTint.copy(alpha = 0.12f), RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(connector.icon, null, tint = connector.iconTint, modifier = Modifier.size(24.dp))
+                }
+
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(connector.displayName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        if (!connector.available) {
+                            Surface(
+                                color = cs.secondaryContainer,
+                                shape = RoundedCornerShape(4.dp),
+                            ) {
+                                Text(
+                                    "Soon",
+                                    style    = MaterialTheme.typography.labelSmall,
+                                    color    = cs.onSecondaryContainer,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                )
+                            }
+                        }
+                    }
+                    Text(connector.tagline, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                }
+
+                // Connected badge
+                if (connectedCount > 0) {
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .background(cs.primary, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
                         Text(
-                            "No nodes yet.\nAdd an SSH server or Amplifier daemon with the + button above.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            "$connectedCount",
+                            style    = MaterialTheme.typography.labelSmall,
+                            color    = cs.onPrimary,
+                            fontSize = 10.sp,
                         )
                     }
                 }
-            } else {
-                items(nodes, key = { it.id }) { node ->
-                    NodeCard(
-                        node         = node,
-                        onDelete     = { viewModel.removeNode(node.id) },
-                        onAddHost    = { newHost -> viewModel.addHostToNode(node.id, newHost) },
-                        onRemoveHost = { host -> viewModel.removeHostFromNode(node.id, host) },
-                    )
-                }
+
+                Icon(
+                    if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = cs.onSurfaceVariant,
+                )
             }
-            item {
-                Spacer(Modifier.height(24.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    "External Service Connectors",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    // TODO: External service connectors — deferred to follow-on design
-                    "External connectors (GitHub, Linear, Notion, etc.) will appear here in a future update.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                )
+
+            // ── Expanded panel ────────────────────────────────────────────
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter   = expandVertically(),
+                exit    = shrinkVertically(),
+            ) {
+                Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
+                    HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.4f))
+                    Spacer(Modifier.height(12.dp))
+                    expandedContent()
+                }
             }
         }
     }
 }
 
-// ── Device identity key card ────────────────────────────────────────────────
+// ── SSH detail panel ──────────────────────────────────────────────────────────
 
 @Composable
-private fun DeviceKeyCard(publicKey: String, context: Context) {
+private fun SshDetail(
+    nodes:        List<SshNode>,
+    publicKey:    String,
+    context:      Context,
+    showForm:     Boolean,
+    addError:     String?,
+    onToggleForm: (Boolean) -> Unit,
+    onAdd:        (label: String, host: String, port: String, user: String) -> Unit,
+    onAddHost:    (nodeId: String, host: String) -> Unit,
+    onRemoveHost: (nodeId: String, host: String) -> Unit,
+    onDelete:     (id: String) -> Unit,
+) {
     val cs = MaterialTheme.colorScheme
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape    = RoundedCornerShape(14.dp),
-        colors   = CardDefaults.cardColors(containerColor = cs.surfaceContainerLow),
+
+    // Connected SSH nodes
+    if (nodes.isNotEmpty()) {
+        nodes.forEach { node ->
+            ConnectedNodeRow(
+                label      = node.label,
+                detail     = "${node.hosts.firstOrNull() ?: ""}:${node.port}  (${node.username})",
+                typeColor  = Color(0xFF4A90D9),
+                onDelete   = { onDelete(node.id) },
+            )
+            Spacer(Modifier.height(6.dp))
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+
+    // Add new SSH node form
+    AnimatedVisibility(showForm) {
+        SshAddForm(
+            error       = addError,
+            onAdd       = onAdd,
+            onCancel    = { onToggleForm(false) },
+        )
+    }
+
+    if (!showForm) {
+        OutlinedButton(
+            onClick  = { onToggleForm(true) },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Add SSH Server")
+        }
+    }
+
+    // Device key (folded away since it's advanced)
+    var showKey by remember { mutableStateOf(false) }
+    Spacer(Modifier.height(8.dp))
+    TextButton(
+        onClick  = { showKey = !showKey },
+        contentPadding = PaddingValues(horizontal = 0.dp),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Default.Key, null, tint = cs.primary, modifier = Modifier.size(20.dp))
-                Text("Device Identity Key", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
-            }
+        Icon(Icons.Default.Key, null, modifier = Modifier.size(14.dp))
+        Spacer(Modifier.width(4.dp))
+        Text(if (showKey) "Hide device key" else "Show device SSH key",
+             style = MaterialTheme.typography.labelSmall)
+    }
+    AnimatedVisibility(showKey) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                "Add this key to ~/.ssh/authorized_keys on each SSH node, or use it for mutual auth with amplifierd.",
+                "Add this key to ~/.ssh/authorized_keys on your server:",
                 style = MaterialTheme.typography.bodySmall,
                 color = cs.onSurfaceVariant,
             )
             Box(
-                Modifier.fillMaxWidth().background(cs.surfaceContainer, RoundedCornerShape(8.dp)).padding(10.dp)
+                Modifier
+                    .fillMaxWidth()
+                    .background(cs.surfaceContainer, RoundedCornerShape(8.dp))
+                    .padding(10.dp)
             ) {
                 Text(
-                    if (publicKey.isBlank()) "Generating key…" else publicKey,
+                    if (publicKey.isBlank()) "Generating…" else publicKey,
                     style    = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
                     color    = cs.onSurface,
                     maxLines = 4,
                 )
             }
             OutlinedButton(
-                onClick = {
+                onClick  = {
                     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    cm.setPrimaryClip(ClipData.newPlainText("Vela SSH Public Key", publicKey))
-                    Toast.makeText(context, "Public key copied", Toast.LENGTH_SHORT).show()
+                    cm.setPrimaryClip(ClipData.newPlainText("Vela SSH Key", publicKey))
+                    Toast.makeText(context, "Key copied", Toast.LENGTH_SHORT).show()
                 },
                 modifier = Modifier.align(Alignment.End),
             ) {
-                Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
+                Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
                 Text("Copy key")
             }
         }
     }
 }
 
-// ── Node card (type-aware) ──────────────────────────────────────────────────
-
 @Composable
-private fun NodeCard(
-    node: SshNode,
-    onDelete: () -> Unit,
-    onAddHost: (String) -> Unit,
-    onRemoveHost: (String) -> Unit,
+private fun SshAddForm(
+    error:    String?,
+    onAdd:    (String, String, String, String) -> Unit,
+    onCancel: () -> Unit,
 ) {
-    val cs = MaterialTheme.colorScheme
-    var showAddIp by remember { mutableStateOf(false) }
-    var newIp     by remember { mutableStateOf("") }
-    val focusReq  = remember { FocusRequester() }
-    val keyboard  = LocalSoftwareKeyboardController.current
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape    = RoundedCornerShape(14.dp),
-        colors   = CardDefaults.cardColors(containerColor = cs.surfaceContainerLow),
-    ) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-
-            // ── Header row: type chip + label + delete ──────────────────────
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                val (icon, tint, badge) = when (node.type) {
-                    NodeType.SSH        -> Triple(Icons.Default.Terminal,    cs.primary,            "SSH")
-                    NodeType.AMPLIFIERD -> Triple(Icons.Default.Hub,         cs.tertiary,           "amplifierd")
-                }
-                Icon(icon, null, tint = tint, modifier = Modifier.size(20.dp))
-                SuggestionChip(
-                    onClick  = {},
-                    label    = { Text(badge, style = MaterialTheme.typography.labelSmall) },
-                    modifier = Modifier.height(24.dp),
-                )
-                Text(node.label,
-                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                     modifier = Modifier.weight(1f))
-                IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Delete, "Delete node",
-                         tint = cs.error.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
-                }
-            }
-
-            // ── Type-specific body ──────────────────────────────────────────
-            when (node.type) {
-                NodeType.SSH -> SshNodeBody(
-                    node         = node,
-                    showAddIp    = showAddIp,
-                    newIp        = newIp,
-                    focusReq     = focusReq,
-                    onToggleAdd  = { showAddIp = it; if (it) { newIp = "" } },
-                    onNewIpChange= { newIp = it },
-                    onAddIp      = { onAddHost(newIp); showAddIp = false; newIp = ""; keyboard?.hide() },
-                    onRemoveHost = onRemoveHost,
-                )
-                NodeType.AMPLIFIERD -> AmplifierdNodeBody(node = node)
-            }
-        }
-    }
-}
-
-@Composable
-private fun SshNodeBody(
-    node: SshNode,
-    showAddIp: Boolean,
-    newIp: String,
-    focusReq: FocusRequester,
-    onToggleAdd: (Boolean) -> Unit,
-    onNewIpChange: (String) -> Unit,
-    onAddIp: () -> Unit,
-    onRemoveHost: (String) -> Unit,
-) {
-    val cs = MaterialTheme.colorScheme
-
-    // Host chips
-    node.hosts.forEachIndexed { idx, host ->
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                if (idx == 0) "Primary" else "Fallback",
-                style = MaterialTheme.typography.labelSmall,
-                color = cs.onSurfaceVariant,
-                modifier = Modifier.width(54.dp),
-            )
-            Box(
-                Modifier.weight(1f).background(cs.surfaceContainer, RoundedCornerShape(6.dp)).padding(horizontal = 10.dp, vertical = 5.dp)
-            ) {
-                Text("$host:${node.port}",
-                     style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                     color = cs.onSurface)
-            }
-            if (idx > 0) {
-                IconButton(onClick = { onRemoveHost(host) }, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Default.Close, "Remove", tint = cs.error.copy(alpha = 0.6f), modifier = Modifier.size(14.dp))
-                }
-            }
-        }
-    }
-    Text("User: ${node.username}", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
-
-    // Add fallback IP
-    AnimatedVisibility(showAddIp) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            OutlinedTextField(
-                value         = newIp,
-                onValueChange = onNewIpChange,
-                placeholder   = { Text("IP or hostname") },
-                singleLine    = true,
-                modifier      = Modifier.weight(1f).focusRequester(focusReq),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { onAddIp() }),
-                textStyle = MaterialTheme.typography.bodySmall,
-            )
-            IconButton(onClick = onAddIp) { Icon(Icons.Default.Check, "Add") }
-        }
-    }
-    LaunchedEffect(showAddIp) { if (showAddIp) focusReq.requestFocus() }
-
-    TextButton(
-        onClick  = { onToggleAdd(!showAddIp) },
-        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-    ) {
-        Icon(if (showAddIp) Icons.Default.Close else Icons.Default.Add,
-             null, modifier = Modifier.size(14.dp))
-        Spacer(Modifier.width(4.dp))
-        Text(if (showAddIp) "Cancel" else "+ Add fallback IP",
-             style = MaterialTheme.typography.labelSmall)
-    }
-}
-
-@Composable
-private fun AmplifierdNodeBody(node: SshNode) {
-    val cs = MaterialTheme.colorScheme
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("URL", style = MaterialTheme.typography.labelSmall,
-                 color = cs.onSurfaceVariant, modifier = Modifier.width(40.dp))
-            Box(
-                Modifier.weight(1f).background(cs.surfaceContainer, RoundedCornerShape(6.dp)).padding(horizontal = 10.dp, vertical = 5.dp)
-            ) {
-                Text(node.url.ifBlank { "(not set)" },
-                     style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                     color = cs.onSurface)
-            }
-        }
-        if (node.token.isNotBlank()) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Token", style = MaterialTheme.typography.labelSmall,
-                     color = cs.onSurfaceVariant, modifier = Modifier.width(40.dp))
-                Text("••••${node.token.takeLast(4)}",
-                     style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                     color = cs.onSurfaceVariant)
-            }
-        }
-    }
-}
-
-// ── Add node sheet (type-aware) ─────────────────────────────────────────────
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun AddNodeSheet(
-    onDismiss: () -> Unit,
-    onAddSsh: (label: String, host: String, port: String, user: String) -> Unit,
-    onAddAmplifierd: (label: String, url: String, token: String) -> Unit,
-    error: String?,
-) {
-    var selectedType by remember { mutableStateOf(NodeType.SSH) }
-
-    // SSH fields
     var label    by remember { mutableStateOf("") }
     var host     by remember { mutableStateOf("") }
     var port     by remember { mutableStateOf("22") }
     var username by remember { mutableStateOf("") }
 
-    // Amplifierd fields
-    var ampLabel by remember { mutableStateOf("") }
-    var ampUrl   by remember { mutableStateOf("http://") }
-    var ampToken by remember { mutableStateOf("") }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+        Text("New SSH Server", style = MaterialTheme.typography.titleSmall)
+        OutlinedTextField(label, { label = it }, label = { Text("Name") },
+            singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(host, { host = it }, label = { Text("Host / IP address") },
+            singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            modifier = Modifier.fillMaxWidth())
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(port, { port = it }, label = { Text("Port") },
+                singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.width(90.dp))
+            OutlinedTextField(username, { username = it }, label = { Text("Username") },
+                singleLine = true, modifier = Modifier.weight(1f))
+        }
+        if (!error.isNullOrBlank()) {
+            Text(error, style = MaterialTheme.typography.bodySmall,
+                 color = MaterialTheme.colorScheme.error)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text("Cancel") }
+            Button(
+                onClick  = { onAdd(label, host, port, username) },
+                modifier = Modifier.weight(1f),
+                enabled  = label.isNotBlank() && host.isNotBlank() && username.isNotBlank(),
+            ) { Text("Connect") }
+        }
+    }
+}
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+// ── Amplifier Server detail panel ─────────────────────────────────────────────
+
+@Composable
+private fun AmplifierDetail(
+    nodes:        List<SshNode>,
+    showForm:     Boolean,
+    addError:     String?,
+    onToggleForm: (Boolean) -> Unit,
+    onAdd:        (label: String, url: String, token: String) -> Unit,
+    onDelete:     (id: String) -> Unit,
+) {
+    if (nodes.isNotEmpty()) {
+        nodes.forEach { node ->
+            ConnectedNodeRow(
+                label     = node.label,
+                detail    = node.url,
+                typeColor = Color(0xFF7C4DFF),
+                onDelete  = { onDelete(node.id) },
+            )
+            Spacer(Modifier.height(6.dp))
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+
+    AnimatedVisibility(showForm) {
+        AmplifierAddForm(
+            error    = addError,
+            onAdd    = onAdd,
+            onCancel = { onToggleForm(false) },
+        )
+    }
+
+    if (!showForm) {
+        OutlinedButton(
+            onClick  = { onToggleForm(true) },
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Add Node", style = MaterialTheme.typography.titleMedium)
+            Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Add Amplifier Server")
+        }
+    }
+}
 
-            // ── Type picker ─────────────────────────────────────────────────
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NodeType.entries.forEach { type ->
-                    FilterChip(
-                        selected = selectedType == type,
-                        onClick  = { selectedType = type },
-                        label    = { Text(if (type == NodeType.SSH) "SSH Server" else "Amplifier Daemon") },
-                        leadingIcon = {
-                            Icon(
-                                if (type == NodeType.SSH) Icons.Default.Terminal else Icons.Default.Hub,
-                                null,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        },
-                    )
-                }
-            }
+@Composable
+private fun AmplifierAddForm(
+    error:    String?,
+    onAdd:    (String, String, String) -> Unit,
+    onCancel: () -> Unit,
+) {
+    var label by remember { mutableStateOf("") }
+    var url   by remember { mutableStateOf("http://") }
+    var token by remember { mutableStateOf("") }
 
-            // ── Type-specific fields ────────────────────────────────────────
-            if (selectedType == NodeType.SSH) {
-                OutlinedTextField(label.let { v -> v }, { label = it },
-                    label = { Text("Label") }, singleLine = true,
-                    modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(host, { host = it },
-                    label = { Text("Host / IP") }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                    modifier = Modifier.fillMaxWidth())
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(port, { port = it },
-                        label = { Text("Port") }, singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.width(100.dp))
-                    OutlinedTextField(username, { username = it },
-                        label = { Text("Username") }, singleLine = true,
-                        modifier = Modifier.weight(1f))
-                }
-                if (!error.isNullOrBlank()) {
-                    Text(error, style = MaterialTheme.typography.bodySmall,
-                         color = MaterialTheme.colorScheme.error)
-                }
-                Button(
-                    onClick = { onAddSsh(label, host, port, username) },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = label.isNotBlank() && host.isNotBlank() && username.isNotBlank(),
-                ) { Text("Add SSH Node") }
-            } else {
-                OutlinedTextField(ampLabel, { ampLabel = it },
-                    label = { Text("Label") }, singleLine = true,
-                    modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(ampUrl, { ampUrl = it },
-                    label = { Text("URL (e.g. http://10.0.0.1:8410)") }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                    modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(ampToken, { ampToken = it },
-                    label = { Text("Token (x-amplifier-token)") }, singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth())
-                if (!error.isNullOrBlank()) {
-                    Text(error, style = MaterialTheme.typography.bodySmall,
-                         color = MaterialTheme.colorScheme.error)
-                }
-                Button(
-                    onClick = { onAddAmplifierd(ampLabel, ampUrl, ampToken) },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = ampLabel.isNotBlank() && ampUrl.length > 7,
-                ) { Text("Add Amplifierd Node") }
-            }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+        Text("New Amplifier Server", style = MaterialTheme.typography.titleSmall)
+        OutlinedTextField(label, { label = it }, label = { Text("Name") },
+            singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(url, { url = it }, label = { Text("URL  (e.g. http://10.0.0.1:8410)") },
+            singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(token, { token = it }, label = { Text("Token (optional)") },
+            singleLine = true, visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth())
+        if (!error.isNullOrBlank()) {
+            Text(error, style = MaterialTheme.typography.bodySmall,
+                 color = MaterialTheme.colorScheme.error)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text("Cancel") }
+            Button(
+                onClick  = { onAdd(label, url, token) },
+                modifier = Modifier.weight(1f),
+                enabled  = label.isNotBlank() && url.length > 7,
+            ) { Text("Connect") }
+        }
+    }
+}
+
+// ── Coming soon panel ─────────────────────────────────────────────────────────
+
+@Composable
+private fun ComingSoonDetail(name: String) {
+    val cs = MaterialTheme.colorScheme
+    Column(
+        modifier            = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(Icons.Default.Schedule, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(32.dp))
+        Text(
+            "$name is coming soon",
+            style = MaterialTheme.typography.bodyMedium,
+            color = cs.onSurfaceVariant,
+        )
+        Text(
+            "We're working on it. Stay tuned!",
+            style = MaterialTheme.typography.bodySmall,
+            color = cs.onSurfaceVariant.copy(alpha = 0.6f),
+        )
+    }
+}
+
+// ── Connected node row ────────────────────────────────────────────────────────
+
+@Composable
+private fun ConnectedNodeRow(
+    label:     String,
+    detail:    String,
+    typeColor: Color,
+    onDelete:  () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        modifier             = Modifier
+            .fillMaxWidth()
+            .background(cs.surfaceContainer, RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment    = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            modifier = Modifier.size(8.dp).background(typeColor, CircleShape),
+        )
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            Text(detail, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
+                 color = cs.onSurfaceVariant, maxLines = 1)
+        }
+        IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Default.Delete, "Remove", tint = cs.error.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
         }
     }
 }

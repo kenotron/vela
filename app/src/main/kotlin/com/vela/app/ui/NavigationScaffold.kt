@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vela.app.ui.conversation.ChatSearchScreen
 import com.vela.app.ui.conversation.ConversationViewModel
+import com.vela.app.ui.profile.ProfileViewModel
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3WindowSizeClassApi::class, ExperimentalMaterial3Api::class)
@@ -26,8 +27,9 @@ fun NavigationScaffold(
 ) {
     val scope          = rememberCoroutineScope()
     val drawerState    = rememberDrawerState(DrawerValue.Closed)
-    val navViewModel   = hiltViewModel<NavigationViewModel>()
-    val convViewModel  = hiltViewModel<ConversationViewModel>()
+    val navViewModel     = hiltViewModel<NavigationViewModel>()
+    val convViewModel    = hiltViewModel<ConversationViewModel>()
+    val profileViewModel = hiltViewModel<ProfileViewModel>()
 
     var currentDest by remember { mutableStateOf(DrawerDestination.CHAT) }
 
@@ -52,6 +54,8 @@ fun NavigationScaffold(
 
     val conversations       by convViewModel.conversations.collectAsState()
     val activeConvId        by convViewModel.activeConversationId.collectAsState()
+    val profileData         by profileViewModel.profileData.collectAsState()
+    val userName            = profileData?.name?.takeIf { it.isNotBlank() } ?: ""
 
     fun openDrawer() = scope.launch { drawerState.open() }
     fun closeDrawer() = scope.launch { drawerState.close() }
@@ -66,6 +70,7 @@ fun NavigationScaffold(
                     conversations         = conversations,
                     activeConversationId  = activeConvId,
                     currentDestination    = currentDest,
+                    userName              = userName,
                     onNewChat             = {
                         convViewModel.newSession()
                         currentDest = DrawerDestination.CHAT
