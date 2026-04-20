@@ -146,10 +146,27 @@ private fun DestinationContent(
     modifier: Modifier = Modifier,
 ) {
     when (destination) {
-        AppDestination.PROJECTS -> com.vela.app.ui.conversation.ConversationRoot(
-            speechTranscriber = speechTranscriber,
-            modifier = modifier,
-        )
+        AppDestination.PROJECTS -> {
+            var showRecording by remember { mutableStateOf(false) }
+            val convViewModel: com.vela.app.ui.conversation.ConversationViewModel = hiltViewModel()
+            if (showRecording) {
+                BackHandler { showRecording = false }
+                com.vela.app.ui.recording.RecordingScreen(
+                    onNavigateBack    = { showRecording = false },
+                    onTranscriptReady = { transcript ->
+                        convViewModel.setPendingTranscript(transcript)
+                        showRecording = false
+                    },
+                )
+            } else {
+                com.vela.app.ui.conversation.ConversationRoot(
+                    speechTranscriber = speechTranscriber,
+                    viewModel         = convViewModel,
+                    onRecord          = { showRecording = true },
+                    modifier          = modifier,
+                )
+            }
+        }
         AppDestination.VAULT -> com.vela.app.ui.vault.VaultBrowserScreen(
             windowSizeClass = windowSizeClass,
             modifier = modifier,
@@ -158,21 +175,38 @@ private fun DestinationContent(
             modifier = modifier,
         )
         AppDestination.PROFILE -> {
-            var showSettings by remember { mutableStateOf(false) }
-            if (showSettings) {
-                com.vela.app.ui.settings.SettingsScreen(
-                    onNavigateBack        = { showSettings = false },
-                    onNavigateToAi        = {},
-                    onNavigateToVaults    = {},
-                    onNavigateToRecording = {},
-                    modifier              = modifier,
-                )
-            } else {
-                com.vela.app.ui.profile.ProfileScreen(
-                    onNavigateToSettings = { showSettings = true },
+            var profilePage by remember { mutableStateOf(ProfilePage.PROFILE) }
+            when (profilePage) {
+                ProfilePage.PROFILE -> com.vela.app.ui.profile.ProfileScreen(
+                    onNavigateToSettings = { profilePage = ProfilePage.SETTINGS },
                     modifier             = modifier,
                 )
+                ProfilePage.SETTINGS -> {
+                    BackHandler { profilePage = ProfilePage.PROFILE }
+                    com.vela.app.ui.settings.SettingsScreen(
+                        onNavigateBack        = { profilePage = ProfilePage.PROFILE },
+                        onNavigateToAi        = { profilePage = ProfilePage.AI },
+                        onNavigateToVaults    = { profilePage = ProfilePage.VAULTS },
+                        onNavigateToRecording = {},
+                        modifier              = modifier,
+                    )
+                }
+                ProfilePage.AI -> {
+                    BackHandler { profilePage = ProfilePage.SETTINGS }
+                    com.vela.app.ui.settings.AiSettingsScreen(
+                        onNavigateBack = { profilePage = ProfilePage.SETTINGS },
+                    )
+                }
+                ProfilePage.VAULTS -> {
+                    BackHandler { profilePage = ProfilePage.SETTINGS }
+                    com.vela.app.ui.settings.VaultsSettingsScreen(
+                        onNavigateBack          = { profilePage = ProfilePage.SETTINGS },
+                        onNavigateToVaultDetail = {},
+                    )
+                }
             }
         }
     }
 }
+
+private enum class ProfilePage { PROFILE, SETTINGS, AI, VAULTS }

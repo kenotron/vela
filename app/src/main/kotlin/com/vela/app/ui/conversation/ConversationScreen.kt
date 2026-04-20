@@ -48,9 +48,10 @@ internal fun buildAttachedMessage(
 fun ConversationRoot(
     speechTranscriber: SpeechTranscriber? = null,
     viewModel: ConversationViewModel = hiltViewModel(),
+    onRecord: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    ConversationScreen(speechTranscriber = speechTranscriber, viewModel = viewModel, modifier = modifier)
+    ConversationScreen(speechTranscriber = speechTranscriber, viewModel = viewModel, onRecord = onRecord, modifier = modifier)
 }
 
 // ---- Conversation screen ----------------------------------------------------
