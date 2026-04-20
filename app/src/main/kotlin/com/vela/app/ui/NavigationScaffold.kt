@@ -163,10 +163,8 @@ private fun DestinationContent(
                 com.vela.app.ui.settings.SettingsScreen(
                     onNavigateBack        = { showSettings = false },
                     onNavigateToAi        = {},
-                    onNavigateToConnections = {},
                     onNavigateToVaults    = {},
                     onNavigateToRecording = {},
-                    onNavigateToGitHub    = {},
                     modifier              = modifier,
                 )
             } else {
