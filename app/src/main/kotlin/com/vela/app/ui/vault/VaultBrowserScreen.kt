@@ -169,6 +169,23 @@ package com.vela.app.ui.vault
     ) {
         LaunchedEffect(vault.id) { viewModel.setVault(vault) }
 
+        // ── File viewer state ─────────────────────────────────────────────────
+        // The caller (VaultHubScreen) passes a no-op for onOpenFile; we handle
+        // file viewing internally so tapping a file always shows MiniAppContainerView.
+        var selectedFilePath by remember { mutableStateOf<String?>(null) }
+
+        BackHandler(enabled = selectedFilePath != null) { selectedFilePath = null }
+
+        if (selectedFilePath != null) {
+            MiniAppContainerView(
+                vault    = vault,
+                relPath  = selectedFilePath!!,
+                layout   = "phone",
+                modifier = Modifier.fillMaxSize(),
+            )
+            return
+        }
+
         val entries       by viewModel.entries.collectAsState()
         val currentPath   by viewModel.currentPath.collectAsState()
         val searchResults by viewModel.searchResults.collectAsState()
@@ -273,7 +290,7 @@ package com.vela.app.ui.vault
                     } else {
                         LazyColumn(contentPadding = PaddingValues(top = 4.dp, bottom = 16.dp)) {
                             items(searchResults, key = { "${it.filePath}:${it.chunkText.hashCode()}" }) { result ->
-                                SearchResultRow(result, onClick = { onOpenFile(result.filePath) })
+                                SearchResultRow(result, onClick = { selectedFilePath = result.filePath; onOpenFile(result.filePath) })
                             }
                         }
                     }
@@ -290,7 +307,7 @@ package com.vela.app.ui.vault
                                     entry = entry,
                                     onClick = {
                                         if (entry.isDirectory) viewModel.navigateTo(entry.relativePath)
-                                        else onOpenFile(entry.relativePath)
+                                        else { selectedFilePath = entry.relativePath; onOpenFile(entry.relativePath) }
                                     },
                                 )
                             }
