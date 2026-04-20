@@ -71,6 +71,7 @@ class InferenceEngineSystemPromptTest {
     private fun fakeTurnDao() = object : TurnDao {
         override fun getTurnsWithEvents(convId: String): Flow<List<TurnWithEvents>> = emptyFlow()
         override suspend fun getCompletedTurnsWithEvents(convId: String): List<TurnWithEvents> = emptyList()
+        override suspend fun getRecentCompletedTurns(limit: Int): List<TurnWithEvents> = emptyList()
         override suspend fun insert(turn: TurnEntity) {}
         override suspend fun updateStatus(id: String, status: String, error: String?) {}
         override suspend fun deleteForConversation(convId: String) {}

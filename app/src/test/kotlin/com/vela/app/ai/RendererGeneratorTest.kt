@@ -78,6 +78,67 @@ class RendererGeneratorTest {
 
     private val defaultTheme = VelaTheme(isDark = false, primaryColor = "#7C4DFF")
 
+    // ── Prompt / system-prompt content (no legacy API refs) ───────────────────
+
+    /**
+     * RENDERER_SYSTEM_PROMPT must not reference the old @JavascriptInterface-era API.
+     * Access via reflection since the field lives in a private companion object.
+     */
+    @Test
+    fun `RENDERER_SYSTEM_PROMPT describes only fetch-based window-vela API`() {
+        // In Kotlin, companion object vals compile to static fields on the outer class
+        val promptField = RendererGenerator::class.java
+            .getDeclaredField("RENDERER_SYSTEM_PROMPT")
+            .also { it.isAccessible = true }
+        val systemPrompt = promptField.get(null) as String
+
+        // Old conceptual API descriptions must be gone
+        assertThat(systemPrompt).doesNotContain("window.vela.db for persistence")
+        assertThat(systemPrompt).doesNotContain("events to publish/subscribe")
+
+        // New fetch-based API descriptions must be present
+        assertThat(systemPrompt).contains("window.vela.db.query")
+        assertThat(systemPrompt).contains("window.vela.events.emit")
+    }
+
+    /**
+     * The dynamic portion of the user prompt built by buildRendererPrompt() must
+     * also reference only the fetch-based window.vela API — never the old bridge.
+     */
+    @Test
+    fun `buildRendererPrompt output contains no legacy API references`() {
+        val generator = buildGenerator(tempDir.newFolder())
+
+        val method = RendererGenerator::class.java.getDeclaredMethod(
+            "buildRendererPrompt",
+            String::class.java,
+            String::class.java,
+            String::class.java,
+            List::class.java,
+            VelaTheme::class.java,
+            String::class.java,
+            RendererType::class.java,
+            String::class.java,
+            String::class.java,
+        ).also { it.isAccessible = true }
+
+        val prompt = method.invoke(
+            generator,
+            "notes/test.md", "# Test\nContent", "note",
+            emptyList<MiniAppRegistryEntity>(), defaultTheme, "phone",
+            RendererType.READER, null, null,
+        ) as String
+
+        val legacyPatterns = listOf(
+            "vela.db.put", "vela.db.get", "events.publish", "events.subscribe",
+            "ai.ask", "ai.stream", "vault.write", "vault.sync", "window.__vela_",
+        )
+        for (pattern in legacyPatterns) {
+            assertThat(prompt).doesNotContain(pattern)
+        }
+    }
+
+
     // ── GenerationResult data classes ─────────────────────────────────────
 
     @Test

@@ -236,7 +236,16 @@ class RendererGenerator @Inject constructor(
             appendLine("## Context")
             appendLine("- Theme: ${if (theme.isDark) "dark" else "light"}, primary colour: ${theme.primaryColor}")
             appendLine("- Layout: $layout")
-            appendLine("- Vela SDK: window.vela.db.put/get/delete/watch, events.publish/subscribe, ai.ask/stream, vault.read/write/list/sync")
+            appendLine("- Vela SDK (all calls return Promises via fetch() against http://localhost:7701):")
+            appendLine("  window.vela.db.query(sql, params?) → Promise<{ rows: any[] }>")
+            appendLine("  window.vela.db.mutate(sql, params?) → Promise<{ rowsAffected: number }>")
+            appendLine("  window.vela.vault.read(path) → Promise<string>")
+            appendLine("  window.vela.vault.read(path, 'json') → Promise<{ frontmatter: {}, sections: [{type, text, level?, items?}] }>")
+            appendLine("  window.vela.vault.list(path?) → Promise<[{ name, path, isDir, size }]>")
+            appendLine("  window.vela.ai.complete(prompt, systemPrompt?) → Promise<string>")
+            appendLine("  window.vela.events.emit(name, data) → Promise<{ ok: true }>")
+            appendLine("  window.vela.events.on(name, fn) → void (polls every 3s)")
+            appendLine("  Prefer window.vela.vault.read(path, 'json') for structured markdown — avoids parsing raw markdown in JS.")
             appendLine()
             if (!feedback.isNullOrBlank() && !existingHtml.isNullOrBlank()) {
                 appendLine("## Current Renderer (update this based on the feedback below)")
@@ -350,8 +359,10 @@ DO NOT default to a plain markdown-to-HTML dump. Instead:
 - Respond ONLY with the HTML page followed by a manifest block. No explanation.
 - The HTML page must be a complete document starting with <!DOCTYPE html>.
 - Include substantial CSS — make it look genuinely polished and native-feeling.
-- Use window.vela.db for persistence (scope: local:, type:, or global: with JS comments).
-- Use window.vela.events to publish/subscribe cross-app events.
+- Use window.vela.db.query(sql) and window.vela.db.mutate(sql) for persistence. All calls return Promises.
+- Use window.vela.vault.read(path, 'json') to get structured markdown content — avoid parsing raw markdown in JS.
+- Use window.vela.events.emit(name, data) and window.vela.events.on(name, fn) for cross-app events.
+- Use window.vela.ai.complete(prompt) for LLM calls from within the mini app.
 - Call window.onVelaReady for post-SDK-init setup.
 - Adapt for phone/tablet via CSS vars --vela-layout, --vela-is-dark, --vela-primary-color.
 - Connect to other mini apps shown in the capabilities graph via shared db collections.
