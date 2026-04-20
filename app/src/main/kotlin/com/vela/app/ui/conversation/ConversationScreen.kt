@@ -11,6 +11,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeContent
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material.icons.filled.Check
@@ -187,11 +191,17 @@ fun ConversationScreen(
     }
 
     Scaffold(
-        modifier = modifier,
-        containerColor = Color.Transparent,        // let the star field show through
-        // Disable Scaffold's automatic inset handling — ComposerBox owns its
-        // own navigationBarsPadding + imePadding so the Scaffold must not also
-        // apply them, otherwise the composer jumps up twice when the keyboard opens.
+        // safeContent.only(Bottom) = max(navBar, ime) on the bottom edge.
+        // This shrinks the Scaffold's layout area so the bottomBar always sits
+        // above whichever is taller — the gesture bar (keyboard closed) or the
+        // keyboard (keyboard open) — without ever double-counting either one.
+        modifier = modifier.windowInsetsPadding(
+            WindowInsets.safeContent.only(WindowInsetsSides.Bottom)
+        ),
+        containerColor = Color.Transparent,
+        // Zero out Scaffold's inner content insets — the modifier above already
+        // repositions the entire layout; passing insets here again would
+        // double-apply them to the LazyColumn's bottom padding.
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             CenterAlignedTopAppBar(
