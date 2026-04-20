@@ -139,11 +139,22 @@
 
             // Markdown rendering — Markwon (Java-based, version-agnostic, full GFM)
             // Headers, bold/italic/strikethrough, code blocks, tables, task lists, links
-            implementation("io.noties.markwon:core:4.6.2")
-            implementation("io.noties.markwon:ext-strikethrough:4.6.2")
-            implementation("io.noties.markwon:ext-tables:4.6.2")
-            implementation("io.noties.markwon:ext-tasklist:4.6.2")
-            implementation("io.noties.markwon:linkify:4.6.2")
+            // Exclude com.atlassian.commonmark (old groupId) — conflicts with org.commonmark:0.22.0
+            implementation("io.noties.markwon:core:4.6.2") {
+                exclude(group = "com.atlassian.commonmark")
+            }
+            implementation("io.noties.markwon:ext-strikethrough:4.6.2") {
+                exclude(group = "com.atlassian.commonmark")
+            }
+            implementation("io.noties.markwon:ext-tables:4.6.2") {
+                exclude(group = "com.atlassian.commonmark")
+            }
+            implementation("io.noties.markwon:ext-tasklist:4.6.2") {
+                exclude(group = "com.atlassian.commonmark")
+            }
+            implementation("io.noties.markwon:linkify:4.6.2") {
+                exclude(group = "com.atlassian.commonmark")
+            }
 
         // Ktor embedded server for mini app backend
         implementation("io.ktor:ktor-server-core:2.3.13")
