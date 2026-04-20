@@ -79,6 +79,7 @@ import com.vela.app.data.repository.MiniAppDocumentStore
 import com.vela.app.events.EventBus
 import com.vela.app.ui.components.MarkdownText
 import com.vela.app.vault.VaultManager
+import com.vela.app.vault.VaultRegistry
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -154,6 +155,7 @@ class MiniAppViewModel @Inject constructor(
     internal val eventBus: EventBus,
     internal val amplifierSession: AmplifierSession,
     internal val vaultManager: VaultManager,
+    private val vaultRegistry: VaultRegistry,
     internal val rendererGenerator: RendererGenerator,
     private val capabilitiesRepo: CapabilitiesGraphRepository,
 ) : ViewModel() {
@@ -184,9 +186,12 @@ class MiniAppViewModel @Inject constructor(
      * Returns the cached renderer HTML [File], or `null` if generation has not
      * happened yet (triggers fallback placeholder UI in [MiniAppContainer]).
      */
-    fun getRendererFile(contentType: String): File? =
-        vaultManager.resolve(".vela/renderers/$contentType/renderer.html")
-            ?.takeIf { it.exists() }
+    /** Returns the cached renderer HTML file for [contentType], or null if none exists.
+     *  Resolves via VaultRegistry (not VaultManager.resolve which needs InferenceEngine session paths). */
+    fun getRendererFile(contentType: String): File? {
+        val vault = vaultRegistry.enabledVaults.value.firstOrNull() ?: return null
+        return File(vault.localPath, ".vela/renderers/$contentType/renderer.html").takeIf { it.exists() }
+    }
 
     /**
      * Starts async renderer generation for [rendererType].

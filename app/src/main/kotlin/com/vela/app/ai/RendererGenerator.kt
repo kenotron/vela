@@ -5,6 +5,7 @@ import com.vela.app.data.repository.CapabilitiesGraphRepository
 import com.vela.app.data.repository.MiniAppDocumentStore
 import com.vela.app.ui.miniapp.VelaTheme
 import com.vela.app.vault.VaultManager
+import com.vela.app.vault.VaultRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -77,6 +78,7 @@ class RendererGenerator @Inject constructor(
     private val capabilitiesRepo: CapabilitiesGraphRepository,
     @Suppress("unused") private val documentStore: MiniAppDocumentStore,
     private val vaultManager: VaultManager,
+    private val vaultRegistry: VaultRegistry,
 ) {
     /**
      * @param itemPath      Vault-relative path used in the prompt and for local: scoping context.
@@ -142,11 +144,13 @@ class RendererGenerator @Inject constructor(
                     IllegalStateException("LLM response contained no ```manifest JSON block")
                 )
 
-            // 5. Persist HTML
-            val rendererDir = vaultManager.resolve(".vela/renderers/$contentType")
+            // 5. Persist HTML — resolve via VaultRegistry (not VaultManager.resolve which
+            // requires InferenceEngine session paths to be active, which they are not here).
+            val primaryVault = vaultRegistry.enabledVaults.value.firstOrNull()
                 ?: return@withContext GenerationResult.Failure(
-                    IllegalStateException("Vault not accessible — cannot write renderer to .vela/renderers/$contentType")
+                    IllegalStateException("No vault configured — add a vault to generate mini apps")
                 )
+            val rendererDir = File(primaryVault.localPath, ".vela/renderers/$contentType")
             rendererDir.mkdirs()
             val rendererFile = File(rendererDir, "renderer.html")
             rendererFile.writeText(html)
