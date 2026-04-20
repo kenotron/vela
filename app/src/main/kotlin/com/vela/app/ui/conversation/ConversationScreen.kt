@@ -11,10 +11,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.safeContent
-import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.material.icons.Icons
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material.icons.filled.Check
@@ -191,18 +190,15 @@ fun ConversationScreen(
     }
 
     Scaffold(
-        // safeContent.only(Bottom) = max(navBar, ime) on the bottom edge.
-        // This shrinks the Scaffold's layout area so the bottomBar always sits
-        // above whichever is taller — the gesture bar (keyboard closed) or the
-        // keyboard (keyboard open) — without ever double-counting either one.
-        modifier = modifier.windowInsetsPadding(
-            WindowInsets.safeContent.only(WindowInsetsSides.Bottom)
-        ),
+        modifier = modifier,
         containerColor = Color.Transparent,
-        // Zero out Scaffold's inner content insets — the modifier above already
-        // repositions the entire layout; passing insets here again would
-        // double-apply them to the LazyColumn's bottom padding.
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        // Tell ScaffoldLayout to position the bottomBar above max(keyboard, navBar).
+        // union() takes the MAX on each side — not the sum — so this is never
+        // double-counted regardless of whether the gesture bar is inside or
+        // outside the IME region on any given device / Android version.
+        // ComposerBox must therefore carry NO imePadding / navigationBarsPadding;
+        // all bottom-inset responsibility lives here.
+        contentWindowInsets = WindowInsets.ime.union(WindowInsets.navigationBars),
         topBar = {
             CenterAlignedTopAppBar(
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
