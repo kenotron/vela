@@ -48,10 +48,13 @@ package com.vela.app.ui.vault
     import com.vela.app.data.db.VaultEntity
     import com.vela.app.ui.components.MarkdownText
     import com.vela.app.ui.miniapp.MiniAppContainer
+    import com.vela.app.ui.miniapp.MiniAppViewModel
+    import com.vela.app.ui.miniapp.RendererTypeSheet
     import java.io.File
     import java.text.SimpleDateFormat
     import java.util.*
     import kotlinx.coroutines.Dispatchers
+    import kotlinx.coroutines.launch
     import kotlinx.coroutines.withContext
 
     private val IMAGE_EXTS = setOf("jpg", "jpeg", "png", "gif", "webp", "bmp")
@@ -560,6 +563,12 @@ package com.vela.app.ui.vault
         var itemContent by remember(itemPath) { mutableStateOf("") }
         val contentType = remember(relPath) { detectContentType(relPath) }
 
+        val viewModel: MiniAppViewModel = hiltViewModel()
+        var rendererKey    by remember { mutableIntStateOf(0) }
+        var swapTargetType by remember { mutableStateOf<com.vela.app.ai.RendererType?>(null) }
+        var showSwapSheet  by remember { mutableStateOf(false) }
+        val scope = rememberCoroutineScope()
+
         LaunchedEffect(itemPath) {
             itemContent = withContext(Dispatchers.IO) {
                 runCatching { File(itemPath).readText() }.getOrElse { "" }
@@ -587,6 +596,38 @@ package com.vela.app.ui.vault
                             }
                         }
                     },
+                    actions = {
+                        // Swap: opens type-selection sheet
+                        IconButton(onClick = { showSwapSheet = true }) {
+                            Icon(
+                                imageVector        = Icons.Default.SwapHoriz,
+                                contentDescription = "Switch renderer",
+                            )
+                        }
+                        // Delete: removes renderer file, resets to Fallback
+                        IconButton(onClick = {
+                            scope.launch {
+                                try {
+                                    val port = viewModel.serverPort.value
+                                    val conn = java.net.URL("http://localhost:$port/miniapps/$contentType")
+                                        .openConnection() as java.net.HttpURLConnection
+                                    conn.requestMethod = "DELETE"
+                                    conn.connect()
+                                    conn.responseCode
+                                    conn.disconnect()
+                                } catch (e: Exception) {
+                                    android.util.Log.w("MiniAppView", "DELETE failed: ${e.message}")
+                                }
+                                swapTargetType = null
+                                rendererKey++
+                            }
+                        }) {
+                            Icon(
+                                imageVector        = Icons.Default.DeleteOutline,
+                                contentDescription = "Delete renderer",
+                            )
+                        }
+                    },
                 )
             },
         ) { innerPadding ->
@@ -598,14 +639,33 @@ package com.vela.app.ui.vault
                     CircularProgressIndicator()
                 }
             } else {
-                MiniAppContainer(
-                    itemPath    = itemPath,
-                    itemContent = itemContent,
-                    contentType = contentType,
-                    layout      = layout,
-                    modifier    = Modifier.padding(innerPadding),
-                )
+                key(rendererKey) {
+                    MiniAppContainer(
+                        itemPath         = itemPath,
+                        itemContent      = itemContent,
+                        contentType      = contentType,
+                        layout           = layout,
+                        initialBuildType = swapTargetType,
+                        modifier         = Modifier.padding(innerPadding).fillMaxSize(),
+                    )
+                }
             }
+        }
+
+        if (showSwapSheet) {
+            RendererTypeSheet(
+                viewModel          = viewModel,
+                itemContent        = itemContent,
+                contentType        = contentType,
+                onDismiss          = { showSwapSheet = false },
+                onSelect           = { type ->
+                    showSwapSheet  = false
+                    swapTargetType = type
+                    rendererKey++
+                },
+                onOpenExisting     = { showSwapSheet = false },
+                onSuggestionsReady = {},
+            )
         }
     }
 
