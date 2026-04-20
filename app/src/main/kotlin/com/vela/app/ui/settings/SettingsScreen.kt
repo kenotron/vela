@@ -65,6 +65,41 @@ fun SettingsScreen(
                     onClick  = onNavigateToRecording,
                 )
             }
+            item {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            }
+            item {
+                SectionHeader(
+                    title    = "Mini App Server",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+            item {
+                val lanEnabled by viewModel.lanEnabled.collectAsState()
+                ListItem(
+                    headlineContent   = { Text("LAN Access") },
+                    supportingContent = {
+                        Text(if (lanEnabled) "Accessible on your local network" else "Localhost only")
+                    },
+                    trailingContent   = {
+                        Switch(
+                            checked         = lanEnabled,
+                            onCheckedChange = { viewModel.setLanEnabled(it) },
+                        )
+                    },
+                )
+            }
+            item {
+                val lanEnabled by viewModel.lanEnabled.collectAsState()
+                if (lanEnabled) {
+                    Text(
+                        "⚠\uFE0F Anyone on your Wi-Fi can read your vault data.",
+                        style    = MaterialTheme.typography.labelSmall,
+                        color    = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+            }
         }
     }
 }

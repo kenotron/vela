@@ -28,6 +28,7 @@ package com.vela.app.ui.settings
         private val vaultSettings: VaultSettings,
         private val vaultGitSync: VaultGitSync,
         private val gitHubIdentityManager: GitHubIdentityManager,
+        private val miniAppServer: com.vela.app.server.VelaMiniAppServer,
     ) : ViewModel() {
 
         val gitHubIdentities: StateFlow<List<GitHubIdentity>> =
@@ -46,6 +47,7 @@ package com.vela.app.ui.settings
             private const val KEY_MODEL          = "selected_model"
             private const val KEY_GOOGLE_API_KEY = "google_api_key"
             private const val KEY_OPENAI_API_KEY = "openai_api_key"
+            const val KEY_LAN_SERVER             = "mini_app_server_lan"
             const val DEFAULT_MODEL              = "claude-sonnet-4-6"
 
             val AVAILABLE_MODELS = listOf(
@@ -91,6 +93,15 @@ package com.vela.app.ui.settings
 
         private val _openAiApiKey = MutableStateFlow(prefs.getString(KEY_OPENAI_API_KEY, "").orEmpty())
         val openAiApiKey: StateFlow<String> = _openAiApiKey.asStateFlow()
+
+        private val _lanEnabled = MutableStateFlow(prefs.getBoolean(KEY_LAN_SERVER, false))
+        val lanEnabled: StateFlow<Boolean> = _lanEnabled.asStateFlow()
+
+        fun setLanEnabled(enabled: Boolean) {
+            prefs.edit().putBoolean(KEY_LAN_SERVER, enabled).apply()
+            _lanEnabled.value = enabled
+            miniAppServer.restart(if (enabled) "0.0.0.0" else "127.0.0.1")
+        }
 
         val vaults: StateFlow<List<VaultEntity>> = vaultRegistry.observeAll()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
