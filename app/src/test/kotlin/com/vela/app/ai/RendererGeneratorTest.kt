@@ -5,10 +5,12 @@ import com.vela.app.data.db.MiniAppDocumentDao
 import com.vela.app.data.db.MiniAppDocumentEntity
 import com.vela.app.data.db.MiniAppRegistryDao
 import com.vela.app.data.db.MiniAppRegistryEntity
+import com.vela.app.data.db.VaultEntity
 import com.vela.app.data.repository.CapabilitiesGraphRepository
 import com.vela.app.data.repository.MiniAppDocumentStore
 import com.vela.app.ui.miniapp.VelaTheme
 import com.vela.app.vault.VaultManager
+import com.vela.app.vault.VaultRegistry
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -58,11 +60,19 @@ class RendererGeneratorTest {
             root = root,
             enabledVaultPaths = MutableStateFlow(emptySet()),
         )
+        val mockVaultRegistry = Mockito.mock(VaultRegistry::class.java).also { mock ->
+            Mockito.`when`(mock.enabledVaults).thenReturn(
+                MutableStateFlow(
+                    listOf(VaultEntity(id = "test", name = "Test", localPath = root.absolutePath))
+                )
+            )
+        }
         return RendererGenerator(
             amplifierSession = mockSession,
             capabilitiesRepo = CapabilitiesGraphRepository(fakeRegistryDao),
             documentStore    = MiniAppDocumentStore(fakeDocumentDao),
             vaultManager     = vaultManager,
+            vaultRegistry    = mockVaultRegistry,
         )
     }
 
@@ -118,15 +128,24 @@ class RendererGeneratorTest {
             override suspend fun upsert(entity: MiniAppRegistryEntity) {}
             override suspend fun delete(contentType: String) {}
         }
+        val throwingRoot = tempDir.newFolder()
         val vaultManager = VaultManager(
-            root = tempDir.newFolder(),
+            root = throwingRoot,
             enabledVaultPaths = MutableStateFlow(emptySet()),
         )
+        val mockVaultRegistry = Mockito.mock(VaultRegistry::class.java).also { mock ->
+            Mockito.`when`(mock.enabledVaults).thenReturn(
+                MutableStateFlow(
+                    listOf(VaultEntity(id = "test", name = "Test", localPath = throwingRoot.absolutePath))
+                )
+            )
+        }
         val generator = RendererGenerator(
             amplifierSession = mockSession,
             capabilitiesRepo = CapabilitiesGraphRepository(throwingDao),
             documentStore    = MiniAppDocumentStore(fakeDocumentDao),
             vaultManager     = vaultManager,
+            vaultRegistry    = mockVaultRegistry,
         )
         val result = generator.generateRenderer(
             itemPath    = "notes/note.md",

@@ -85,6 +85,7 @@ import com.vela.app.data.repository.CapabilitiesGraphRepository
 import com.vela.app.data.repository.MiniAppDocumentStore
 import com.vela.app.events.EventBus
 import com.vela.app.ui.components.MarkdownText
+import com.vela.app.server.VelaMiniAppServer
 import com.vela.app.vault.VaultManager
 import com.vela.app.vault.VaultRegistry
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -165,6 +166,7 @@ class MiniAppViewModel @Inject constructor(
     private val vaultRegistry: VaultRegistry,
     internal val rendererGenerator: RendererGenerator,
     private val capabilitiesRepo: CapabilitiesGraphRepository,
+    private val server: VelaMiniAppServer,
 ) : ViewModel() {
 
     /** Live capabilities graph — drives `__VELA_CONTEXT__.capabilities` updates. */
@@ -177,6 +179,9 @@ class MiniAppViewModel @Inject constructor(
 
     private val _buildActivity = MutableStateFlow("Starting…")
     val buildActivity: StateFlow<String> = _buildActivity.asStateFlow()
+
+    val serverPort: StateFlow<Int> = server.port
+    val serverReady: StateFlow<Boolean> = server.isReady
 
     /** Factory — creates one [VelaJSInterface] per (itemPath, contentType) pair. */
     fun createJsInterface(itemPath: String, contentType: String): VelaJSInterface =
@@ -199,6 +204,8 @@ class MiniAppViewModel @Inject constructor(
         val vault = vaultRegistry.enabledVaults.value.firstOrNull() ?: return null
         return File(vault.localPath, ".vela/renderers/$contentType/renderer.html").takeIf { it.exists() }
     }
+
+    fun primaryVault() = vaultRegistry.enabledVaults.value.firstOrNull()
 
     /**
      * Starts async renderer generation for [rendererType].
@@ -528,79 +535,63 @@ fun MiniAppContainer(
         // ── Ready / Loading: WebView ───────────────────────────────────────────
         else -> {
             var showFeedbackSheet by remember { mutableStateOf(false) }
+            val serverReady by viewModel.serverReady.collectAsState()
 
+            if (!serverReady) {
+                Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            } else {
             Box(modifier) {
                 AndroidView(
                     factory = { ctx ->
                         WebView(ctx).apply {
-                            // Wire evaluateJavascript callback back to this WebView
-                            jsInterface.onEvaluateJs = { js ->
-                                post { evaluateJavascript(js, null) }
-                            }
-
-                            // Register the four SDK namespaces
-                            addJavascriptInterface(jsInterface.db,     "__vela_db")
-                            addJavascriptInterface(jsInterface.events, "__vela_events")
-                            addJavascriptInterface(jsInterface.ai,     "__vela_ai")
-                            addJavascriptInterface(jsInterface.vault,  "__vela_vault")
-
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
 
                             webViewClient = object : WebViewClient() {
                                 override fun onPageFinished(view: WebView, url: String) {
-                                    // Assemble window.vela namespace + inject __VELA_CONTEXT__
-                                    val script = buildString {
-                                        append("(function(){")
-                                        append("window.vela={")
-                                        append("db:window.__vela_db,")
-                                        append("events:window.__vela_events,")
-                                        append("ai:window.__vela_ai,")
-                                        append("vault:window.__vela_vault")
-                                        append("};")
-                                        append("window.__VELA_CONTEXT__=")
-                                        append(contextJson)
-                                        append(";")
-                                        append("if(typeof window.onVelaReady==='function')window.onVelaReady();")
-                                        append("})();")
-                                    }
-                                    view.evaluateJavascript(script, null)
+                                    val velaShim = """
+(function(){
+  const h={'Content-Type':'application/json'};
+  window.vela={
+    db:{
+      query:(sql,p)=>fetch('/api/db/query',{method:'POST',headers:h,body:JSON.stringify({sql,params:p})}).then(r=>r.json()),
+      mutate:(sql,p)=>fetch('/api/db/mutate',{method:'POST',headers:h,body:JSON.stringify({sql,params:p})}).then(r=>r.json())
+    },
+    ai:{complete:(prompt,sp)=>fetch('/api/ai/complete',{method:'POST',headers:h,body:JSON.stringify({prompt,systemPrompt:sp})}).then(r=>r.json()).then(r=>r.text)},
+    vault:{
+      read:(p,fmt)=>fetch('/api/vault/read?path='+encodeURIComponent(p)+(fmt?'&format='+fmt:'')).then(r=>fmt==='json'?r.json():r.text()),
+      list:(p)=>fetch('/api/vault/list?path='+encodeURIComponent(p||'')).then(r=>r.json())
+    },
+    events:{
+      emit:(n,d)=>fetch('/api/events/emit',{method:'POST',headers:h,body:JSON.stringify({name:n,data:d})}).then(r=>r.json()),
+      on:(name,fn)=>{let t=Date.now();setInterval(async()=>{const evs=await fetch('/api/events/poll?since='+t).then(r=>r.json());t=Date.now();evs.filter(e=>e.name===name).forEach(e=>fn(e.data));},3000);}
+    }
+  };
+  window.__VELA_CONTEXT__=$contextJson;
+  if(typeof window.onVelaReady==='function')window.onVelaReady();
+})();
+                                    """.trimIndent()
+                                    view.evaluateJavascript(velaShim, null)
                                 }
                             }
 
-                            // Load renderer if it exists, otherwise show the loading placeholder.
-                            // Use loadDataWithBaseURL so the WebView never needs file:// access
-                            // to external storage (vault paths are outside the app sandbox).
-                            val rendererFile = viewModel.getRendererFile(contentType)
-                            if (rendererFile != null) {
-                                tag = rendererFile.absolutePath  // track what's loaded
-                                loadDataWithBaseURL(
-                                    "file://${rendererFile.parent}/",
-                                    rendererFile.readText(),
-                                    "text/html", "UTF-8", null,
-                                )
-                            } else {
-                                loadData(LOADING_PLACEHOLDER_HTML, "text/html", "UTF-8")
-                            }
+                            val port = viewModel.serverPort.value
+                            tag = "http://localhost:$port/miniapps/$contentType"
+                            loadUrl("http://localhost:$port/miniapps/$contentType")
                         }
                     },
                     update = { webView ->
                         val currentState = rendererState
                         if (currentState is RendererState.Ready) {
-                            // Transition from Fallback → Ready: load renderer if not yet loaded.
-                            // Track by tag (file path) since loadDataWithBaseURL doesn't update webView.url.
-                            val path = currentState.rendererFile.absolutePath
-                            if (webView.tag != path) {
-                                webView.tag = path
-                                webView.loadDataWithBaseURL(
-                                    "file://${currentState.rendererFile.parent}/",
-                                    currentState.rendererFile.readText(),
-                                    "text/html", "UTF-8", null,
-                                )
+                            val port = viewModel.serverPort.value
+                            val targetUrl = "http://localhost:$port/miniapps/$contentType"
+                            if (webView.tag != targetUrl) {
+                                webView.tag = targetUrl
+                                webView.loadUrl(targetUrl)
                             }
                         }
-                        // Push the latest __VELA_CONTEXT__ (e.g. after theme change
-                        // or after a new mini app joins the capabilities graph)
                         webView.post {
                             webView.evaluateJavascript("window.__VELA_CONTEXT__=$contextJson;", null)
                         }
@@ -620,6 +611,7 @@ fun MiniAppContainer(
                     }
                 }
             }
+            } // end of serverReady else-branch
 
             if (showFeedbackSheet && rendererState is RendererState.Ready) {
                 RendererFeedbackSheet(

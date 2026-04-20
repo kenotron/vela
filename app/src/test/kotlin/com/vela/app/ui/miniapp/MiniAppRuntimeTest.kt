@@ -8,14 +8,18 @@ import com.vela.app.data.db.MiniAppDocumentDao
 import com.vela.app.data.db.MiniAppDocumentEntity
 import com.vela.app.data.db.MiniAppRegistryDao
 import com.vela.app.data.db.MiniAppRegistryEntity
+import com.vela.app.data.db.VaultEntity
 import com.vela.app.data.repository.CapabilitiesGraphRepository
 import com.vela.app.data.repository.MiniAppDocumentStore
 import com.vela.app.events.EventBus
+import com.vela.app.server.VelaMiniAppServer
 import com.vela.app.vault.VaultManager
+import com.vela.app.vault.VaultRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -79,13 +83,26 @@ class MiniAppRuntimeTest {
             root = root,
             enabledVaultPaths = MutableStateFlow(emptySet()),
         )
+        val mockVaultRegistry = Mockito.mock(VaultRegistry::class.java).also { mock ->
+            Mockito.`when`(mock.enabledVaults).thenReturn(
+                MutableStateFlow(
+                    listOf(VaultEntity(id = "test", name = "Test", localPath = root.absolutePath))
+                )
+            )
+        }
+        val mockServer = Mockito.mock(VelaMiniAppServer::class.java).also { mock ->
+            Mockito.`when`(mock.port).thenReturn(MutableStateFlow(VelaMiniAppServer.DEFAULT_PORT))
+            Mockito.`when`(mock.isReady).thenReturn(MutableStateFlow(false))
+        }
         return MiniAppViewModel(
             documentStore     = MiniAppDocumentStore(fakeDocumentDao),
             eventBus          = EventBus(),
             amplifierSession  = mockSession,
             vaultManager      = vaultManager,
+            vaultRegistry     = mockVaultRegistry,
             capabilitiesRepo  = CapabilitiesGraphRepository(fakeRegistryDao),
             rendererGenerator = mockRendererGenerator,
+            server            = mockServer,
         )
     }
 
@@ -174,6 +191,20 @@ class MiniAppRuntimeTest {
     }
 
     // ── RendererSuggestion ────────────────────────────────────────────────────────────────────────
+
+    // ── MiniAppViewModel server state flows (Task 5) ─────────────────────────────────────────────
+
+    @Test
+    fun `MiniAppViewModel exposes serverPort defaulting to 7701`() {
+        val vm = buildViewModel(tempDir.newFolder())
+        assertThat(vm.serverPort.value).isEqualTo(VelaMiniAppServer.DEFAULT_PORT)
+    }
+
+    @Test
+    fun `MiniAppViewModel exposes serverReady defaulting to false`() {
+        val vm = buildViewModel(tempDir.newFolder())
+        assertThat(vm.serverReady.value).isFalse()
+    }
 
     @Test
     fun `RendererSuggestion holds type label and description`() {
