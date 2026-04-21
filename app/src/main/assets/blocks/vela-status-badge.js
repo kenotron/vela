@@ -9,7 +9,7 @@ export class VelaStatusBadge extends LitElement {
     .done, .resolved, .closed { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
     .blocked, .critical { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
     .review, .pending { background: #ede9fe; color: #5b21b6; border: 1px solid #c4b5fd; }
-    .default  { background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; }
+    .default  { background: var(--surface2, #f3f4f6); color: var(--text, #374151); border: 1px solid var(--border, #d1d5db); }
   `;
   static properties = { status: { type: String }, statuses: { type: Array } };
   constructor() { super(); this.status = 'open'; this.statuses = ['open', 'review', 'done', 'blocked']; }
