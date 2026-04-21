@@ -419,6 +419,7 @@ fun MiniAppContainer(
     layout: String,
     modifier: Modifier = Modifier,
     initialBuildType: com.vela.app.ai.RendererType? = null,
+    forceMarkdown: Boolean = false,
     viewModel: MiniAppViewModel = hiltViewModel(),
 ) {
     // ── Reactive state ────────────────────────────────────────────────────────
@@ -435,11 +436,15 @@ fun MiniAppContainer(
     // ── RendererState — drives which UI branch is shown ───────────────────────
     // Default: if a cached renderer exists → Ready; otherwise → Fallback (show
     // native content immediately, no LLM call). Generation is user-initiated only.
-    var rendererState by remember(initialBuildType) {
+    var rendererState by remember(initialBuildType, forceMarkdown) {
         mutableStateOf<RendererState>(
-            initialBuildType?.let { RendererState.Building(it) }
-                ?: viewModel.getRendererFile(contentType)?.let { RendererState.Ready(it) }
-                ?: RendererState.Fallback(contentType, itemContent)
+            when {
+                initialBuildType != null -> RendererState.Building(initialBuildType)
+                forceMarkdown           -> RendererState.Fallback(contentType, itemContent)
+                else -> viewModel.getRendererFile(contentType)
+                            ?.let { RendererState.Ready(it) }
+                            ?: RendererState.Fallback(contentType, itemContent)
+            }
         )
     }
 

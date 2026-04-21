@@ -566,8 +566,18 @@ package com.vela.app.ui.vault
         val viewModel: MiniAppViewModel = hiltViewModel()
         var rendererKey    by remember { mutableIntStateOf(0) }
         var swapTargetType by remember { mutableStateOf<com.vela.app.ai.RendererType?>(null) }
-        var showSwapSheet  by remember { mutableStateOf(false) }
-        val scope = rememberCoroutineScope()
+        var forceMarkdown  by remember { mutableStateOf(false) }
+        var showViewMenu   by remember { mutableStateOf(false) }
+        var showTypeSheet  by remember { mutableStateOf(false) }
+        val scope          = rememberCoroutineScope()
+
+        // Label reflects what's currently showing
+        val viewLabel = when {
+            forceMarkdown          -> "Markdown"
+            swapTargetType != null -> swapTargetType!!.label   // e.g. "Reader", "Interactive", "Dashboard"
+            viewModel.getRendererFile(contentType) != null -> "Mini App"
+            else -> "Markdown"
+        }
 
         LaunchedEffect(itemPath) {
             itemContent = withContext(Dispatchers.IO) {
@@ -597,34 +607,11 @@ package com.vela.app.ui.vault
                         }
                     },
                     actions = {
-                        // Swap: opens type-selection sheet
-                        IconButton(onClick = { showSwapSheet = true }) {
+                        TextButton(onClick = { showViewMenu = true }) {
+                            Text(viewLabel)
                             Icon(
-                                imageVector        = Icons.Default.SwapHoriz,
-                                contentDescription = "Switch renderer",
-                            )
-                        }
-                        // Delete: removes renderer file, resets to Fallback
-                        IconButton(onClick = {
-                            scope.launch {
-                                try {
-                                    val port = viewModel.serverPort.value
-                                    val conn = java.net.URL("http://localhost:$port/miniapps/$contentType")
-                                        .openConnection() as java.net.HttpURLConnection
-                                    conn.requestMethod = "DELETE"
-                                    conn.connect()
-                                    conn.responseCode
-                                    conn.disconnect()
-                                } catch (e: Exception) {
-                                    android.util.Log.w("MiniAppView", "DELETE failed: ${e.message}")
-                                }
-                                swapTargetType = null
-                                rendererKey++
-                            }
-                        }) {
-                            Icon(
-                                imageVector        = Icons.Default.DeleteOutline,
-                                contentDescription = "Delete renderer",
+                                imageVector        = Icons.Default.ArrowDropDown,
+                                contentDescription = "View options",
                             )
                         }
                     },
@@ -646,24 +633,121 @@ package com.vela.app.ui.vault
                         contentType      = contentType,
                         layout           = layout,
                         initialBuildType = swapTargetType,
+                        forceMarkdown    = forceMarkdown,
                         modifier         = Modifier.padding(innerPadding).fillMaxSize(),
                     )
                 }
             }
         }
 
-        if (showSwapSheet) {
+        if (showViewMenu) {
+            val hasRenderer = viewModel.getRendererFile(contentType) != null
+            ModalBottomSheet(onDismissRequest = { showViewMenu = false }) {
+                Text(
+                    "View options",
+                    style    = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                )
+
+                // Always — Markdown (native)
+                ListItem(
+                    headlineContent = { Text("Markdown") },
+                    leadingContent  = {
+                        if (forceMarkdown || (!hasRenderer && swapTargetType == null))
+                            Icon(Icons.Default.Check, null)
+                        else
+                            Spacer(Modifier.size(24.dp))
+                    },
+                    modifier = Modifier.clickable {
+                        showViewMenu   = false
+                        forceMarkdown  = true
+                        swapTargetType = null
+                        rendererKey++
+                    },
+                )
+
+                // If a renderer exists or was just built — Mini App option
+                if (hasRenderer || swapTargetType != null) {
+                    ListItem(
+                        headlineContent = { Text(swapTargetType?.label ?: "Mini App") },
+                        leadingContent  = {
+                            if (!forceMarkdown)
+                                Icon(Icons.Default.Check, null)
+                            else
+                                Spacer(Modifier.size(24.dp))
+                        },
+                        modifier = Modifier.clickable {
+                            showViewMenu  = false
+                            forceMarkdown = false
+                            rendererKey++
+                        },
+                    )
+                }
+
+                // Generate / switch type
+                ListItem(
+                    headlineContent = { Text("Generate different view\u2026") },
+                    leadingContent  = { Icon(Icons.Default.AutoAwesome, null) },
+                    modifier        = Modifier.clickable {
+                        showViewMenu = false
+                        showTypeSheet = true
+                    },
+                )
+
+                // Divider + Delete (destructive — only when renderer exists)
+                if (hasRenderer || swapTargetType != null) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    ListItem(
+                        headlineContent = { Text("Delete this view") },
+                        leadingContent  = {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        },
+                        colors   = ListItemDefaults.colors(
+                            headlineColor = MaterialTheme.colorScheme.error,
+                        ),
+                        modifier = Modifier.clickable {
+                            showViewMenu = false
+                            scope.launch {
+                                try {
+                                    val port = viewModel.serverPort.value
+                                    val conn = java.net.URL("http://localhost:$port/miniapps/$contentType")
+                                        .openConnection() as java.net.HttpURLConnection
+                                    conn.requestMethod = "DELETE"
+                                    conn.connect()
+                                    conn.responseCode
+                                    conn.disconnect()
+                                } catch (e: Exception) {
+                                    android.util.Log.w("MiniAppView", "DELETE: ${e.message}")
+                                }
+                                forceMarkdown  = true
+                                swapTargetType = null
+                                rendererKey++
+                            }
+                        },
+                    )
+                }
+                Spacer(Modifier.height(32.dp))
+            }
+        }
+
+        // Type selection sheet (for "Generate different view…")
+        if (showTypeSheet) {
             RendererTypeSheet(
                 viewModel          = viewModel,
                 itemContent        = itemContent,
                 contentType        = contentType,
-                onDismiss          = { showSwapSheet = false },
+                onDismiss          = { showTypeSheet = false },
                 onSelect           = { type ->
-                    showSwapSheet  = false
+                    showTypeSheet  = false
+                    forceMarkdown  = false
                     swapTargetType = type
                     rendererKey++
                 },
-                onOpenExisting     = { showSwapSheet = false },
+                onOpenExisting     = { showTypeSheet = false },
                 onSuggestionsReady = {},
             )
         }
