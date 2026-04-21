@@ -52,11 +52,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -66,7 +61,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.draw.rotate
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
@@ -453,91 +447,11 @@ fun MiniAppContainer(
 
         // ── Fallback: native content + icon-only FAB ──────────────────────────
         is RendererState.Fallback -> {
-            var showTypeSheet by remember { mutableStateOf(false) }
-            var isAnalysing   by remember { mutableStateOf(false) }
-
-            // Delay sheet opening so user sees the FAB spin for a beat before the modal covers it
-            LaunchedEffect(isAnalysing) {
-                if (isAnalysing && !showTypeSheet) {
-                    delay(280)
-                    // Run fitness check against existing renderer types
-                    val vault = viewModel.primaryVault()
-                    val renderersDir = vault?.let { java.io.File(it.localPath, ".vela/renderers") }
-                    val existingTypes = renderersDir
-                        ?.listFiles()
-                        ?.filter { it.isDirectory && java.io.File(it, "renderer.html").exists() }
-                        ?.map { it.name }
-                        ?: emptyList()
-                    val fitness = viewModel.fitnessCheck(contentType, itemContent.take(400), existingTypes)
-                    if (fitness.confidence >= 0.7f && fitness.match != null) {
-                        val rendererFile = vault?.let {
-                            java.io.File(it.localPath, ".vela/renderers/${fitness.match}/renderer.html")
-                        }
-                        if (rendererFile?.exists() == true) {
-                            rendererState = RendererState.Ready(rendererFile)
-                            isAnalysing = false
-                            return@LaunchedEffect
-                        }
-                    }
-                    showTypeSheet = true
-                }
-            }
-
-            // Continuous rotation for the ✨ icon while analysing
-            val infiniteTransition = rememberInfiniteTransition(label = "fab-spin")
-            val fabRotation by infiniteTransition.animateFloat(
-                initialValue  = 0f,
-                targetValue   = 360f,
-                animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing)),
-                label         = "fab-rotation",
-            )
-
             Box(modifier) {
                 FallbackRenderer(
                     contentType = s.contentType,
                     content     = s.content,
                     modifier    = Modifier.fillMaxSize(),
-                )
-                FloatingActionButton(
-                    onClick        = { if (!isAnalysing) isAnalysing = true },
-                    modifier       = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(16.dp),
-                    containerColor = if (isAnalysing)
-                        MaterialTheme.colorScheme.tertiaryContainer
-                    else
-                        MaterialTheme.colorScheme.primaryContainer,
-                ) {
-                    Icon(
-                        imageVector        = Icons.Default.AutoAwesome,
-                        contentDescription = "Generate mini app",
-                        modifier           = if (isAnalysing)
-                            Modifier.rotate(fabRotation)
-                        else
-                            Modifier,
-                    )
-                }
-            }
-
-            if (showTypeSheet) {
-                RendererTypeSheet(
-                    viewModel          = viewModel,
-                    itemContent        = itemContent,
-                    contentType        = contentType,
-                    onDismiss          = { showTypeSheet = false; isAnalysing = false },
-                    onSelect           = { type ->
-                        showTypeSheet = false
-                        isAnalysing   = false
-                        rendererState = RendererState.Building(type)
-                    },
-                    onOpenExisting     = {
-                        showTypeSheet = false
-                        isAnalysing   = false
-                        viewModel.getRendererFile(contentType)?.let { file ->
-                            rendererState = RendererState.Ready(file)
-                        }
-                    },
-                    onSuggestionsReady = { isAnalysing = false },
                 )
             }
         }
