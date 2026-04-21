@@ -286,70 +286,42 @@ class MiniAppViewModel @Inject constructor(
         contentType: String,
     ): List<RendererSuggestion> {
         return try {
-            val detection = archetypeDetector.detect(contentType, itemContent)
-            val matches   = skillLibrary.findMatches(detection.archetype, detection.confidence, limit = 3)
+            val allSkills = skillLibrary.loadAllSkills()
 
-            if (matches.isNotEmpty()) {
-                matches.map { match ->
-                    RendererSuggestion(
-                        type = when {
-                            match.skill.id.contains("kanban") || match.skill.id.contains("task") ->
-                                com.vela.app.ai.RendererType.DASHBOARD
-                            match.skill.id.contains("journal") || match.skill.id.contains("tracker") ->
-                                com.vela.app.ai.RendererType.INTERACTIVE
-                            else -> com.vela.app.ai.RendererType.READER
-                        },
-                        label       = match.skill.name,
-                        description = match.skill.description,
-                    )
-                }
-            } else {
-                suggestViaLlm(itemContent, contentType)
+            // Score each skill by how many of its archetype keywords appear in the content.
+            // Fast — no LLM call. Skills define their own keywords in SKILL.md.
+            val preview = (contentType + " " + itemContent.take(500)).lowercase()
+            val scored = allSkills.map { skill ->
+                val hits = skill.archetypes.count { tag -> preview.contains(tag.lowercase()) }
+                skill to hits
+            }
+
+            val matched = scored
+                .filter  { (_, hits) -> hits > 0 }
+                .sortedByDescending { (_, hits) -> hits }
+                .take(3)
+                .map { (skill, _) -> skill }
+
+            // If no keyword hits fall back to returning the first 3 skills
+            val toShow = if (matched.isNotEmpty()) matched else allSkills.take(3)
+
+            toShow.map { skill ->
+                RendererSuggestion(
+                    type = when {
+                        skill.id.contains("kanban") || skill.id.contains("task") ->
+                            com.vela.app.ai.RendererType.DASHBOARD
+                        skill.id.contains("journal") || skill.id.contains("tracker") ->
+                            com.vela.app.ai.RendererType.INTERACTIVE
+                        else -> com.vela.app.ai.RendererType.READER
+                    },
+                    label       = skill.name,
+                    description = skill.description,
+                )
             }
         } catch (e: Exception) {
             com.vela.app.ai.RendererType.entries.map { type ->
                 RendererSuggestion(type = type, label = type.label, description = "")
             }
-        }
-    }
-
-    private suspend fun suggestViaLlm(itemContent: String, contentType: String): List<RendererSuggestion> {
-        val preview = itemContent.take(600).replace("\"", "'")
-        val prompt = """
-You are helping a user decide what to build as an interactive mini app for their vault content.
-
-Content type: "$contentType"
-Content preview:
-$preview
-
-Suggest exactly 3 specific things the user could DO with this content as an interactive app.
-Focus on UTILITY and ACTIONS — not visual style.
-
-Return ONLY valid JSON array of exactly 3 objects:
-[{"type":"READER|INTERACTIVE|DASHBOARD","label":"short action title (max 6 words)","description":"what the user can do (max 12 words)"}]
-        """.trimIndent()
-        val sb = StringBuilder()
-        amplifierSession.runTurn(
-            historyJson       = "[]",
-            userInput         = prompt,
-            userContentJson   = null,
-            systemPrompt      = "Return only valid JSON array. No explanation.",
-            onToolStart       = { _, _ -> "" },
-            onToolEnd         = { _, _ -> },
-            onToken           = { sb.append(it) },
-            onProviderRequest = { null },
-            onServerTool      = { _, _ -> },
-        )
-        val arr = org.json.JSONArray(sb.toString().trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim())
-        return (0 until arr.length()).map { i ->
-            val obj = arr.getJSONObject(i)
-            RendererSuggestion(
-                type = com.vela.app.ai.RendererType.entries
-                    .find { it.name == obj.optString("type") }
-                    ?: com.vela.app.ai.RendererType.READER,
-                label       = obj.optString("label", "Mini App"),
-                description = obj.optString("description", ""),
-            )
         }
     }
 
