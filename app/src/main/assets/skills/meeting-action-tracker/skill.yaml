@@ -1,0 +1,5 @@
+name: Meeting Action Tracker
+archetypes: [meeting, standup, notes, 1on1, interview, discussion, sync]
+blocks: [vela-action-list, vela-metadata-card, vela-timeline]
+confidence_threshold: 0.7
+description: Extracts tasks and decisions from meeting notes with owner tracking

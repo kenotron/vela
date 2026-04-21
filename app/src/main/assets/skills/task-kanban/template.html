@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Tasks</title>
+  <script type="importmap">{"imports":{"lit":"/lib/lit-core.min.js","@vela/runtime":"/lib/vela-runtime.js","@vela/":"/blocks/"}}</script>
+  <script type="module">
+    import '@vela/vela-kanban.js';
+    import '@vela/vela-progress-ring.js';
+    import { vela } from '@vela/runtime';
+    window.onVelaReady = async () => {
+      const ctx  = vela.app.context;
+      const data = await vela.vault.read(ctx.itemPath, 'json');
+      if (ctx.theme?.isDark) document.documentElement.style.setProperty('--bg','#1a1a1f');
+      document.documentElement.style.setProperty('--primary', ctx.theme?.primaryColor || '#7c6ff7');
+      const title = data.frontmatter?.title || (data.sections || []).find(s => s.type === 'heading')?.text || 'Tasks';
+      document.getElementById('title').textContent = title;
+      // Map list sections to kanban columns
+      const lists = (data.sections || []).filter(s => s.type === 'list');
+      const headings = (data.sections || []).filter(s => s.type === 'heading');
+      const columns = lists.slice(0, 3).map((list, i) => ({
+        title: headings[i]?.text || ['To Do','Doing','Done'][i],
+        cards: list.items || [],
+      }));
+      if (columns.length > 0) document.querySelector('vela-kanban').columns = columns;
+      const totalCards = columns.reduce((sum, col) => sum + col.cards.length, 0);
+      const doneCards  = columns[2]?.cards.length || 0;
+      document.querySelector('vela-progress-ring').value = doneCards;
+      document.querySelector('vela-progress-ring').max   = Math.max(totalCards, 1);
+      document.querySelector('vela-progress-ring').title = 'Done';
+    };
+  </script>
+  <style>
+    :root{--primary:#7c6ff7;--surface2:#f3f4f6;--border:#e5e7eb;--muted:#9ca3af;--text:#111;--bg:#fff}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,sans-serif;background:var(--bg);color:var(--text);max-width:100%;padding:16px}
+    .header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+    h1{font-size:20px;font-weight:700}
+    section{margin-bottom:24px}
+  </style>
+</head>
+<body>
+  <div class="header"><h1 id="title">Loading…</h1><vela-progress-ring size="60"></vela-progress-ring></div>
+  <section><vela-kanban></vela-kanban></section>
+</body>
+</html>

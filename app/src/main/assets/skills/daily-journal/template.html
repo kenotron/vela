@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Journal</title>
+  <script type="importmap">{"imports":{"lit":"/lib/lit-core.min.js","@vela/runtime":"/lib/vela-runtime.js","@vela/":"/blocks/"}}</script>
+  <script type="module">
+    import '@vela/vela-checklist.js';
+    import '@vela/vela-heatmap-calendar.js';
+    import { vela } from '@vela/runtime';
+    window.onVelaReady = async () => {
+      const ctx  = vela.app.context;
+      const data = await vela.vault.read(ctx.itemPath, 'json');
+      if (ctx.theme?.isDark) document.documentElement.style.setProperty('--bg','#1a1a1f');
+      document.documentElement.style.setProperty('--primary', ctx.theme?.primaryColor || '#7c6ff7');
+      const title = data.frontmatter?.title || data.frontmatter?.date || 'Journal';
+      document.getElementById('title').textContent = title;
+      const listSections = (data.sections || []).filter(s => s.type === 'list');
+      if (listSections.length > 0) {
+        document.querySelector('vela-checklist').items = listSections[0].items.map(t => ({ text: t, done: false }));
+        document.querySelector('vela-checklist').title = 'Today';
+      }
+      // Dummy heatmap data — in a real app this would query vela.db
+      document.querySelector('vela-heatmap-calendar').data = Array.from({length: 84}, () => Math.random() > 0.3 ? Math.floor(Math.random() * 5) + 1 : 0);
+      document.querySelector('vela-heatmap-calendar').title = 'Consistency';
+    };
+  </script>
+  <style>
+    :root{--primary:#7c6ff7;--surface2:#f3f4f6;--border:#e5e7eb;--muted:#9ca3af;--text:#111;--bg:#fff}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,sans-serif;background:var(--bg);color:var(--text);max-width:600px;margin:0 auto;padding:16px}
+    h1{font-size:22px;font-weight:700;margin-bottom:16px}
+    section{margin-bottom:24px}
+    h2{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px}
+  </style>
+</head>
+<body>
+  <h1 id="title">Loading…</h1>
+  <section><h2>Habits</h2><vela-checklist></vela-checklist></section>
+  <section><h2>Activity</h2><vela-heatmap-calendar></vela-heatmap-calendar></section>
+</body>
+</html>

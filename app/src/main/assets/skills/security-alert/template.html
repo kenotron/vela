@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Security Alert</title>
+  <script type="importmap">{"imports":{"lit":"/lib/lit-core.min.js","@vela/runtime":"/lib/vela-runtime.js","@vela/":"/blocks/"}}</script>
+  <script type="module">
+    import '@vela/vela-action-list.js';
+    import '@vela/vela-metadata-card.js';
+    import '@vela/vela-status-badge.js';
+    import { vela } from '@vela/runtime';
+    window.onVelaReady = async () => {
+      const ctx  = vela.app.context;
+      const data = await vela.vault.read(ctx.itemPath, 'json');
+      if (ctx.theme?.isDark) document.documentElement.style.setProperty('--bg','#1a1a1f');
+      document.documentElement.style.setProperty('--primary', ctx.theme?.primaryColor || '#7c6ff7');
+      const title = data.frontmatter?.title || (data.sections || []).find(s => s.type === 'heading')?.text || 'Security Alert';
+      document.getElementById('title').textContent = title;
+      document.querySelector('vela-metadata-card').frontmatter = data.frontmatter || {};
+      const actions = (data.sections || []).filter(s => s.type === 'list').flatMap(s => s.items || []).map(t => ({ text: t, done: false }));
+      document.querySelector('vela-action-list').items = actions;
+    };
+  </script>
+  <style>
+    :root{--primary:#7c6ff7;--surface2:#f3f4f6;--border:#e5e7eb;--muted:#9ca3af;--text:#111;--bg:#fff}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,sans-serif;background:var(--bg);color:var(--text);max-width:600px;margin:0 auto;padding:16px}
+    h1{font-size:20px;font-weight:700;margin-bottom:8px;color:#dc2626}
+    .status-row{display:flex;align-items:center;gap:10px;margin-bottom:20px}
+    section{margin-bottom:20px}
+    h2{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px}
+  </style>
+</head>
+<body>
+  <h1 id="title">Loading…</h1>
+  <div class="status-row">Status: <vela-status-badge status="open"></vela-status-badge></div>
+  <section><h2>Details</h2><vela-metadata-card></vela-metadata-card></section>
+  <section><h2>Response Actions</h2><vela-action-list></vela-action-list></section>
+</body>
+</html>

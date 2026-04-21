@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Book</title>
+  <script type="importmap">{"imports":{"lit":"/lib/lit-core.min.js","@vela/runtime":"/lib/vela-runtime.js","@vela/":"/blocks/"}}</script>
+  <script type="module">
+    import '@vela/vela-progress-ring.js';
+    import '@vela/vela-metadata-card.js';
+    import '@vela/vela-checklist.js';
+    import { vela } from '@vela/runtime';
+    window.onVelaReady = async () => {
+      const ctx  = vela.app.context;
+      const data = await vela.vault.read(ctx.itemPath, 'json');
+      if (ctx.theme?.isDark) document.documentElement.style.setProperty('--bg','#1a1a1f');
+      document.documentElement.style.setProperty('--primary', ctx.theme?.primaryColor || '#7c6ff7');
+      const title = data.frontmatter?.title || 'Book';
+      document.getElementById('title').textContent = title;
+      // Progress ring from frontmatter progress field
+      const progress = parseInt(data.frontmatter?.progress || '0', 10);
+      document.querySelector('vela-progress-ring').value = progress;
+      document.querySelector('vela-progress-ring').max   = 100;
+      document.querySelector('vela-progress-ring').title = 'Read';
+      document.querySelector('vela-metadata-card').frontmatter = data.frontmatter || {};
+      // Key points from list sections
+      const keyPoints = (data.sections || []).find(s => s.type === 'list');
+      if (keyPoints) {
+        document.querySelector('vela-checklist').items = keyPoints.items.map(t => ({ text: t, done: false }));
+        document.querySelector('vela-checklist').title = 'Key Points';
+      }
+    };
+  </script>
+  <style>
+    :root{--primary:#7c6ff7;--surface2:#f3f4f6;--border:#e5e7eb;--muted:#9ca3af;--text:#111;--bg:#fff}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,sans-serif;background:var(--bg);color:var(--text);max-width:600px;margin:0 auto;padding:16px}
+    .header{display:flex;align-items:center;gap:16px;margin-bottom:20px}
+    h1{font-size:22px;font-weight:700;flex:1}
+    section{margin-bottom:24px}
+    h2{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1 id="title">Loading…</h1>
+    <vela-progress-ring size="70"></vela-progress-ring>
+  </div>
+  <section><h2>Details</h2><vela-metadata-card></vela-metadata-card></section>
+  <section><h2>Key Points</h2><vela-checklist></vela-checklist></section>
+</body>
+</html>

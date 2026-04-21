@@ -1,0 +1,5 @@
+name: Security Alert Tracker
+archetypes: [security, oauth, alert, incident, breach, vulnerability, warning, phishing]
+blocks: [vela-action-list, vela-metadata-card, vela-status-badge]
+confidence_threshold: 0.72
+description: Track status and response actions for security events
