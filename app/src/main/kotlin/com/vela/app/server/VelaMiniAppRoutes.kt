@@ -1,6 +1,9 @@
 package com.vela.app.server
 
+    import android.content.Context
+    import android.content.res.AssetManager
     import com.vela.app.ai.AmplifierSession
+    import com.vela.app.events.EventBus
     import com.vela.app.vault.VaultRegistry
     import io.ktor.http.*
     import io.ktor.server.application.*
@@ -21,6 +24,8 @@ package com.vela.app.server
     class VelaMiniAppRoutes @Inject constructor(
         private val vaultRegistry: VaultRegistry,
         private val amplifierSession: AmplifierSession,
+        @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: Context,
+        private val eventBus: EventBus,
     ) {
         // In-memory event ring buffer — max 100 events, thread-safe via synchronized
         private val eventBuffer = ArrayDeque<Triple<String, String, Long>>()
@@ -143,6 +148,89 @@ package com.vela.app.server
                     }
                     call.respondText(arr.toString(), ContentType.Application.Json)
                 }
+
+                // Serve assets: Lit library + vela-runtime
+                get("/lib/{filename}") {
+                    val filename = call.parameters["filename"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                    try {
+                        val bytes = withContext(Dispatchers.IO) { appContext.assets.open("lib/$filename").readBytes() }
+                        val ct = if (filename.endsWith(".js")) ContentType("application", "javascript") else ContentType.Application.OctetStream
+                        call.respondBytes(bytes, ct)
+                    } catch (e: java.io.FileNotFoundException) { call.respond(HttpStatusCode.NotFound) }
+                }
+
+                // Serve Lit Web Component blocks
+                get("/blocks/{filename}") {
+                    val filename = call.parameters["filename"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                    try {
+                        val bytes = withContext(Dispatchers.IO) { appContext.assets.open("blocks/$filename").readBytes() }
+                        call.respondBytes(bytes, ContentType("application", "javascript"))
+                    } catch (e: java.io.FileNotFoundException) { call.respond(HttpStatusCode.NotFound) }
+                }
+
+                // Serve skill template files
+                get("/skills/{skill}/{filename}") {
+                    val skill    = call.parameters["skill"]    ?: return@get call.respond(HttpStatusCode.BadRequest)
+                    val filename = call.parameters["filename"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                    try {
+                        val bytes = withContext(Dispatchers.IO) { appContext.assets.open("skills/$skill/$filename").readBytes() }
+                        val ct = if (filename.endsWith(".html")) ContentType.Text.Html else ContentType.Text.Plain
+                        call.respondBytes(bytes, ct)
+                    } catch (e: java.io.FileNotFoundException) { call.respond(HttpStatusCode.NotFound) }
+                }
+
+                // PUT /miniapps/{contentType} — overwrite renderer + signal reload (Remix mode)
+                put("/miniapps/{contentType}") {
+                    val type  = call.parameters["contentType"] ?: return@put call.respond(HttpStatusCode.BadRequest)
+                    val vault = vaultRegistry.enabledVaults.value.firstOrNull() ?: return@put call.respond(HttpStatusCode.ServiceUnavailable)
+                    val html  = call.receiveText()
+                    withContext(Dispatchers.IO) {
+                        val dir = java.io.File(vault.localPath, ".vela/renderers/$type")
+                        dir.mkdirs()
+                        java.io.File(dir, "renderer.html").writeText(html)
+                    }
+                    eventBus.tryPublish("renderer:updated", type)
+                    call.respondText(JSONObject().put("ok", true).toString(), ContentType.Application.Json)
+                }
+
+                // Write vault file
+                post("/api/vault/write") {
+                    val body    = JSONObject(call.receiveText())
+                    val path    = body.getString("path")
+                    val content = body.getString("content")
+                    val vault   = vaultRegistry.enabledVaults.value.firstOrNull() ?: return@post call.respond(HttpStatusCode.ServiceUnavailable)
+                    withContext(Dispatchers.IO) {
+                        val file = java.io.File(vault.localPath, path)
+                        file.parentFile?.mkdirs()
+                        file.writeText(content)
+                    }
+                    call.respondText(JSONObject().put("ok", true).toString(), ContentType.Application.Json)
+                }
+
+                // App operations — fire into EventBus, native Compose listens
+                post("/api/app/navigate") {
+                    val body = call.receiveText()
+                    eventBus.tryPublish("app:navigate", runCatching { JSONObject(body).optString("relPath", "") }.getOrElse { body })
+                    call.respondText(JSONObject().put("ok", true).toString(), ContentType.Application.Json)
+                }
+                post("/api/app/notify") {
+                    eventBus.tryPublish("app:notify", call.receiveText())
+                    call.respondText(JSONObject().put("ok", true).toString(), ContentType.Application.Json)
+                }
+                post("/api/app/refresh") {
+                    call.receiveText()
+                    eventBus.tryPublish("app:refresh", "")
+                    call.respondText(JSONObject().put("ok", true).toString(), ContentType.Application.Json)
+                }
+                post("/api/app/remix") {
+                    call.receiveText()
+                    eventBus.tryPublish("app:remix-requested", "")
+                    call.respondText(JSONObject().put("ok", true).toString(), ContentType.Application.Json)
+                }
+                post("/api/app/record") {
+                    eventBus.tryPublish("app:record-start", call.receiveText())
+                    call.respondText(JSONObject().put("ok", true).toString(), ContentType.Application.Json)
+                }
             }
         }
 
@@ -210,4 +298,3 @@ package com.vela.app.server
             return sb.toString()
         }
     }
-    
