@@ -1,5 +1,7 @@
+---
 name: Task Kanban Board
 archetypes: [task, project, todo, sprint, backlog, kanban, roadmap]
 blocks: [vela-kanban, vela-progress-ring]
 confidence_threshold: 0.7
 description: Kanban board with progress ring for task and project notes
+---

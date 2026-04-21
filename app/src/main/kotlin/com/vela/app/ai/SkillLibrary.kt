@@ -102,13 +102,27 @@ class SkillLibrary @Inject constructor(
     }
 
     private fun parseAssetSkill(id: String): Skill? = runCatching {
-        val yaml = context.assets.open("skills/$id/skill.yaml").bufferedReader().readText()
-        parseYaml(id, yaml, isVaultSkill = false)
+        val md = context.assets.open("skills/$id/SKILL.md").bufferedReader().readText()
+        parseYaml(id, extractFrontmatter(md), isVaultSkill = false)
     }.getOrNull()
 
     private fun parseVaultSkill(dir: File): Skill? = runCatching {
-        parseYaml(dir.name, File(dir, "skill.yaml").readText(), isVaultSkill = true)
+        val md = File(dir, "SKILL.md").readText()
+        parseYaml(dir.name, extractFrontmatter(md), isVaultSkill = true)
     }.getOrNull()
+
+    /**
+     * Extracts YAML content from between the first pair of `---` delimiters in a markdown file.
+     * Returns the full content unchanged if no frontmatter delimiters are found (graceful fallback).
+     */
+    private fun extractFrontmatter(content: String): String {
+        val lines = content.lines()
+        val firstDelim = lines.indexOfFirst { it.trim() == "---" }
+        if (firstDelim < 0) return content  // no frontmatter → treat whole file as YAML
+        val secondDelim = lines.drop(firstDelim + 1).indexOfFirst { it.trim() == "---" }
+        if (secondDelim < 0) return content  // unclosed frontmatter → treat whole file as YAML
+        return lines.drop(firstDelim + 1).take(secondDelim).joinToString("\n")
+    }
 
     private fun parseYaml(id: String, yaml: String, isVaultSkill: Boolean): Skill {
         val lines = yaml.lines().associate { line ->

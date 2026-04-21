@@ -1,5 +1,7 @@
+---
 name: Recipe Cook-along
 archetypes: [recipe, cooking, meal, ingredients, food]
 blocks: [vela-step-through, vela-checklist, vela-timer]
 confidence_threshold: 0.7
 description: Step-by-step cook-along with ingredient tracking and timers
+---

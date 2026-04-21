@@ -1,5 +1,7 @@
+---
 name: Book Reading Card
 archetypes: [book, reading, literature, highlights, notes, review, summary]
 blocks: [vela-progress-ring, vela-metadata-card, vela-checklist]
 confidence_threshold: 0.7
 description: Reading progress, book metadata, and key points checklist
+---

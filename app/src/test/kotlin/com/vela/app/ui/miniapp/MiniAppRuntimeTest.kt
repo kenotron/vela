@@ -77,6 +77,12 @@ class MiniAppRuntimeTest {
 
     private val mockSession: AmplifierSession = Mockito.mock(AmplifierSession::class.java)
     private val mockRendererGenerator: RendererGenerator = Mockito.mock(RendererGenerator::class.java)
+    private val mockRendererAssembler: com.vela.app.ai.RendererAssembler =
+        Mockito.mock(com.vela.app.ai.RendererAssembler::class.java)
+    private val mockArchetypeDetector: com.vela.app.ai.ArchetypeDetector =
+        Mockito.mock(com.vela.app.ai.ArchetypeDetector::class.java)
+    private val mockSkillLibrary: com.vela.app.ai.SkillLibrary =
+        Mockito.mock(com.vela.app.ai.SkillLibrary::class.java)
 
     private fun buildViewModel(root: File): MiniAppViewModel {
         val vaultManager = VaultManager(
@@ -103,6 +109,9 @@ class MiniAppRuntimeTest {
             capabilitiesRepo  = CapabilitiesGraphRepository(fakeRegistryDao),
             rendererGenerator = mockRendererGenerator,
             server            = mockServer,
+            rendererAssembler = mockRendererAssembler,
+            archetypeDetector = mockArchetypeDetector,
+            skillLibrary      = mockSkillLibrary,
         )
     }
 
