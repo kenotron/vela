@@ -694,8 +694,8 @@ package com.vela.app.ui.vault
                     },
                 )
 
-                // Divider + Delete (destructive — only when renderer exists)
-                if (hasRenderer || swapTargetType != null) {
+                // Divider + Delete (destructive — only when renderer exists AND not already in markdown mode)
+                if ((hasRenderer || swapTargetType != null) && !forceMarkdown) {
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                     ListItem(
                         headlineContent = { Text("Delete this view") },
@@ -712,17 +712,20 @@ package com.vela.app.ui.vault
                         modifier = Modifier.clickable {
                             showViewMenu = false
                             scope.launch {
-                                try {
-                                    val port = viewModel.serverPort.value
-                                    val conn = java.net.URL("http://localhost:$port/miniapps/$contentType")
-                                        .openConnection() as java.net.HttpURLConnection
-                                    conn.requestMethod = "DELETE"
-                                    conn.connect()
-                                    conn.responseCode
-                                    conn.disconnect()
-                                } catch (e: Exception) {
-                                    android.util.Log.w("MiniAppView", "DELETE: ${e.message}")
+                                withContext(Dispatchers.IO) {
+                                    try {
+                                        val port = viewModel.serverPort.value
+                                        val conn = java.net.URL("http://localhost:$port/miniapps/$contentType")
+                                            .openConnection() as java.net.HttpURLConnection
+                                        conn.requestMethod = "DELETE"
+                                        conn.connect()
+                                        conn.responseCode
+                                        conn.disconnect()
+                                    } catch (e: Exception) {
+                                        android.util.Log.w("MiniAppView", "DELETE: ${e.message}")
+                                    }
                                 }
+                                // State changes back on main thread after IO completes
                                 forceMarkdown  = true
                                 swapTargetType = null
                                 rendererKey++
