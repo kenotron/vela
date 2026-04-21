@@ -25,6 +25,7 @@ class RendererAssembler @Inject constructor(
     private val skillLibrary: SkillLibrary,
     private val rendererGenerator: RendererGenerator,
     private val vaultRegistry: VaultRegistry,
+    private val contentExtractor: ContentExtractor,
 ) {
     data class AssemblyResult(
         val result: GenerationResult,
@@ -75,6 +76,17 @@ class RendererAssembler @Inject constructor(
                     )
                 val dir  = File(vault.localPath, ".vela/renderers/$contentType").also { it.mkdirs() }
                 File(dir, "renderer.html").writeText(template)
+
+                // Extract semantic data via LLM — this is the data.json that Lit components will use
+                onPhase(3, "Extracting content…")
+                try {
+                    val json = contentExtractor.extract(itemContent, topSkill)
+                    if (json != null) {
+                        File(dir, "data.json").writeText(json)
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("RendererAssembler", "Extraction skipped: ${e.message}")
+                }
 
                 onPhase(4, "")  // Phase 4: Saving
 

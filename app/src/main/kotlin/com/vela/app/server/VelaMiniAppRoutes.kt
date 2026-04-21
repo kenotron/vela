@@ -51,6 +51,20 @@ package com.vela.app.server
                     call.respondText(withContext(Dispatchers.IO) { file.readText() }, ContentType.Text.Html)
                 }
 
+                // Serve extracted semantic data for Lit components
+                get("/miniapps/{contentType}/data.json") {
+                    val type  = call.parameters["contentType"]
+                        ?: return@get call.respond(HttpStatusCode.BadRequest, "Missing contentType")
+                    val vault = vaultRegistry.enabledVaults.value.firstOrNull()
+                        ?: return@get call.respond(HttpStatusCode.ServiceUnavailable, "No vault configured")
+                    val file = java.io.File(vault.localPath, ".vela/renderers/$type/data.json")
+                    if (!file.exists()) return@get call.respond(HttpStatusCode.NotFound, "No data for $type")
+                    call.respondText(
+                        withContext(Dispatchers.IO) { file.readText() },
+                        ContentType.Application.Json,
+                    )
+                }
+
                 // Delete renderer (force fresh generation)
                 delete("/miniapps/{contentType}") {
                     val type = call.parameters["contentType"]
