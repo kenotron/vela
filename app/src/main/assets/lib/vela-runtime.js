@@ -44,4 +44,16 @@ export const vela = {
     remix:    ()                      => _post('/api/app/remix',    {}),
     record:   (options = {})          => _post('/api/app/record',   options),
   },
+  miniapp: {
+    /**
+     * Fetches the LLM-extracted structured data for the current mini app.
+     * Returns null if data.json hasn't been generated yet (first run still in progress).
+     */
+    data: () => {
+      const ct = (window.__VELA_CONTEXT__ || {}).contentType || '';
+      return fetch(`/miniapps/${encodeURIComponent(ct)}/data.json`)
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null);
+    },
+  },
 };

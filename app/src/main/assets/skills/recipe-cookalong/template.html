@@ -11,18 +11,24 @@
     import { vela } from '@vela/runtime';
     window.onVelaReady = async () => {
       const ctx  = vela.app.context;
-      const data = await vela.vault.read(ctx.itemPath, 'json');
       if (ctx.theme?.isDark) document.documentElement.style.setProperty('--bg','#1a1a1f');
       document.documentElement.style.setProperty('--primary', ctx.theme?.primaryColor || '#7c6ff7');
-      const title = data.frontmatter?.title || (data.sections || []).find(s => s.type === 'heading')?.text || 'Recipe';
-      document.getElementById('title').textContent = title;
-      const steps = (data.sections || []).filter(s => s.type === 'paragraph' || s.type === 'heading');
-      document.querySelector('vela-step-through').sections = steps;
-      const ingSection = (data.sections || []).find(s => s.type === 'list');
-      if (ingSection) {
-        document.querySelector('vela-checklist').items = ingSection.items.map(t => ({ text: t, done: false }));
-        document.querySelector('vela-checklist').title = 'Ingredients';
+
+      const data = await vela.miniapp.data();
+      if (!data) {
+        document.getElementById('title').textContent = 'Preparing recipe…';
+        return;
       }
+      document.getElementById('title').textContent = data.title || 'Recipe';
+      if (data.servings) document.getElementById('meta').textContent = `Serves ${data.servings}${data.prepTime ? '  ·  ' + data.prepTime : ''}`;
+
+      // Steps — convert string array to section objects for vela-step-through
+      const steps = (data.steps || []).map((text, i) => ({ type: 'paragraph', text, level: 0 }));
+      document.querySelector('vela-step-through').sections = steps;
+
+      // Ingredients
+      document.querySelector('vela-checklist').items = (data.ingredients || []).map(t => ({ text: t, done: false }));
+      document.querySelector('vela-checklist').title = 'Ingredients';
     };
   </script>
   <style>
@@ -36,6 +42,7 @@
 </head>
 <body>
   <h1 id="title">Loading…</h1>
+  <p id="meta" style="color:var(--muted);font-size:13px;margin-bottom:16px"></p>
   <section><h2>Steps</h2><vela-step-through></vela-step-through></section>
   <section><h2>Ingredients</h2><vela-checklist></vela-checklist></section>
 </body>

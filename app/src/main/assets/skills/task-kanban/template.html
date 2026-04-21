@@ -10,24 +10,31 @@
     import '@vela/vela-progress-ring.js';
     import { vela } from '@vela/runtime';
     window.onVelaReady = async () => {
-      const ctx  = vela.app.context;
-      const data = await vela.vault.read(ctx.itemPath, 'json');
+      const ctx = vela.app.context;
       if (ctx.theme?.isDark) document.documentElement.style.setProperty('--bg','#1a1a1f');
       document.documentElement.style.setProperty('--primary', ctx.theme?.primaryColor || '#7c6ff7');
-      const title = data.frontmatter?.title || (data.sections || []).find(s => s.type === 'heading')?.text || 'Tasks';
-      document.getElementById('title').textContent = title;
-      // Map list sections to kanban columns
-      const lists = (data.sections || []).filter(s => s.type === 'list');
-      const headings = (data.sections || []).filter(s => s.type === 'heading');
-      const columns = lists.slice(0, 3).map((list, i) => ({
-        title: headings[i]?.text || ['To Do','Doing','Done'][i],
-        cards: list.items || [],
-      }));
-      if (columns.length > 0) document.querySelector('vela-kanban').columns = columns;
-      const totalCards = columns.reduce((sum, col) => sum + col.cards.length, 0);
-      const doneCards  = columns[2]?.cards.length || 0;
-      document.querySelector('vela-progress-ring').value = doneCards;
-      document.querySelector('vela-progress-ring').max   = Math.max(totalCards, 1);
+
+      const data = await vela.miniapp.data();
+      if (!data) { document.getElementById('title').textContent = 'Preparing tasks…'; return; }
+
+      document.getElementById('title').textContent = data.title || 'Tasks';
+
+      const todo       = data.todo       || [];
+      const inProgress = data.inProgress || [];
+      const done       = data.done       || [];
+      const blocked    = data.blocked    || [];
+
+      const columns = [
+        { title: 'To Do',       cards: todo },
+        { title: 'In Progress', cards: inProgress },
+        { title: 'Done',        cards: done },
+      ];
+      if (blocked.length > 0) columns.push({ title: 'Blocked', cards: blocked });
+      document.querySelector('vela-kanban').columns = columns;
+
+      const total = todo.length + inProgress.length + done.length + blocked.length;
+      document.querySelector('vela-progress-ring').value = done.length;
+      document.querySelector('vela-progress-ring').max   = Math.max(total, 1);
       document.querySelector('vela-progress-ring').title = 'Done';
     };
   </script>

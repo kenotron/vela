@@ -11,24 +11,26 @@
     import '@vela/vela-checklist.js';
     import { vela } from '@vela/runtime';
     window.onVelaReady = async () => {
-      const ctx  = vela.app.context;
-      const data = await vela.vault.read(ctx.itemPath, 'json');
+      const ctx = vela.app.context;
       if (ctx.theme?.isDark) document.documentElement.style.setProperty('--bg','#1a1a1f');
       document.documentElement.style.setProperty('--primary', ctx.theme?.primaryColor || '#7c6ff7');
-      const title = data.frontmatter?.title || 'Book';
-      document.getElementById('title').textContent = title;
-      // Progress ring from frontmatter progress field
-      const progress = parseInt(data.frontmatter?.progress || '0', 10);
-      document.querySelector('vela-progress-ring').value = progress;
+
+      const data = await vela.miniapp.data();
+      if (!data) { document.getElementById('title').textContent = 'Preparing book…'; return; }
+
+      document.getElementById('title').textContent = data.title || 'Book';
+      document.querySelector('vela-progress-ring').value = data.progress || 0;
       document.querySelector('vela-progress-ring').max   = 100;
-      document.querySelector('vela-progress-ring').title = 'Read';
-      document.querySelector('vela-metadata-card').frontmatter = data.frontmatter || {};
-      // Key points from list sections
-      const keyPoints = (data.sections || []).find(s => s.type === 'list');
-      if (keyPoints) {
-        document.querySelector('vela-checklist').items = keyPoints.items.map(t => ({ text: t, done: false }));
-        document.querySelector('vela-checklist').title = 'Key Points';
-      }
+      document.querySelector('vela-progress-ring').title = data.status || 'Read';
+
+      document.querySelector('vela-metadata-card').frontmatter = {
+        author: data.author || '—',
+        status: data.status || '—',
+        rating: data.rating ? `${data.rating}/10` : '—',
+        tags:   (data.tags  || []).join(', ') || '—',
+      };
+      document.querySelector('vela-checklist').items = (data.keyPoints || []).map(p => ({ text: p, done: false }));
+      document.querySelector('vela-checklist').title = 'Key Points';
     };
   </script>
   <style>

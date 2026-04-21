@@ -10,18 +10,24 @@
     import '@vela/vela-heatmap-calendar.js';
     import { vela } from '@vela/runtime';
     window.onVelaReady = async () => {
-      const ctx  = vela.app.context;
-      const data = await vela.vault.read(ctx.itemPath, 'json');
+      const ctx = vela.app.context;
       if (ctx.theme?.isDark) document.documentElement.style.setProperty('--bg','#1a1a1f');
       document.documentElement.style.setProperty('--primary', ctx.theme?.primaryColor || '#7c6ff7');
-      const title = data.frontmatter?.title || data.frontmatter?.date || 'Journal';
-      document.getElementById('title').textContent = title;
-      const listSections = (data.sections || []).filter(s => s.type === 'list');
-      if (listSections.length > 0) {
-        document.querySelector('vela-checklist').items = listSections[0].items.map(t => ({ text: t, done: false }));
-        document.querySelector('vela-checklist').title = 'Today';
-      }
-      // Dummy heatmap data — in a real app this would query vela.db
+
+      const data = await vela.miniapp.data();
+      if (!data) { document.getElementById('title').textContent = 'Preparing journal…'; return; }
+
+      document.getElementById('title').textContent = data.date || 'Journal';
+
+      // Habits from extracted data
+      const habits = (data.habits || []).map(h =>
+        typeof h === 'string' ? { text: h, done: false } : { text: h.name, done: !!h.done }
+      );
+      const wins = (data.wins || []).map(w => ({ text: w, done: true }));
+      document.querySelector('vela-checklist').items = [...habits, ...wins];
+      document.querySelector('vela-checklist').title = data.mood ? `Today · ${data.mood}` : 'Today';
+
+      // Heatmap — placeholder data for now (would need db query for history)
       document.querySelector('vela-heatmap-calendar').data = Array.from({length: 84}, () => Math.random() > 0.3 ? Math.floor(Math.random() * 5) + 1 : 0);
       document.querySelector('vela-heatmap-calendar').title = 'Consistency';
     };

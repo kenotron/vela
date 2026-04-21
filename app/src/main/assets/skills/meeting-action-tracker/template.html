@@ -10,15 +10,24 @@
     import '@vela/vela-metadata-card.js';
     import { vela } from '@vela/runtime';
     window.onVelaReady = async () => {
-      const ctx  = vela.app.context;
-      const data = await vela.vault.read(ctx.itemPath, 'json');
+      const ctx = vela.app.context;
       if (ctx.theme?.isDark) document.documentElement.style.setProperty('--bg','#1a1a1f');
       document.documentElement.style.setProperty('--primary', ctx.theme?.primaryColor || '#7c6ff7');
-      const title = data.frontmatter?.title || (data.sections || []).find(s => s.type === 'heading')?.text || 'Meeting';
-      document.getElementById('title').textContent = title;
-      document.querySelector('vela-metadata-card').frontmatter = data.frontmatter || {};
-      const actions = (data.sections || []).filter(s => s.type === 'list').flatMap(s => s.items || []).map(t => ({ text: t, done: false }));
-      document.querySelector('vela-action-list').items = actions;
+
+      const data = await vela.miniapp.data();
+      if (!data) { document.getElementById('title').textContent = 'Preparing meeting notes…'; return; }
+
+      document.getElementById('title').textContent = data.title || 'Meeting';
+      document.querySelector('vela-metadata-card').frontmatter = {
+        date:      data.date      || '—',
+        attendees: (data.attendees || []).join(', ') || '—',
+        decisions: (data.decisions || []).length + ' decisions',
+      };
+      document.querySelector('vela-action-list').items = (data.actionItems || []).map(item => ({
+        text:     typeof item === 'string' ? item : item.text,
+        assignee: typeof item === 'object' ? item.assignee : null,
+        done:     false,
+      }));
     };
   </script>
   <style>
