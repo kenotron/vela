@@ -246,6 +246,9 @@ class MiniAppViewModel @Inject constructor(
 
         val existingHtml = if (feedback != null) getRendererFile(contentType)?.readText() else null
 
+        var tokenCount = 0
+        val sb          = StringBuilder()
+
         val assembly = rendererAssembler.assemble(
             itemPath     = itemPath,
             itemContent  = itemContent,
@@ -256,7 +259,15 @@ class MiniAppViewModel @Inject constructor(
             feedback     = feedback,
             existingHtml = existingHtml,
             onPhase      = { index, detail -> setPhase(index, detail) },
-            onToken      = null,
+            onToken      = { token ->
+                tokenCount++
+                sb.append(token)
+                // Update subtitle every 8 tokens — show live word count
+                if (tokenCount % 8 == 0) {
+                    val words = sb.count { it == ' ' } + 1
+                    setPhase(3, "Writing\u2026 $words words")
+                }
+            },
         )
 
         if (assembly.result is com.vela.app.ai.GenerationResult.Success) {
