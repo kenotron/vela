@@ -28,6 +28,8 @@ class SkillLibrary @Inject constructor(
         val confidenceThreshold: Float,
         val description: String,
         val isVaultSkill: Boolean = false,
+        val schema: String? = null,
+        val extractorPrompt: String? = null,
     )
 
     data class SkillMatch(
@@ -83,7 +85,7 @@ class SkillLibrary @Inject constructor(
             }
         }
 
-    // ── Private helpers ───────────────────────────────────────────────────────
+    // ── Private helpers ──────────────────────────────────────────────────────
 
     private fun loadAssetSkills(): List<Skill> =
         runCatching { context.assets.list("skills") }
@@ -103,12 +105,11 @@ class SkillLibrary @Inject constructor(
 
     private fun parseAssetSkill(id: String): Skill? = runCatching {
         val md = context.assets.open("skills/$id/SKILL.md").bufferedReader().readText()
-        parseYaml(id, extractFrontmatter(md), isVaultSkill = false)
+        parseSkillMd(id, md, isVaultSkill = false)
     }.getOrNull()
 
     private fun parseVaultSkill(dir: File): Skill? = runCatching {
-        val md = File(dir, "SKILL.md").readText()
-        parseYaml(dir.name, extractFrontmatter(md), isVaultSkill = true)
+        parseSkillMd(dir.name, File(dir, "SKILL.md").readText(), isVaultSkill = true)
     }.getOrNull()
 
     /**
@@ -124,7 +125,8 @@ class SkillLibrary @Inject constructor(
         return lines.drop(firstDelim + 1).take(secondDelim).joinToString("\n")
     }
 
-    private fun parseYaml(id: String, yaml: String, isVaultSkill: Boolean): Skill {
+    private fun parseSkillMd(id: String, fullMarkdown: String, isVaultSkill: Boolean): Skill {
+        val yaml = extractFrontmatter(fullMarkdown)
         val lines = yaml.lines().associate { line ->
             val idx = line.indexOf(':')
             if (idx < 0) "" to "" else line.substring(0, idx).trim() to line.substring(idx + 1).trim()
@@ -133,6 +135,13 @@ class SkillLibrary @Inject constructor(
             raw?.removePrefix("[")?.removeSuffix("]")
                 ?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }
                 ?: emptyList()
+
+        // Parse body sections
+        val schema          = extractSection(fullMarkdown, "## Schema")
+                                ?.let { extractJsonBlock(it) }
+        val extractorPrompt = extractSection(fullMarkdown, "## Extractor")
+                                ?.trim()
+
         return Skill(
             id                  = id,
             name                = lines["name"] ?: id,
@@ -141,6 +150,34 @@ class SkillLibrary @Inject constructor(
             confidenceThreshold = lines["confidence_threshold"]?.toFloatOrNull() ?: 0.7f,
             description         = lines["description"] ?: "",
             isVaultSkill        = isVaultSkill,
+            schema              = schema,
+            extractorPrompt     = extractorPrompt,
         )
+    }
+
+    /**
+     * Extracts the content of a named markdown section (from the heading line to the next ## heading or EOF).
+     */
+    private fun extractSection(markdown: String, heading: String): String? {
+        val lines = markdown.lines()
+        val start = lines.indexOfFirst { it.trim() == heading }
+        if (start < 0) return null
+        val end = lines.drop(start + 1).indexOfFirst { it.startsWith("## ") }
+        return if (end < 0)
+            lines.drop(start + 1).joinToString("\n")
+        else
+            lines.drop(start + 1).take(end).joinToString("\n")
+    }
+
+    /**
+     * Extracts the content of the first ```json ... ``` fenced block in [text].
+     */
+    private fun extractJsonBlock(text: String): String? {
+        val lines = text.lines()
+        val start = lines.indexOfFirst { it.trim().startsWith("```json") || it.trim() == "```json" }
+        if (start < 0) return null
+        val end = lines.drop(start + 1).indexOfFirst { it.trim() == "```" }
+        if (end < 0) return null
+        return lines.drop(start + 1).take(end).joinToString("\n").trim()
     }
 }
