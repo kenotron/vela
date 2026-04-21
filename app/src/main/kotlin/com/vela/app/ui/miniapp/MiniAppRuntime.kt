@@ -178,6 +178,9 @@ class MiniAppViewModel @Inject constructor(
     internal val rendererGenerator: RendererGenerator,
     private val capabilitiesRepo: CapabilitiesGraphRepository,
     private val server: VelaMiniAppServer,
+    private val rendererAssembler: com.vela.app.ai.RendererAssembler,
+    private val archetypeDetector: com.vela.app.ai.ArchetypeDetector,
+    private val skillLibrary: com.vela.app.ai.SkillLibrary,
 ) : ViewModel() {
 
     /** Live capabilities graph — drives `__VELA_CONTEXT__.capabilities` updates. */
@@ -229,7 +232,7 @@ class MiniAppViewModel @Inject constructor(
             BuildPhase("Saving"),
         )
 
-        fun advance(index: Int, detail: String = "") {
+        fun setPhase(index: Int, detail: String = "") {
             _buildPhases.update { phases ->
                 phases.mapIndexed { i, p ->
                     when {
@@ -241,11 +244,9 @@ class MiniAppViewModel @Inject constructor(
             }
         }
 
-        var tokensSeen = 0
         val existingHtml = if (feedback != null) getRendererFile(contentType)?.readText() else null
-        advance(0, contentType)
 
-        return rendererGenerator.generateRenderer(
+        val assembly = rendererAssembler.assemble(
             itemPath     = itemPath,
             itemContent  = itemContent,
             contentType  = contentType,
@@ -254,21 +255,15 @@ class MiniAppViewModel @Inject constructor(
             rendererType = rendererType,
             feedback     = feedback,
             existingHtml = existingHtml,
-            onToken      = { _ ->
-                tokensSeen++
-                when (tokensSeen) {
-                    1    -> advance(1, rendererType.label)
-                    100  -> advance(2, "Loading blocks…")
-                    500  -> advance(3)
-                    2000 -> advance(4)
-                }
-            },
-            onActivity   = { _ -> },
-        ).also { result ->
-            if (result is com.vela.app.ai.GenerationResult.Success) {
-                _buildPhases.update { it.map { p -> p.copy(status = PhaseStatus.DONE) } }
-            }
+            onPhase      = { index, detail -> setPhase(index, detail) },
+            onToken      = null,
+        )
+
+        if (assembly.result is com.vela.app.ai.GenerationResult.Success) {
+            _buildPhases.update { it.map { p -> p.copy(status = PhaseStatus.DONE) } }
         }
+
+        return assembly.result
     }
 
     /**
@@ -279,16 +274,37 @@ class MiniAppViewModel @Inject constructor(
         itemContent: String,
         contentType: String,
     ): List<RendererSuggestion> {
-        val fallback = com.vela.app.ai.RendererType.entries.map { type ->
-            RendererSuggestion(
-                type        = type,
-                label       = type.label,
-                description = type.promptStyle.take(70) + "…",
-            )
-        }
         return try {
-            val preview = itemContent.take(600).replace("\"", "'")
-            val prompt = """
+            val detection = archetypeDetector.detect(contentType, itemContent)
+            val matches   = skillLibrary.findMatches(detection.archetype, detection.confidence, limit = 3)
+
+            if (matches.isNotEmpty()) {
+                matches.map { match ->
+                    RendererSuggestion(
+                        type = when {
+                            match.skill.id.contains("kanban") || match.skill.id.contains("task") ->
+                                com.vela.app.ai.RendererType.DASHBOARD
+                            match.skill.id.contains("journal") || match.skill.id.contains("tracker") ->
+                                com.vela.app.ai.RendererType.INTERACTIVE
+                            else -> com.vela.app.ai.RendererType.READER
+                        },
+                        label       = match.skill.name,
+                        description = match.skill.description,
+                    )
+                }
+            } else {
+                suggestViaLlm(itemContent, contentType)
+            }
+        } catch (e: Exception) {
+            com.vela.app.ai.RendererType.entries.map { type ->
+                RendererSuggestion(type = type, label = type.label, description = "")
+            }
+        }
+    }
+
+    private suspend fun suggestViaLlm(itemContent: String, contentType: String): List<RendererSuggestion> {
+        val preview = itemContent.take(600).replace("\"", "'")
+        val prompt = """
 You are helping a user decide what to build as an interactive mini app for their vault content.
 
 Content type: "$contentType"
@@ -296,43 +312,33 @@ Content preview:
 $preview
 
 Suggest exactly 3 specific things the user could DO with this content as an interactive app.
-Focus on UTILITY and ACTIONS the user can take — not visual style or aesthetics.
-Good examples: "Track which recipes you've tried", "Build a step-by-step cook-along guide"
-Bad examples: "Reader view", "Interactive layout", "Dashboard style"
+Focus on UTILITY and ACTIONS — not visual style.
 
 Return ONLY valid JSON array of exactly 3 objects:
 [{"type":"READER|INTERACTIVE|DASHBOARD","label":"short action title (max 6 words)","description":"what the user can do (max 12 words)"}]
-            """.trimIndent()
-
-            val sb = StringBuilder()
-            amplifierSession.runTurn(
-                historyJson       = "[]",
-                userInput         = prompt,
-                userContentJson   = null,
-                systemPrompt      = "Return ONLY valid JSON. No markdown. No explanation.",
-                onToolStart       = { _, _ -> "" },
-                onToolEnd         = { _, _ -> },
-                onToken           = { token -> sb.append(token) },
-                onProviderRequest = { null },
-                onServerTool      = { _, _ -> },
+        """.trimIndent()
+        val sb = StringBuilder()
+        amplifierSession.runTurn(
+            historyJson       = "[]",
+            userInput         = prompt,
+            userContentJson   = null,
+            systemPrompt      = "Return only valid JSON array. No explanation.",
+            onToolStart       = { _, _ -> "" },
+            onToolEnd         = { _, _ -> },
+            onToken           = { sb.append(it) },
+            onProviderRequest = { null },
+            onServerTool      = { _, _ -> },
+        )
+        val arr = org.json.JSONArray(sb.toString().trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim())
+        return (0 until arr.length()).map { i ->
+            val obj = arr.getJSONObject(i)
+            RendererSuggestion(
+                type = com.vela.app.ai.RendererType.entries
+                    .find { it.name == obj.optString("type") }
+                    ?: com.vela.app.ai.RendererType.READER,
+                label       = obj.optString("label", "Mini App"),
+                description = obj.optString("description", ""),
             )
-
-            // Strip possible markdown fences
-            val raw = sb.toString().trim()
-                .removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
-
-            val arr = JSONArray(raw)
-            (0 until arr.length()).map { i ->
-                val obj = arr.getJSONObject(i)
-                RendererSuggestion(
-                    type        = com.vela.app.ai.RendererType.valueOf(obj.getString("type")),
-                    label       = obj.getString("label"),
-                    description = obj.getString("description"),
-                )
-            }.takeIf { it.size == 3 } ?: fallback
-        } catch (e: Exception) {
-            Log.d("MiniAppViewModel", "suggestRendererTypes fallback: ${e.message}")
-            fallback
         }
     }
 
