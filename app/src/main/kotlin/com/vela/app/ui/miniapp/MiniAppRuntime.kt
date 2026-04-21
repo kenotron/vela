@@ -3,8 +3,14 @@ package com.vela.app.ui.miniapp
 import android.util.Log
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +30,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Dashboard
@@ -65,6 +72,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -148,6 +156,14 @@ sealed class RendererState {
     ) : RendererState()
 }
 
+enum class PhaseStatus { PENDING, ACTIVE, DONE }
+
+data class BuildPhase(
+    val label:  String,
+    val detail: String = "",
+    val status: PhaseStatus = PhaseStatus.PENDING,
+)
+
 // ────────────────────────────────────────────────────────────────────────────────
 // ViewModel — dependency carrier, one instance per screen destination
 // ────────────────────────────────────────────────────────────────────────────────
@@ -169,11 +185,8 @@ class MiniAppViewModel @Inject constructor(
         capabilitiesRepo.getAll()
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    private val _buildLog = MutableStateFlow("")
-    val buildLog: StateFlow<String> = _buildLog.asStateFlow()
-
-    private val _buildActivity = MutableStateFlow("Starting…")
-    val buildActivity: StateFlow<String> = _buildActivity.asStateFlow()
+    private val _buildPhases = MutableStateFlow<List<BuildPhase>>(emptyList())
+    val buildPhases: StateFlow<List<BuildPhase>> = _buildPhases.asStateFlow()
 
     val serverPort: StateFlow<Int> = server.port
     val serverReady: StateFlow<Boolean> = server.isReady
@@ -193,7 +206,7 @@ class MiniAppViewModel @Inject constructor(
 
     /**
      * Starts async renderer generation for [rendererType].
-     * Streams tokens into [buildLog] as they arrive.
+     * Updates [buildPhases] as tokens arrive, driving the card-sequence animation.
      * Returns the [GenerationResult] when complete.
      *
      * When [feedback] is supplied the current on-disk renderer is read and passed
@@ -208,10 +221,30 @@ class MiniAppViewModel @Inject constructor(
         rendererType: com.vela.app.ai.RendererType,
         feedback: String? = null,
     ): com.vela.app.ai.GenerationResult {
-        _buildLog.value = ""
-        _buildActivity.value = "Preparing…"
+        _buildPhases.value = listOf(
+            BuildPhase("Detecting content type", status = PhaseStatus.ACTIVE),
+            BuildPhase("Skill selected"),
+            BuildPhase("Assembling blocks"),
+            BuildPhase("Building your app"),
+            BuildPhase("Saving"),
+        )
+
+        fun advance(index: Int, detail: String = "") {
+            _buildPhases.update { phases ->
+                phases.mapIndexed { i, p ->
+                    when {
+                        i < index  -> p.copy(status = PhaseStatus.DONE)
+                        i == index -> p.copy(status = PhaseStatus.ACTIVE, detail = detail)
+                        else       -> p
+                    }
+                }
+            }
+        }
+
         var tokensSeen = 0
         val existingHtml = if (feedback != null) getRendererFile(contentType)?.readText() else null
+        advance(0, contentType)
+
         return rendererGenerator.generateRenderer(
             itemPath     = itemPath,
             itemContent  = itemContent,
@@ -221,18 +254,21 @@ class MiniAppViewModel @Inject constructor(
             rendererType = rendererType,
             feedback     = feedback,
             existingHtml = existingHtml,
-            onToken      = { token ->
-                _buildLog.update { it + token }
+            onToken      = { _ ->
                 tokensSeen++
                 when (tokensSeen) {
-                    1    -> _buildActivity.value = if (feedback != null) "Applying feedback…" else "Generating renderer…"
-                    200  -> _buildActivity.value = "Writing HTML structure…"
-                    800  -> _buildActivity.value = "Adding styles and scripts…"
-                    2000 -> _buildActivity.value = "Finalising…"
+                    1    -> advance(1, rendererType.label)
+                    100  -> advance(2, "Loading blocks…")
+                    500  -> advance(3)
+                    2000 -> advance(4)
                 }
             },
-            onActivity   = { activity -> _buildActivity.value = activity },
-        )
+            onActivity   = { _ -> },
+        ).also { result ->
+            if (result is com.vela.app.ai.GenerationResult.Success) {
+                _buildPhases.update { it.map { p -> p.copy(status = PhaseStatus.DONE) } }
+            }
+        }
     }
 
     /**
@@ -458,8 +494,7 @@ fun MiniAppContainer(
 
         // ── Building: full-screen build log ───────────────────────────────────
         is RendererState.Building -> {
-            val buildLog      by viewModel.buildLog.collectAsState()
-            val buildActivity by viewModel.buildActivity.collectAsState()
+            val buildPhases by viewModel.buildPhases.collectAsState()
 
             LaunchedEffect(s.rendererType, s.feedback) {
                 val result = viewModel.generateRenderer(
@@ -484,12 +519,11 @@ fun MiniAppContainer(
             }
 
             RendererBuildScreen(
-                rendererType  = s.rendererType,
-                contentType   = contentType,
-                buildLog      = buildLog,
-                buildActivity = buildActivity,
-                onCancel      = { rendererState = RendererState.Fallback(contentType, itemContent) },
-                modifier      = modifier,
+                rendererType = s.rendererType,
+                contentType  = contentType,
+                buildPhases  = buildPhases,
+                onCancel     = { rendererState = RendererState.Fallback(contentType, itemContent) },
+                modifier     = modifier,
             )
         }
 
@@ -850,7 +884,7 @@ private fun RendererFeedbackSheet(
 }
 
 // ────────────────────────────────────────────────────────────────────────────────
-// RendererBuildScreen — full-screen streaming build log
+// RendererBuildScreen — card-sequence build animation
 // ────────────────────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -858,75 +892,113 @@ private fun RendererFeedbackSheet(
 private fun RendererBuildScreen(
     rendererType: com.vela.app.ai.RendererType,
     contentType: String,
-    buildLog: String,
-    buildActivity: String,
+    buildPhases: List<BuildPhase>,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val listState  = rememberLazyListState()
-    val tokenCount = buildLog.length
-
-    // Auto-scroll to bottom as tokens arrive
-    LaunchedEffect(tokenCount) {
-        if (tokenCount > 0) listState.animateScrollToItem(0)
-    }
-
     Column(modifier.fillMaxSize()) {
-        // Header
         TopAppBar(
             title = {
                 Column {
                     Text("Building ${rendererType.label}", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        buildActivity,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    val active = buildPhases.firstOrNull { it.status == PhaseStatus.ACTIVE }
+                    if (active != null) {
+                        Text(
+                            active.label,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             },
             navigationIcon = {
-                IconButton(onClick = onCancel) {
-                    Icon(Icons.Default.Close, contentDescription = "Cancel")
-                }
+                IconButton(onClick = onCancel) { Icon(Icons.Default.Close, contentDescription = "Cancel") }
             },
         )
-        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
 
-        // Live build log (newest lines at bottom; rendered reversed in a reversed LazyColumn)
-        val lines = buildLog.takeLast(4_000).lines()
-        LazyColumn(
-            state          = listState,
-            reverseLayout  = true,
-            modifier       = Modifier
+        Column(
+            modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            items(lines.reversed()) { line ->
-                Text(
-                    text  = line,
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                    ),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                )
+            buildPhases.forEach { phase ->
+                AnimatedVisibility(
+                    visible = phase.status != PhaseStatus.PENDING,
+                    enter   = slideInVertically(
+                        initialOffsetY = { it / 2 },
+                        animationSpec  = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness    = Spring.StiffnessLow,
+                        ),
+                    ) + fadeIn(),
+                ) {
+                    BuildPhaseCard(phase)
+                }
             }
         }
 
-        // Footer
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier              = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.End,
         ) {
             TextButton(onClick = onCancel) { Text("Cancel") }
-            Text(
-                "$tokenCount chars",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        }
+    }
+}
+
+@Composable
+private fun BuildPhaseCard(phase: BuildPhase) {
+    val containerColor = when (phase.status) {
+        PhaseStatus.ACTIVE  -> MaterialTheme.colorScheme.secondaryContainer
+        PhaseStatus.DONE    -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        PhaseStatus.PENDING -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    val alpha = if (phase.status == PhaseStatus.DONE) 0.6f else 1f
+
+    Surface(
+        shape    = RoundedCornerShape(16.dp),
+        color    = containerColor,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier              = Modifier.padding(16.dp),
+            verticalAlignment     = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(40.dp)) {
+                when (phase.status) {
+                    PhaseStatus.ACTIVE  -> CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                    PhaseStatus.DONE    -> Icon(
+                        Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint     = MaterialTheme.colorScheme.primary.copy(alpha = alpha),
+                        modifier = Modifier.size(24.dp),
+                    )
+                    PhaseStatus.PENDING -> Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
+                    )
+                }
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    phase.label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha),
+                )
+                if (phase.detail.isNotBlank()) {
+                    Text(
+                        phase.detail,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha),
+                    )
+                }
+            }
         }
     }
 }
