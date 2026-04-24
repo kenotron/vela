@@ -34,6 +34,12 @@ once_cell = "1"
 android_logger = "0.14"
 log = "0.4"
 
+# Async trait support (needed to implement Hook)
+async-trait = "0.1"
+
+# Error handling (LoopOrchestrator::execute returns anyhow::Result)
+anyhow = "1"
+
 [profile.release]
 opt-level = "z"      # minimise binary size
 strip = true

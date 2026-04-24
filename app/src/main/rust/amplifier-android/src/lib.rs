@@ -1,13 +1,13 @@
-//! `amplifier-android` — JNI bridge from Kotlin to the amplifier-core agent loop.
+//! `amplifier-android` — JNI bridge from Kotlin to the amplifier-rust workspace crates.
 //!
-//! All AI orchestration is wired through amplifier-core traits:
+//! Thin wiring only. All AI orchestration is delegated to workspace crates:
 //!
-//! | Module             | amplifier-core trait |
-//! |--------------------|----------------------|
-//! | `AnthropicProvider`| [`Provider`]         |
-//! | `SimpleContext`    | [`ContextManager`]   |
-//! | `SimpleOrchestrator`| [`Orchestrator`]    |
-//! | `KotlinToolBridge` | [`Tool`]             |
+//! | Responsibility          | Workspace crate                                    |
+//! |-------------------------|----------------------------------------------------|
+//! | Agent loop / hooks      | `amplifier-module-orchestrator-loop-streaming`     |
+//! | Anthropic provider      | `amplifier-module-provider-anthropic`              |
+//! | Context management      | `amplifier-module-context-simple`                  |
+//! | Kotlin tool bridges     | local `jni_tools` module (preserved as-is)         |
 //!
 //! ## Exposed JNI surface
 //!
@@ -16,57 +16,51 @@
 //!
 //! | Kotlin signature | Description |
 //! |---|---|
-//! | `nativeRun(apiKey, model, toolsJson, historyJson, userInput, systemPrompt, tokenCb, toolCb): String` | Run one user turn |
+//! | `nativeRun(apiKey, model, toolsJson, historyJson, userInput, systemPrompt, tokenCb, providerReqCb, serverToolCb): String` | Run one user turn |
 //!
 //! ## Threading model
 //!
-//! A single `tokio` multi-thread runtime is shared across all JNI calls.
-//! The JNI thread calls `RT.block_on(…)` which drives the async agent loop.
-//! JVM callbacks are issued from tokio worker threads via
+//! A single `tokio` multi-thread runtime is shared across all JNI calls via
+//! `once_cell::sync::Lazy`. The JNI thread blocks on `RT.block_on(…)` which drives
+//! the async agent loop. JVM callbacks are issued from tokio worker threads via
 //! `jvm.attach_current_thread()`.
 //!
 //! ## Message format
 //!
-//! The Kotlin side stores conversation history in **Anthropic wire format**
-//! (the format returned by `api.anthropic.com/v1/messages`).  Before loading
-//! history into the [`SimpleContext`], this module converts it to
-//! **amplifier-core format**:
+//! The Kotlin side stores conversation history in **Anthropic wire format**.
+//! Before loading into `SimpleContext`, this module converts it to
+//! **amplifier-core format** via `convert_history_to_core_format`:
 //!
 //! | Anthropic field       | amplifier-core field  |
 //! |-----------------------|-----------------------|
 //! | `type: "tool_use"`    | `type: "tool_call"`   |
 //! | `tool_use_id`         | `tool_call_id`        |
 //! | `content` (result)    | `output`              |
-//!
-//! The [`AnthropicProvider`] reverses these conversions when building each
-//! API request, so the Anthropic API always sees its native format.
 
 #![allow(non_snake_case)] // required by JNI naming convention
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
-use amplifier_core::traits::{ContextManager, Orchestrator, Provider, Tool};
+use amplifier_module_context_simple::SimpleContext;
+use amplifier_module_orchestrator_loop_streaming::{
+    Hook, HookContext, HookEvent, HookRegistry, HookResult, LoopConfig, LoopOrchestrator,
+};
+use amplifier_module_provider_anthropic::{AnthropicConfig, AnthropicProvider};
 use android_logger::Config;
-use jni::objects::{JClass, JObject, JString};
+use async_trait::async_trait;
+use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
 use jni::sys::jstring;
+use jni::JavaVM;
 use jni::JNIEnv;
-use log::{error, info, LevelFilter};
+use log::{error, LevelFilter};
 use once_cell::sync::Lazy;
 use serde_json::{json, Value};
 use tokio::runtime::Runtime;
 
-mod context;
 mod jni_tools;
-mod orchestrator;
-mod provider;
-
-use context::SimpleContext;
 use jni_tools::build_tool_map;
-use orchestrator::SimpleOrchestrator;
-use provider::AnthropicProvider;
 
-// ──────────────────────────── Shared Tokio runtime ────────────────────────────
+// ─────────────────────────── Shared Tokio runtime ────────────────────────────
 
 /// A single multi-thread runtime that persists for the lifetime of the process.
 static RT: Lazy<Runtime> = Lazy::new(|| {
@@ -76,41 +70,30 @@ static RT: Lazy<Runtime> = Lazy::new(|| {
         .expect("failed to build tokio runtime")
 });
 
-// ──────────────────────────── JNI entry point ─────────────────────────────────
+// ─────────────────────────── JNI entry point ─────────────────────────────────
 
 /// Run one full user turn through the amplifier-core agent loop.
 ///
-/// ## Parameters (all non-null; pass `""` / `"[]"` for empty values)
+/// # Parameters (all non-null; pass `""` / `"[]"` for empty values)
 ///
-/// * `api_key`       – Anthropic API key (`sk-ant-…`).
-/// * `model`         – Model name, e.g. `"claude-sonnet-4-6"`.
-/// * `tools_json`    – JSON array of OpenAI-format tool schemas.
-///   ```json
-///   [{"type":"function","function":{"name":"search_web","description":"…","parameters":{…}}}]
-///   ```
-/// * `history_json`  – JSON array of Anthropic-format prior-turn messages.
-///   ```json
-///   [{"role":"user","content":"Hi"},{"role":"assistant","content":"Hello!"}]
-///   ```
-/// * `user_input`    – The user's current message text.
-/// * `system_prompt` – Optional system prompt. Pass `""` to omit.
-/// * `token_cb`      – Kotlin `TokenCallback` instance:
-///   ```kotlin
-///   interface TokenCallback { fun onToken(text: String) }
-///   ```
-/// * `tool_cb`       – Kotlin `ToolCallback` instance:
-///   ```kotlin
-///   interface ToolCallback { fun executeTool(name: String, inputJson: String): String }
-///   ```
+/// * `api_key`          – Anthropic API key (`sk-ant-…`).
+/// * `model`            – Model name, e.g. `"claude-sonnet-4-5"`. Empty → default.
+/// * `tools_json`       – JSON array of OpenAI-format tool schemas.
+/// * `history_json`     – JSON array of Anthropic-format prior-turn messages.
+/// * `user_input`       – The user's current message text.
+/// * `system_prompt`    – Optional system prompt. Pass `""` to omit.
+/// * `token_cb`         – Kotlin `TokenCallback` (`fun onToken(text: String)`).
+/// * `provider_req_cb`  – Kotlin `ProviderRequestCallback` (`fun onProviderRequest(): String?`).
+/// * `server_tool_cb`   – Kotlin `ToolCallback` (`fun executeTool(name: String, inputJson: String): String`).
 ///
-/// ## Return value
+/// # Return value
 ///
-/// The final assistant response text.  On error, returns `"Error: <message>"`.
+/// The final assistant response text. On error, returns `"Error: <message>"`.
 ///
-/// ## Safety
+/// # Safety
 ///
 /// All raw JNI objects are promoted to `GlobalRef` (wrapped in `Arc`) before
-/// crossing the async boundary, so they remain valid on tokio worker threads.
+/// crossing the async boundary, keeping them valid on tokio worker threads.
 #[no_mangle]
 pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
     mut env: JNIEnv,
@@ -120,11 +103,9 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
     tools_json: JString,
     history_json: JString,
     user_input: JString,
-    user_content_json: JObject,   // nullable String — Anthropic content blocks JSON array
     system_prompt: JString,
     token_cb: JObject,
-    tool_cb: JObject,
-    provider_request_cb: JObject,
+    provider_req_cb: JObject,
     server_tool_cb: JObject,
 ) -> jstring {
     // Initialise Android logcat sink exactly once.
@@ -135,194 +116,265 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
     );
 
     // ── Extract Kotlin strings ────────────────────────────────────────────────
-    let api_key = jni_string(&mut env, &api_key, "api_key");
-    let model = jni_string(&mut env, &model, "model");
-    let tools_json = jni_string(&mut env, &tools_json, "tools_json");
-    let history_json = jni_string(&mut env, &history_json, "history_json");
-    let user_input = jni_string(&mut env, &user_input, "user_input");
+    let api_key       = jstring_to_rust(&mut env, &api_key,       "api_key");
+    let model         = jstring_to_rust(&mut env, &model,         "model");
+    let tools_json    = jstring_to_rust(&mut env, &tools_json,    "tools_json");
+    let history_json  = jstring_to_rust(&mut env, &history_json,  "history_json");
+    let user_input    = jstring_to_rust(&mut env, &user_input,    "user_input");
+    let system_prompt = jstring_to_rust(&mut env, &system_prompt, "system_prompt");
 
-    // user_content_json is nullable (String? in Kotlin) — use JObject to allow null check.
-    let user_content_json: Option<String> = if user_content_json.is_null() {
-        None
-    } else {
-        let jstr = JString::from(user_content_json);
-        Some(env.get_string(&jstr).map(|s| s.into()).unwrap_or_default())
-    };
-
-    let system_prompt = jni_string(&mut env, &system_prompt, "system_prompt");
-
-    info!(
-        "nativeRun: model={model} user_len={} history_len={} tools_len={} system={} has_content_json={}",
-        user_input.len(),
-        history_json.len(),
-        tools_json.len(),
-        !system_prompt.is_empty(),
-        user_content_json.is_some(),
-    );
-
-    // ── Promote callbacks to Arc<GlobalRef> (safe across async threads) ───────
+    // ── Obtain JavaVM ─────────────────────────────────────────────────────────
     let jvm = match env.get_java_vm() {
         Ok(jvm) => Arc::new(jvm),
         Err(e) => {
             error!("nativeRun: failed to get JavaVM: {e:?}");
-            return err_string(&mut env, "could not obtain JavaVM");
+            return err_jstring(&mut env, "could not obtain JavaVM");
         }
     };
 
+    // ── Pin callbacks as GlobalRefs (safe across async threads) ──────────────
     let token_cb_global = match env.new_global_ref(token_cb) {
         Ok(r) => Arc::new(r),
         Err(e) => {
             error!("nativeRun: failed to create global ref for tokenCb: {e:?}");
-            return err_string(&mut env, "could not pin tokenCb");
+            return err_jstring(&mut env, "could not pin tokenCb");
         }
     };
-
-    let tool_cb_global = match env.new_global_ref(tool_cb) {
+    let prov_req_cb_global = match env.new_global_ref(provider_req_cb) {
         Ok(r) => Arc::new(r),
         Err(e) => {
-            error!("nativeRun: failed to create global ref for toolCb: {e:?}");
-            return err_string(&mut env, "could not pin toolCb");
+            error!("nativeRun: failed to create global ref for providerReqCb: {e:?}");
+            return err_jstring(&mut env, "could not pin providerReqCb");
         }
     };
-
-    let provider_request_cb_global = match env.new_global_ref(provider_request_cb) {
+    let srv_tool_cb_global = match env.new_global_ref(server_tool_cb) {
         Ok(r) => Arc::new(r),
         Err(e) => {
-            error!("nativeRun: failed to create global ref for providerRequestCb: {e:?}");
-            return err_string(&mut env, "could not pin providerRequestCb");
+            error!("nativeRun: failed to create global ref for serverToolCb: {e:?}");
+            return err_jstring(&mut env, "could not pin serverToolCb");
         }
     };
 
-    let server_tool_cb_global = match env.new_global_ref(server_tool_cb) {
-            Ok(r) => Arc::new(r),
-            Err(e) => {
-                error!("nativeRun: failed to create global ref for serverToolCb: {e:?}");
-                return err_string(&mut env, "could not pin serverToolCb");
-            }
-        };
+    // ── Run the agent loop on the shared tokio runtime ────────────────────────
+    let result = RT.block_on(run_agent_loop(
+        api_key,
+        model,
+        tools_json,
+        history_json,
+        user_input,
+        system_prompt,
+        jvm,
+        token_cb_global,
+        prov_req_cb_global,
+        srv_tool_cb_global,
+    ));
 
-        // ── Run the agent loop on the shared tokio runtime ────────────────────────
-    let result = RT.block_on(async move {
-        // Parse the Anthropic-format history and convert to amplifier-core format.
-        let raw_history: Vec<Value> = serde_json::from_str(&history_json).unwrap_or_else(|e| {
-            error!("nativeRun: failed to parse history_json: {e}");
-            vec![]
-        });
-        let history = raw_history
-            .into_iter()
-            .map(anthropic_to_core_message)
-            .collect::<Vec<_>>();
-
-        // Build amplifier-core modules.
-        let provider: Arc<dyn Provider> = Arc::new(AnthropicProvider::new(
-            api_key,
-            model,
-            system_prompt,
-        ));
-        let context: Arc<dyn ContextManager> =
-            Arc::new(SimpleContext::new(history));
-        let tools: HashMap<String, Arc<dyn Tool>> =
-            build_tool_map(&tools_json, Arc::clone(&jvm), Arc::clone(&tool_cb_global));
-        let orchestrator = SimpleOrchestrator::new(
-            Arc::clone(&jvm),
-            Arc::clone(&token_cb_global),
-            Arc::clone(&provider_request_cb_global),
-            Arc::clone(&server_tool_cb_global),
-        );
-
-        // Wire providers map (Orchestrator trait expects a HashMap).
-        let mut providers: HashMap<String, Arc<dyn Provider>> = HashMap::new();
-        providers.insert("anthropic".to_string(), Arc::clone(&provider));
-
-        // Decode user_content_json (optional content-blocks array) into a Value.
-        // Passed as hooks so the orchestrator can build a rich user message (image/document
-        // blocks) instead of the plain-text fallback when content blocks are present.
-        let user_content_value: Value = match user_content_json {
-            Some(ref json_str) => serde_json::from_str(json_str).unwrap_or(Value::Null),
-            None => Value::Null,
-        };
-
-        // Execute the agent loop via the amplifier-core Orchestrator trait.
-        match orchestrator
-            .execute(
-                user_input,
-                context,
-                providers,
-                tools,
-                user_content_value, // hooks — content blocks array, or Null for plain text
-                Value::Null,        // coordinator — not used in this integration
-            )
-            .await
-        {
-            Ok(text) => text,
-            Err(e) => {
-                error!("nativeRun: agent loop error: {e:?}");
-                format!("Error: {e:?}")
-            }
-        }
-    });
-
-    info!("nativeRun: result_len={}", result.len());
-
-    env.new_string(result)
-        .map(|s| s.into_raw())
-        .unwrap_or(std::ptr::null_mut())
+    match result {
+        Ok(text) => env.new_string(text).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut()),
+        Err(e)   => err_jstring(&mut env, &format!("Error: {e}")),
+    }
 }
 
-// ──────────────────────────── Message format conversion ───────────────────────
+// ─────────────────────────── Agent loop ──────────────────────────────────────
 
-/// Convert an Anthropic-wire-format message `Value` to amplifier-core format.
+async fn run_agent_loop(
+    api_key: String,
+    model: String,
+    tools_json: String,
+    history_json: String,
+    user_input: String,
+    system_prompt: String,
+    jvm: Arc<JavaVM>,
+    token_cb: Arc<GlobalRef>,
+    prov_req_cb: Arc<GlobalRef>,
+    srv_tool_cb: Arc<GlobalRef>,
+) -> anyhow::Result<String> {
+    // Parse history and convert Anthropic wire format → amplifier-core format.
+    let raw_history: Vec<Value> = serde_json::from_str(&history_json).unwrap_or_else(|e| {
+        log::warn!("run_agent_loop: failed to parse history_json: {e}");
+        vec![]
+    });
+    let history = convert_history_to_core_format(raw_history);
+
+    // Build provider — default model if caller passed empty string.
+    let model = if model.is_empty() {
+        "claude-sonnet-4-5".to_string()
+    } else {
+        model
+    };
+    let provider = Arc::new(AnthropicProvider::new(AnthropicConfig {
+        api_key,
+        model,
+        ..AnthropicConfig::default()
+    }));
+
+    // Build Kotlin tool bridges (each tool delegates execution to Kotlin via JNI).
+    let tool_map = build_tool_map(&tools_json, Arc::clone(&jvm), Arc::clone(&srv_tool_cb));
+
+    // Build and configure the orchestrator.
+    let config = LoopConfig { max_steps: 10, system_prompt };
+    let orch = Arc::new(LoopOrchestrator::new(config));
+    orch.register_provider("anthropic".to_string(), provider).await;
+    for tool in tool_map.into_values() {
+        orch.register_tool(tool).await;
+    }
+
+    // Build context pre-loaded with converted history.
+    let mut ctx = SimpleContext::new(history);
+
+    // Build hook registry and register the provider-request hook.
+    let mut hooks = HookRegistry::new();
+    hooks.register(Box::new(ProviderRequestHook {
+        jvm: Arc::clone(&jvm),
+        cb: Arc::clone(&prov_req_cb),
+    }));
+
+    // Build the on_token closure — forwards text segments to Kotlin UI.
+    let on_token = {
+        let jvm       = Arc::clone(&jvm);
+        let token_cb  = Arc::clone(&token_cb);
+        move |text: &str| {
+            emit_token_to_kotlin(&jvm, &token_cb, text);
+        }
+    };
+
+    orch.execute(user_input, &mut ctx, &hooks, on_token).await
+}
+
+// ─────────────────────────── ProviderRequestHook ─────────────────────────────
+
+/// JNI hook that calls `ProviderRequestCallback.onProviderRequest()` before
+/// each LLM request.  Returns `HookResult::InjectContext(s)` when Kotlin
+/// returns a non-empty string, otherwise `HookResult::Continue`.
+struct ProviderRequestHook {
+    jvm: Arc<JavaVM>,
+    cb:  Arc<GlobalRef>,
+}
+
+#[async_trait]
+impl Hook for ProviderRequestHook {
+    fn events(&self) -> &[HookEvent] {
+        &[HookEvent::ProviderRequest]
+    }
+
+    async fn handle(&self, _ctx: &HookContext) -> HookResult {
+        let mut env = match self.jvm.attach_current_thread() {
+            Ok(e)  => e,
+            Err(_) => return HookResult::Continue,
+        };
+        let result = env.call_method(
+            self.cb.as_ref(),
+            "onProviderRequest",
+            "()Ljava/lang/String;",
+            &[],
+        );
+        match result {
+            Ok(v) => {
+                if let Ok(obj) = v.l() {
+                    if !obj.is_null() {
+                        let jstr = JString::from(obj);
+                        let maybe_s = env
+                            .get_string(&jstr)
+                            .ok()
+                            .map(|s| String::from(s))
+                            .filter(|s| !s.is_empty());
+                        if let Some(s) = maybe_s {
+                            return HookResult::InjectContext(s);
+                        }
+                    }
+                }
+                HookResult::Continue
+            }
+            Err(e) => {
+                let _ = env.exception_clear();
+                log::warn!("ProviderRequestHook: onProviderRequest failed: {e:?}");
+                HookResult::Continue
+            }
+        }
+    }
+}
+
+// ─────────────────────────── Token streaming ─────────────────────────────────
+
+/// Call `TokenCallback.onToken(text)` on the Kotlin side.
 ///
-/// The conversion is applied to the `content` array only when needed:
+/// Attaches the calling thread to the JVM for the duration of the call.
+/// Failures are logged and silently swallowed — a broken callback must not
+/// abort the agent loop.
+fn emit_token_to_kotlin(jvm: &Arc<JavaVM>, callback: &Arc<GlobalRef>, text: &str) {
+    let Ok(mut env) = jvm.attach_current_thread() else {
+        log::warn!("emit_token_to_kotlin: failed to attach JVM thread");
+        return;
+    };
+    let Ok(j_text) = env.new_string(text) else {
+        log::warn!("emit_token_to_kotlin: failed to create Java string");
+        return;
+    };
+    if let Err(e) = env.call_method(
+        callback.as_ref(),
+        "onToken",
+        "(Ljava/lang/String;)V",
+        &[JValue::Object(&j_text)],
+    ) {
+        error!("emit_token_to_kotlin: onToken call failed: {e:?}");
+        let _ = env.exception_clear();
+    }
+}
+
+// ─────────────────────────── History conversion ──────────────────────────────
+
+/// Convert a list of Anthropic-wire-format messages to amplifier-core format.
 ///
-/// | Anthropic (in)          | amplifier-core (out)         |
-/// |-------------------------|------------------------------|
-/// | `type: "tool_use"`      | `type: "tool_call"`          |
-/// | `tool_use_id: "…"`      | `tool_call_id: "…"`          |
-/// | `content: <result>`     | `output: <result>`           |
+/// Applies `convert_message` to every element; messages with a plain-string
+/// `content` field are returned unchanged.
+fn convert_history_to_core_format(msgs: Vec<Value>) -> Vec<Value> {
+    msgs.into_iter().map(convert_message).collect()
+}
+
+/// Convert a single Anthropic-wire-format message `Value` to amplifier-core format.
+///
+/// The conversion applies to the `content` array only when needed:
+///
+/// | Anthropic (in)          | amplifier-core (out)          |
+/// |-------------------------|-------------------------------|
+/// | `type: "tool_use"`      | `type: "tool_call"`           |
+/// | `tool_use_id: "…"`      | `tool_call_id: "…"`           |
+/// | `content: <result>`     | `output: <result>`            |
 ///
 /// Messages without a content array (plain text messages) are returned as-is.
-fn anthropic_to_core_message(mut msg: Value) -> Value {
-    // Only messages whose content is an array need conversion.
+fn convert_message(mut msg: Value) -> Value {
     let content_array = match msg.get("content").and_then(|c| c.as_array()) {
         Some(arr) => arr.clone(),
-        None => return msg,
+        None      => return msg,
     };
 
     let converted: Vec<Value> = content_array
         .into_iter()
-        .map(|block| {
-            match block.get("type").and_then(|t| t.as_str()) {
-                Some("tool_use") => {
-                    // Anthropic tool_use → amplifier-core tool_call
-                    json!({
-                        "type":  "tool_call",
-                        "id":    block.get("id").cloned().unwrap_or(Value::Null),
-                        "name":  block.get("name").cloned().unwrap_or(Value::Null),
-                        "input": block.get("input").cloned().unwrap_or(json!({})),
-                    })
-                }
-                Some("tool_result") => {
-                    // Anthropic tool_result → amplifier-core tool_result
-                    // Field renames: tool_use_id → tool_call_id, content → output
-                    let tool_call_id = block
-                        .get("tool_use_id")
-                        .or_else(|| block.get("tool_call_id"))
-                        .cloned()
-                        .unwrap_or(Value::Null);
-                    let output = block
-                        .get("content")
-                        .or_else(|| block.get("output"))
-                        .cloned()
-                        .unwrap_or(Value::Null);
-                    json!({
-                        "type":         "tool_result",
-                        "tool_call_id": tool_call_id,
-                        "output":       output,
-                    })
-                }
-                _ => block,
+        .map(|block| match block.get("type").and_then(|t| t.as_str()) {
+            Some("tool_use") => json!({
+                "type":  "tool_call",
+                "id":    block.get("id").cloned().unwrap_or(Value::Null),
+                "name":  block.get("name").cloned().unwrap_or(Value::Null),
+                "input": block.get("input").cloned().unwrap_or(json!({})),
+            }),
+            Some("tool_result") => {
+                let tool_call_id = block
+                    .get("tool_use_id")
+                    .or_else(|| block.get("tool_call_id"))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                let output = block
+                    .get("content")
+                    .or_else(|| block.get("output"))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                json!({
+                    "type":         "tool_result",
+                    "tool_call_id": tool_call_id,
+                    "output":       output,
+                })
             }
+            _ => block,
         })
         .collect();
 
@@ -332,29 +384,29 @@ fn anthropic_to_core_message(mut msg: Value) -> Value {
     msg
 }
 
-// ──────────────────────────── JNI helpers ─────────────────────────────────────
+// ─────────────────────────── JNI helpers ─────────────────────────────────────
 
 /// Extract a Rust `String` from a JNI `JString`.
 ///
 /// Returns an empty string on failure so the caller always has a valid value.
-fn jni_string(env: &mut JNIEnv, s: &JString, name: &str) -> String {
+fn jstring_to_rust(env: &mut JNIEnv, s: &JString, name: &str) -> String {
     env.get_string(s).map(|js| js.into()).unwrap_or_else(|e| {
-        error!("jni_string: failed to read '{name}': {e:?}");
+        error!("jstring_to_rust: failed to read '{name}': {e:?}");
         String::new()
     })
 }
 
-/// Build a Java string from `msg` and return it as a raw `jstring`.
+/// Build a Java `"Error: <msg>"` string and return it as a raw `jstring`.
 ///
 /// Returns null if string allocation fails — Kotlin must treat null as an
 /// error sentinel.
-fn err_string(env: &mut JNIEnv, msg: &str) -> jstring {
+fn err_jstring(env: &mut JNIEnv, msg: &str) -> jstring {
     env.new_string(format!("Error: {msg}"))
         .map(|s| s.into_raw())
         .unwrap_or(std::ptr::null_mut())
 }
 
-// ──────────────────────────── Tests ───────────────────────────────────────────
+// ─────────────────────────── Tests ───────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -362,23 +414,23 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn anthropic_to_core_plain_text_unchanged() {
-        let msg = json!({"role": "user", "content": "Hello"});
-        let converted = anthropic_to_core_message(msg.clone());
-        assert_eq!(converted["content"], "Hello");
+    fn convert_history_plain_text_unchanged() {
+        let msgs = vec![json!({"role": "user", "content": "Hello"})];
+        let converted = convert_history_to_core_format(msgs);
+        assert_eq!(converted[0]["content"], "Hello");
     }
 
     #[test]
-    fn anthropic_to_core_tool_use_becomes_tool_call() {
-        let msg = json!({
+    fn convert_history_tool_use_becomes_tool_call() {
+        let msgs = vec![json!({
             "role": "assistant",
             "content": [
                 {"type": "text",     "text": "Searching…"},
                 {"type": "tool_use", "id": "toolu_01", "name": "search", "input": {"q": "foo"}}
             ]
-        });
-        let converted = anthropic_to_core_message(msg);
-        let content = converted["content"].as_array().unwrap();
+        })];
+        let converted = convert_history_to_core_format(msgs);
+        let content = converted[0]["content"].as_array().unwrap();
         // text block is unchanged
         assert_eq!(content[0]["type"], "text");
         // tool_use → tool_call
@@ -388,17 +440,17 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_to_core_tool_result_fields_renamed() {
-        let msg = json!({
+    fn convert_history_tool_result_fields_renamed() {
+        let msgs = vec![json!({
             "role": "user",
             "content": [{
                 "type":        "tool_result",
                 "tool_use_id": "toolu_01",
                 "content":     "result text",
             }]
-        });
-        let converted = anthropic_to_core_message(msg);
-        let block = &converted["content"][0];
+        })];
+        let converted = convert_history_to_core_format(msgs);
+        let block = &converted[0]["content"][0];
         assert_eq!(block["type"],         "tool_result");
         assert_eq!(block["tool_call_id"], "toolu_01");
         assert_eq!(block["output"],       "result text");
@@ -407,21 +459,50 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_to_core_already_core_format_passthrough() {
-        // If Kotlin somehow stores core format already, it must not be double-converted
-        let msg = json!({
+    fn convert_history_already_core_format_passthrough() {
+        // If Kotlin somehow stores core format already, it must not be double-converted.
+        let msgs = vec![json!({
             "role": "user",
             "content": [{
                 "type":         "tool_result",
                 "tool_call_id": "toolu_01",
                 "output":       "result",
             }]
-        });
-        let converted = anthropic_to_core_message(msg);
-        let block = &converted["content"][0];
-        // tool_result blocks without tool_use_id fall through the match arm
-        // as an unrecognised type — this is intentional: double-conversion would
-        // break, so the test verifies idempotency for core-format input.
+        })];
+        let converted = convert_history_to_core_format(msgs);
+        let block = &converted[0]["content"][0];
         assert_eq!(block["type"], "tool_result");
+        // Already-core-format tool_result should retain tool_call_id unchanged.
+        assert_eq!(block["tool_call_id"], "toolu_01");
+        assert_eq!(block["output"],       "result");
+    }
+
+    #[test]
+    fn convert_history_empty_list_is_noop() {
+        let msgs: Vec<Value> = vec![];
+        let converted = convert_history_to_core_format(msgs);
+        assert!(converted.is_empty());
+    }
+
+    #[test]
+    fn convert_history_multiple_messages_all_converted() {
+        let msgs = vec![
+            json!({"role": "user",      "content": "Hi"}),
+            json!({"role": "assistant", "content": [
+                {"type": "tool_use", "id": "t1", "name": "fn", "input": {}}
+            ]}),
+            json!({"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "t1", "content": "ok"}
+            ]}),
+        ];
+        let converted = convert_history_to_core_format(msgs);
+        assert_eq!(converted.len(), 3);
+        // First message is plain text — unchanged
+        assert_eq!(converted[0]["content"], "Hi");
+        // Second message: tool_use → tool_call
+        assert_eq!(converted[1]["content"][0]["type"], "tool_call");
+        // Third message: tool_result fields renamed
+        assert_eq!(converted[2]["content"][0]["tool_call_id"], "t1");
+        assert_eq!(converted[2]["content"][0]["output"],       "ok");
     }
 }
