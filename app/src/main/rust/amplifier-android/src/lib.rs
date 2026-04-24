@@ -3,11 +3,12 @@
 //! Thin wiring only. All AI orchestration is delegated to workspace crates:
 //!
 //! | Responsibility          | Workspace crate                                    |
-//! |-------------------------|----------------------------------------------------|
+//! |-------------------------|-------------------------------------------------------|
 //! | Agent loop / hooks      | `amplifier-module-orchestrator-loop-streaming`     |
 //! | Anthropic provider      | `amplifier-module-provider-anthropic`              |
 //! | Context management      | `amplifier-module-context-simple`                  |
 //! | Kotlin tool bridges     | local `jni_tools` module (preserved as-is)         |
+//! | Kotlin hook bridges     | local `jni_hooks` module                           |
 //!
 //! ## Exposed JNI surface
 //!
@@ -16,7 +17,7 @@
 //!
 //! | Kotlin signature | Description |
 //! |---|---|
-//! | `nativeRun(apiKey, model, toolsJson, historyJson, userInput, systemPrompt, tokenCb, providerReqCb, serverToolCb): String` | Run one user turn |
+//! | `nativeRun(apiKey, model, toolsJson, historyJson, userInput, userContentJson, systemPrompt, tokenCb, toolCb, hookCallbacks, serverToolCb): String` | Run one user turn |
 //!
 //! ## Threading model
 //!
@@ -43,12 +44,11 @@ use std::sync::Arc;
 
 use amplifier_module_context_simple::SimpleContext;
 use amplifier_module_orchestrator_loop_streaming::{
-    Hook, HookContext, HookEvent, HookRegistry, HookResult, LoopConfig, LoopOrchestrator,
+    Hook, HookRegistry, LoopConfig, LoopOrchestrator,
 };
 use amplifier_module_provider_anthropic::{AnthropicConfig, AnthropicProvider};
 use android_logger::Config;
-use async_trait::async_trait;
-use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
+use jni::objects::{GlobalRef, JClass, JObject, JObjectArray, JString, JValue};
 use jni::sys::jstring;
 use jni::JavaVM;
 use jni::JNIEnv;
@@ -61,7 +61,7 @@ mod jni_hooks;
 mod jni_tools;
 use jni_tools::build_tool_map;
 
-// ─────────────────────────── Shared Tokio runtime ────────────────────────────
+// ─────────────────────────────── Shared Tokio runtime ────────────────────────────────────
 
 /// A single multi-thread runtime that persists for the lifetime of the process.
 static RT: Lazy<Runtime> = Lazy::new(|| {
@@ -71,21 +71,23 @@ static RT: Lazy<Runtime> = Lazy::new(|| {
         .expect("failed to build tokio runtime")
 });
 
-// ─────────────────────────── JNI entry point ─────────────────────────────────
+// ─────────────────────────────── JNI entry point ─────────────────────────────────────────
 
 /// Run one full user turn through the amplifier-core agent loop.
 ///
 /// # Parameters (all non-null; pass `""` / `"[]"` for empty values)
 ///
-/// * `api_key`          – Anthropic API key (`sk-ant-…`).
-/// * `model`            – Model name, e.g. `"claude-sonnet-4-5"`. Empty → default.
-/// * `tools_json`       – JSON array of OpenAI-format tool schemas.
-/// * `history_json`     – JSON array of Anthropic-format prior-turn messages.
-/// * `user_input`       – The user's current message text.
-/// * `system_prompt`    – Optional system prompt. Pass `""` to omit.
-/// * `token_cb`         – Kotlin `TokenCallback` (`fun onToken(text: String)`).
-/// * `provider_req_cb`  – Kotlin `ProviderRequestCallback` (`fun onProviderRequest(): String?`).
-/// * `server_tool_cb`   – Kotlin `ToolCallback` (`fun executeTool(name: String, inputJson: String): String`).
+/// * `api_key`            – Anthropic API key (`sk-ant-…`).
+/// * `model`              – Model name, e.g. `"claude-sonnet-4-5"`. Empty → default.
+/// * `tools_json`         – JSON array of OpenAI-format tool schemas.
+/// * `history_json`       – JSON array of Anthropic-format prior-turn messages.
+/// * `user_input`         – The user's current message text.
+/// * `_user_content_json` – Optional content-blocks JSON (null = use plain `user_input`).
+/// * `system_prompt`      – Optional system prompt. Pass `""` to omit.
+/// * `token_cb`           – Kotlin `TokenCallback` (`fun onToken(text: String)`).
+/// * `tool_cb`            – Kotlin `ToolCallback` (`fun executeTool(name, argsJson): String`).
+/// * `hook_callbacks`     – Kotlin `Array<HookRegistration>` — lifecycle hook registry.
+/// * `_server_tool_cb`    – Kotlin `ServerToolCallback` (reserved for future use).
 ///
 /// # Return value
 ///
@@ -104,10 +106,12 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
     tools_json: JString,
     history_json: JString,
     user_input: JString,
+    _user_content_json: JObject,    // Kotlin: String? — reserved for content-blocks (unused)
     system_prompt: JString,
     token_cb: JObject,
-    provider_req_cb: JObject,
-    server_tool_cb: JObject,
+    tool_cb: JObject,               // Kotlin: ToolCallback → executeTool()
+    hook_callbacks: JObject,        // Kotlin: Array<HookRegistration>
+    _server_tool_cb: JObject,       // Kotlin: ServerToolCallback (reserved for future use)
 ) -> jstring {
     // Initialise Android logcat sink exactly once.
     android_logger::init_once(
@@ -116,7 +120,7 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
             .with_tag("amplifier"),
     );
 
-    // ── Extract Kotlin strings ────────────────────────────────────────────────
+    // ── Extract Kotlin strings ────────────────────────────────────────────────────────────
     let api_key       = jstring_to_rust(&mut env, &api_key,       "api_key");
     let model         = jstring_to_rust(&mut env, &model,         "model");
     let tools_json    = jstring_to_rust(&mut env, &tools_json,    "tools_json");
@@ -124,7 +128,7 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
     let user_input    = jstring_to_rust(&mut env, &user_input,    "user_input");
     let system_prompt = jstring_to_rust(&mut env, &system_prompt, "system_prompt");
 
-    // ── Obtain JavaVM ─────────────────────────────────────────────────────────
+    // ── Obtain JavaVM ─────────────────────────────────────────────────────────────────────
     let jvm = match env.get_java_vm() {
         Ok(jvm) => Arc::new(jvm),
         Err(e) => {
@@ -133,7 +137,7 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
         }
     };
 
-    // ── Pin callbacks as GlobalRefs (safe across async threads) ──────────────
+    // ── Pin callbacks as GlobalRefs (safe across async threads) ──────────────────────────
     let token_cb_global = match env.new_global_ref(token_cb) {
         Ok(r) => Arc::new(r),
         Err(e) => {
@@ -141,22 +145,18 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
             return err_jstring(&mut env, "could not pin tokenCb");
         }
     };
-    let prov_req_cb_global = match env.new_global_ref(provider_req_cb) {
+    let tool_cb_global = match env.new_global_ref(tool_cb) {
         Ok(r) => Arc::new(r),
         Err(e) => {
-            error!("nativeRun: failed to create global ref for providerReqCb: {e:?}");
-            return err_jstring(&mut env, "could not pin providerReqCb");
-        }
-    };
-    let srv_tool_cb_global = match env.new_global_ref(server_tool_cb) {
-        Ok(r) => Arc::new(r),
-        Err(e) => {
-            error!("nativeRun: failed to create global ref for serverToolCb: {e:?}");
-            return err_jstring(&mut env, "could not pin serverToolCb");
+            error!("nativeRun: failed to create global ref for toolCb: {e:?}");
+            return err_jstring(&mut env, "could not pin toolCb");
         }
     };
 
-    // ── Run the agent loop on the shared tokio runtime ────────────────────────
+    // ── Build hook registrations from Kotlin hookCallbacks array ─────────────────────────
+    let hook_registrations = build_hook_registrations(&mut env, hook_callbacks);
+
+    // ── Run the agent loop on the shared tokio runtime ───────────────────────────────────
     let result = RT.block_on(run_agent_loop(
         api_key,
         model,
@@ -166,8 +166,8 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
         system_prompt,
         jvm,
         token_cb_global,
-        prov_req_cb_global,
-        srv_tool_cb_global,
+        tool_cb_global,
+        hook_registrations,
     ));
 
     match result {
@@ -176,7 +176,97 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
     }
 }
 
-// ─────────────────────────── Agent loop ──────────────────────────────────────
+// ─────────────────────────────── Hook registrations builder ──────────────────────────────
+
+/// Parse a Kotlin `Array<HookRegistration>` JObject into a list of
+/// `(GlobalRef, event_names)` tuples for use in building the `HookRegistry`.
+///
+/// Each `HookRegistration` has:
+/// - `events: Array<String>` — the lifecycle event names this hook subscribes to
+/// - `callback: HookCallback` — the Kotlin callback to invoke
+///
+/// Invalid elements are skipped with a warning.
+fn build_hook_registrations(
+    env: &mut JNIEnv,
+    hook_callbacks: JObject,
+) -> Vec<(Arc<GlobalRef>, Vec<String>)> {
+    let mut registrations: Vec<(Arc<GlobalRef>, Vec<String>)> = Vec::new();
+
+    if hook_callbacks.is_null() {
+        return registrations;
+    }
+
+    // Cast JObject → JObjectArray (safe: Kotlin guarantees Array<HookRegistration>)
+    let arr = JObjectArray::from(hook_callbacks);
+    let len = match env.get_array_length(&arr) {
+        Ok(n) => n,
+        Err(e) => {
+            log::warn!("build_hook_registrations: get_array_length failed: {e:?}");
+            return registrations;
+        }
+    };
+
+    for i in 0..len {
+        // Get the HookRegistration element at index i
+        let elem = match env.get_object_array_element(&arr, i) {
+            Ok(e) => e,
+            Err(e) => {
+                log::warn!("build_hook_registrations: get_object_array_element[{i}] failed: {e:?}");
+                let _ = env.exception_clear();
+                continue;
+            }
+        };
+
+        // ── Extract events field ([Ljava/lang/String;) ────────────────────────────────────
+        let event_names: Vec<String> = match env.get_field(&elem, "events", "[Ljava/lang/String;") {
+            Ok(jv) => match jv.l() {
+                Ok(events_obj) if !events_obj.is_null() => {
+                    let ev_arr = JObjectArray::from(events_obj);
+                    let ev_len = env.get_array_length(&ev_arr).unwrap_or(0);
+                    (0..ev_len)
+                        .filter_map(|j| {
+                            env.get_object_array_element(&ev_arr, j).ok().and_then(|s| {
+                                let jstr = JString::from(s);
+                                env.get_string(&jstr).ok().map(|gs| String::from(gs))
+                            })
+                        })
+                        .collect()
+                }
+                _ => Vec::new(),
+            },
+            Err(e) => {
+                log::warn!("build_hook_registrations: get events field[{i}] failed: {e:?}");
+                let _ = env.exception_clear();
+                Vec::new()
+            }
+        };
+
+        // ── Extract callback field (Lcom/vela/app/ai/AmplifierBridge$HookCallback;) ───────
+        let cb_global = match env.get_field(
+            &elem,
+            "callback",
+            "Lcom/vela/app/ai/AmplifierBridge$HookCallback;",
+        ) {
+            Ok(jv) => match jv.l() {
+                Ok(obj) if !obj.is_null() => env.new_global_ref(obj).ok().map(Arc::new),
+                _ => None,
+            },
+            Err(e) => {
+                log::warn!("build_hook_registrations: get callback field[{i}] failed: {e:?}");
+                let _ = env.exception_clear();
+                None
+            }
+        };
+
+        if let Some(global) = cb_global {
+            registrations.push((global, event_names));
+        }
+    }
+
+    registrations
+}
+
+// ─────────────────────────────── Agent loop ──────────────────────────────────────────────
 
 async fn run_agent_loop(
     api_key: String,
@@ -187,8 +277,8 @@ async fn run_agent_loop(
     system_prompt: String,
     jvm: Arc<JavaVM>,
     token_cb: Arc<GlobalRef>,
-    prov_req_cb: Arc<GlobalRef>,
-    srv_tool_cb: Arc<GlobalRef>,
+    tool_cb: Arc<GlobalRef>,
+    hook_registrations: Vec<(Arc<GlobalRef>, Vec<String>)>,
 ) -> anyhow::Result<String> {
     // Parse history and convert Anthropic wire format → amplifier-core format.
     let raw_history: Vec<Value> = serde_json::from_str(&history_json).unwrap_or_else(|e| {
@@ -210,7 +300,7 @@ async fn run_agent_loop(
     }));
 
     // Build Kotlin tool bridges (each tool delegates execution to Kotlin via JNI).
-    let tool_map = build_tool_map(&tools_json, Arc::clone(&jvm), Arc::clone(&srv_tool_cb));
+    let tool_map = build_tool_map(&tools_json, Arc::clone(&jvm), Arc::clone(&tool_cb));
 
     // Build and configure the orchestrator.
     let config = LoopConfig { max_steps: 10, system_prompt };
@@ -223,12 +313,19 @@ async fn run_agent_loop(
     // Build context pre-loaded with converted history.
     let mut ctx = SimpleContext::new(history);
 
-    // Build hook registry and register the provider-request hook.
+    // Build hook registry from Kotlin hookCallbacks registrations.
     let mut hooks = HookRegistry::new();
-    hooks.register(Box::new(ProviderRequestHook {
-        jvm: Arc::clone(&jvm),
-        cb: Arc::clone(&prov_req_cb),
-    }));
+    for (cb_global, event_names) in hook_registrations {
+        let events = crate::jni_hooks::parse_hook_events(&event_names);
+        if !events.is_empty() {
+            let bridge = crate::jni_hooks::KotlinHookBridge::new(
+                cb_global,
+                events,
+                Arc::clone(&jvm),
+            );
+            hooks.register(Box::new(bridge) as Box<dyn Hook>);
+        }
+    }
 
     // Build the on_token closure — forwards text segments to Kotlin UI.
     let on_token = {
@@ -242,60 +339,7 @@ async fn run_agent_loop(
     orch.execute(user_input, &mut ctx, &hooks, on_token).await
 }
 
-// ─────────────────────────── ProviderRequestHook ─────────────────────────────
-
-/// JNI hook that calls `ProviderRequestCallback.onProviderRequest()` before
-/// each LLM request.  Returns `HookResult::InjectContext(s)` when Kotlin
-/// returns a non-empty string, otherwise `HookResult::Continue`.
-struct ProviderRequestHook {
-    jvm: Arc<JavaVM>,
-    cb:  Arc<GlobalRef>,
-}
-
-#[async_trait]
-impl Hook for ProviderRequestHook {
-    fn events(&self) -> &[HookEvent] {
-        &[HookEvent::ProviderRequest]
-    }
-
-    async fn handle(&self, _ctx: &HookContext) -> HookResult {
-        let mut env = match self.jvm.attach_current_thread() {
-            Ok(e)  => e,
-            Err(_) => return HookResult::Continue,
-        };
-        let result = env.call_method(
-            self.cb.as_ref(),
-            "onProviderRequest",
-            "()Ljava/lang/String;",
-            &[],
-        );
-        match result {
-            Ok(v) => {
-                if let Ok(obj) = v.l() {
-                    if !obj.is_null() {
-                        let jstr = JString::from(obj);
-                        let maybe_s = env
-                            .get_string(&jstr)
-                            .ok()
-                            .map(|s| String::from(s))
-                            .filter(|s| !s.is_empty());
-                        if let Some(s) = maybe_s {
-                            return HookResult::InjectContext(s);
-                        }
-                    }
-                }
-                HookResult::Continue
-            }
-            Err(e) => {
-                let _ = env.exception_clear();
-                log::warn!("ProviderRequestHook: onProviderRequest failed: {e:?}");
-                HookResult::Continue
-            }
-        }
-    }
-}
-
-// ─────────────────────────── Token streaming ─────────────────────────────────
+// ─────────────────────────────── Token streaming ─────────────────────────────────────────
 
 /// Call `TokenCallback.onToken(text)` on the Kotlin side.
 ///
@@ -322,7 +366,7 @@ fn emit_token_to_kotlin(jvm: &Arc<JavaVM>, callback: &Arc<GlobalRef>, text: &str
     }
 }
 
-// ─────────────────────────── History conversion ──────────────────────────────
+// ─────────────────────────────── History conversion ──────────────────────────────────────
 
 /// Convert a list of Anthropic-wire-format messages to amplifier-core format.
 ///
@@ -385,7 +429,7 @@ fn convert_message(mut msg: Value) -> Value {
     msg
 }
 
-// ─────────────────────────── JNI helpers ─────────────────────────────────────
+// ─────────────────────────────── JNI helpers ─────────────────────────────────────────────
 
 /// Extract a Rust `String` from a JNI `JString`.
 ///
@@ -407,7 +451,7 @@ fn err_jstring(env: &mut JNIEnv, msg: &str) -> jstring {
         .unwrap_or(std::ptr::null_mut())
 }
 
-// ─────────────────────────── Tests ───────────────────────────────────────────
+// ─────────────────────────────── Tests ───────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
