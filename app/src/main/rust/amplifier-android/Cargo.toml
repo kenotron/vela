@@ -8,11 +8,11 @@ crate-type = ["cdylib"]
 
 [dependencies]
 # amplifier-rust workspace crates (path deps)
-amplifier-module-orchestrator-loop-streaming = { path = "/Users/ken/workspace/amplifier-rust/crates/amplifier-module-orchestrator-loop-streaming" }
-amplifier-module-provider-anthropic           = { path = "/Users/ken/workspace/amplifier-rust/crates/amplifier-module-provider-anthropic" }
-amplifier-module-context-simple               = { path = "/Users/ken/workspace/amplifier-rust/crates/amplifier-module-context-simple" }
-amplifier-module-tool-task                    = { path = "/Users/ken/workspace/amplifier-rust/crates/amplifier-module-tool-task" }
-amplifier-module-tool-skills                  = { path = "/Users/ken/workspace/amplifier-rust/crates/amplifier-module-tool-skills" }
+amplifier-module-orchestrator-loop-streaming = { git = "https://github.com/kenotron-ms/amplifier-rust", branch = "main" }
+amplifier-module-provider-anthropic           = { git = "https://github.com/kenotron-ms/amplifier-rust", branch = "main" }
+amplifier-module-context-simple               = { git = "https://github.com/kenotron-ms/amplifier-rust", branch = "main" }
+amplifier-module-tool-task                    = { git = "https://github.com/kenotron-ms/amplifier-rust", branch = "main" }
+amplifier-module-tool-skills                  = { git = "https://github.com/kenotron-ms/amplifier-rust", branch = "main" }
 
 # amplifier-core — still needed for JNI wiring types (Provider/Tool/Orchestrator traits + Session lifecycle)
 amplifier-core = { git = "https://github.com/microsoft/amplifier-core", branch = "main" }
