@@ -168,8 +168,6 @@ impl Hook for KotlinHookBridge {
 /// | `"tool_post"`       | `HookEvent::ToolPost`       |
 /// | `"turn_end"`        | `HookEvent::TurnEnd`        |
 pub fn parse_hook_events(event_names: &[String]) -> Vec<HookEvent> {
-    // RED phase stub — returns empty to make tests fail initially.
-    // Implementation follows immediately below.
     event_names
         .iter()
         .filter_map(|name| match name.to_lowercase().as_str() {
