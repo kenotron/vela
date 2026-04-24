@@ -13,6 +13,8 @@ amplifier-module-provider-anthropic           = { git = "https://github.com/keno
 amplifier-module-context-simple               = { git = "https://github.com/kenotron-ms/amplifier-rust", branch = "main" }
 amplifier-module-tool-task                    = { git = "https://github.com/kenotron-ms/amplifier-rust", branch = "main" }
 amplifier-module-tool-skills                  = { git = "https://github.com/kenotron-ms/amplifier-rust", branch = "main" }
+amplifier-module-tool-todo                    = { path = "../../../../../../amplifier-rust/crates/amplifier-module-tool-todo" }
+amplifier-module-tool-web                     = { path = "../../../../../../amplifier-rust/crates/amplifier-module-tool-web" }
 
 # amplifier-core — still needed for JNI wiring types (Provider/Tool/Orchestrator traits + Session lifecycle)
 amplifier-core = { git = "https://github.com/microsoft/amplifier-core", branch = "main" }

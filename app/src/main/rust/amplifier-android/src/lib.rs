@@ -57,6 +57,7 @@ use once_cell::sync::Lazy;
 use serde_json::{json, Value};
 use tokio::runtime::Runtime;
 
+mod jni_hooks;
 mod jni_tools;
 use jni_tools::build_tool_map;
 
