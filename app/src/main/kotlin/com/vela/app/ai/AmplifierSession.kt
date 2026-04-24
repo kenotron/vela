@@ -73,12 +73,23 @@ class AmplifierSession @Inject constructor(
                     result
                 }
             },
-            providerRequestCb = {
-                runBlocking { onProviderRequest() }.orEmpty()
-                },
-                serverToolCb = { name, argsJson ->
-                    runBlocking { onServerTool(name, argsJson) }
-                },
+            // provider_request hook — injects ephemeral context before each LLM call.
+            // Additional hooks (VaultSyncHook, etc.) may be added here later.
+            hookCallbacks = arrayOf(
+                AmplifierBridge.HookRegistration(
+                    events = arrayOf("provider_request"),
+                    callback = AmplifierBridge.HookCallback { _, _ ->
+                        val injection = runBlocking { onProviderRequest() }
+                        if (injection.isNullOrEmpty())
+                            """{"action":"continue"}"""
+                        else
+                            """{"action":"inject_context","context_injection":${org.json.JSONObject.quote(injection)}}"""
+                    }
+                )
+            ),
+            serverToolCb = { name, argsJson ->
+                runBlocking { onServerTool(name, argsJson) }
+            },
             )
 
             if (!tokenWasEmitted && finalText.isNotEmpty()) onToken(finalText)
