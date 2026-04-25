@@ -131,6 +131,7 @@ fn registry_accumulates_manual_and_loaded_agents() {
         name: "manual-agent".to_string(),
         description: "A manually registered test agent.".to_string(),
         model_role: Some(ModelRole::Single("general".to_string())),
+        provider_preferences: None,
         tools: vec!["bash".to_string()],
         instruction: "You are a manual test agent.".to_string(),
     });

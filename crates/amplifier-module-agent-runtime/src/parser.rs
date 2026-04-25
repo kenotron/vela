@@ -93,6 +93,7 @@ pub fn parse_agent_file(content: &str) -> anyhow::Result<AgentConfig> {
         name: frontmatter.meta.name,
         description: frontmatter.meta.description,
         model_role,
+        provider_preferences: None,
         tools,
         instruction,
     })

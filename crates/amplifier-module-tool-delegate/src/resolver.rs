@@ -71,6 +71,7 @@ mod tests {
             name: "explorer".to_string(),
             description: "Deep local-context reconnaissance agent.".to_string(),
             model_role: None,
+            provider_preferences: None,
             tools: vec![],
             instruction: "Explore the codebase.".to_string(),
         });

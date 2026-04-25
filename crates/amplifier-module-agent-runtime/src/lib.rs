@@ -14,11 +14,32 @@ use serde::{Deserialize, Serialize};
 ///
 /// - `Single("fast")` → YAML `model_role: fast`
 /// - `Chain(["fast", "general"])` → YAML `model_role: [fast, general]`
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum ModelRole {
     Single(String),
     Chain(Vec<String>),
+}
+
+// ---------------------------------------------------------------------------
+// ResolvedProvider
+// ---------------------------------------------------------------------------
+
+/// A concrete provider+model combination with optional config overrides.
+///
+/// Used in [`AgentConfig::provider_preferences`] to specify an ordered list
+/// of providers to try when dispatching this agent.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ResolvedProvider {
+    /// Provider identifier (e.g. `"anthropic"`, `"openai"`).
+    pub provider: String,
+
+    /// Model name or glob pattern (e.g. `"claude-opus-4-5"`, `"claude-haiku-*"`).
+    pub model: String,
+
+    /// Optional extra config blob passed through to the provider.
+    #[serde(default)]
+    pub config: serde_json::Value,
 }
 
 // ---------------------------------------------------------------------------
@@ -38,7 +59,13 @@ pub struct AgentConfig {
     pub description: String,
 
     /// Optional model role override; `None` means inherit from context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_role: Option<ModelRole>,
+
+    /// Optional ordered list of provider preferences for this agent.
+    /// When `None`, the caller's default provider selection applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_preferences: Option<Vec<ResolvedProvider>>,
 
     /// Tool name allowlist. Empty vec means inherit all available tools.
     pub tools: Vec<String>,
@@ -95,6 +122,15 @@ impl AgentRegistry {
         names
     }
 
+    /// Set (or replace) the provider preferences for a registered agent.
+    ///
+    /// No-op if no agent with `name` is currently registered.
+    pub fn set_provider_preferences(&mut self, name: &str, prefs: Vec<ResolvedProvider>) {
+        if let Some(cfg) = self.agents.get_mut(name) {
+            cfg.provider_preferences = Some(prefs);
+        }
+    }
+
     /// Scan `dir` and load all agent bundle files into this registry.
     ///
     /// Delegates to [`loader::load_from_dir`].
@@ -139,6 +175,7 @@ mod tests {
             name: "my-agent".to_string(),
             description: "A test agent".to_string(),
             model_role: Some(ModelRole::Single("fast".to_string())),
+            provider_preferences: None,
             tools: vec!["bash".to_string()],
             instruction: "You are a test agent.".to_string(),
         };
@@ -157,6 +194,7 @@ mod tests {
                 name: name.to_string(),
                 description: String::new(),
                 model_role: None,
+                provider_preferences: None,
                 tools: vec![],
                 instruction: String::new(),
             });
@@ -173,11 +211,97 @@ mod tests {
                 name: name.to_string(),
                 description: String::new(),
                 model_role: None,
+                provider_preferences: None,
                 tools: vec![],
                 instruction: String::new(),
             });
         }
         let names = registry.available_names();
         assert_eq!(names, vec!["alpha", "beta", "gamma"]);
+    }
+
+    // ---- New tests for provider_preferences and ModelRole ----------------
+
+    #[test]
+    fn agent_config_supports_model_role_single_and_chain() {
+        let single = AgentConfig {
+            name: "a".to_string(),
+            description: "d".to_string(),
+            model_role: Some(ModelRole::Single("fast".to_string())),
+            provider_preferences: None,
+            tools: vec![],
+            instruction: String::new(),
+        };
+        let chain = AgentConfig {
+            name: "b".to_string(),
+            description: "d".to_string(),
+            model_role: Some(ModelRole::Chain(vec![
+                "reasoning".to_string(),
+                "general".to_string(),
+            ])),
+            provider_preferences: None,
+            tools: vec![],
+            instruction: String::new(),
+        };
+        assert_eq!(
+            single.model_role,
+            Some(ModelRole::Single("fast".to_string()))
+        );
+        assert_eq!(
+            chain.model_role,
+            Some(ModelRole::Chain(vec![
+                "reasoning".to_string(),
+                "general".to_string()
+            ]))
+        );
+        assert!(single.provider_preferences.is_none());
+        assert!(chain.provider_preferences.is_none());
+    }
+
+    #[test]
+    fn parse_agent_file_reads_model_role_string() {
+        let content =
+            "---\nmeta:\n  name: test\n  description: test\nmodel_role: fast\n---\nBody.\n";
+        let config = crate::parser::parse_agent_file(content).expect("should parse");
+        assert_eq!(
+            config.model_role,
+            Some(ModelRole::Single("fast".to_string()))
+        );
+        assert!(config.provider_preferences.is_none());
+    }
+
+    #[test]
+    fn parse_agent_file_reads_model_role_list() {
+        let content = "---\nmeta:\n  name: test\n  description: test\nmodel_role:\n  - reasoning\n  - general\n---\nBody.\n";
+        let config = crate::parser::parse_agent_file(content).expect("should parse");
+        assert_eq!(
+            config.model_role,
+            Some(ModelRole::Chain(vec![
+                "reasoning".to_string(),
+                "general".to_string()
+            ]))
+        );
+        assert!(config.provider_preferences.is_none());
+    }
+
+    #[test]
+    fn registry_set_provider_preferences_updates_existing_agent() {
+        let mut registry = AgentRegistry::new();
+        registry.register(AgentConfig {
+            name: "test-agent".to_string(),
+            description: "desc".to_string(),
+            model_role: None,
+            provider_preferences: None,
+            tools: vec![],
+            instruction: String::new(),
+        });
+        let prefs = vec![ResolvedProvider {
+            provider: "anthropic".to_string(),
+            model: "claude-opus-4-5".to_string(),
+            config: serde_json::Value::Null,
+        }];
+        registry.set_provider_preferences("test-agent", prefs.clone());
+        let agent = registry.get("test-agent").expect("agent should exist");
+        assert_eq!(agent.provider_preferences, Some(prefs));
     }
 }

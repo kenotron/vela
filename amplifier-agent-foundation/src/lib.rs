@@ -11,6 +11,7 @@ pub fn foundation_agents() -> Vec<AgentConfig> {
             name: "explorer".to_string(),
             description: "Deep local-context reconnaissance agent. Surveys codebases, docs, and configs. Use for multi-file exploration tasks.".to_string(),
             model_role: Some(ModelRole::Single("fast".to_string())),
+            provider_preferences: None,
             tools: vec![
                 "filesystem".to_string(),
                 "search".to_string(),
@@ -28,6 +29,7 @@ pub fn foundation_agents() -> Vec<AgentConfig> {
                 "reasoning".to_string(),
                 "general".to_string(),
             ])),
+            provider_preferences: None,
             tools: vec![
                 "filesystem".to_string(),
                 "search".to_string(),
@@ -40,6 +42,7 @@ pub fn foundation_agents() -> Vec<AgentConfig> {
             name: "bug-hunter".to_string(),
             description: "Systematic debugging specialist. Hypothesis-driven. Use when errors, test failures, or unexpected behavior occurs.".to_string(),
             model_role: Some(ModelRole::Single("coding".to_string())),
+            provider_preferences: None,
             tools: vec![
                 "filesystem".to_string(),
                 "search".to_string(),
@@ -53,6 +56,7 @@ pub fn foundation_agents() -> Vec<AgentConfig> {
             name: "git-ops".to_string(),
             description: "Git and GitHub operations. Commits, PRs, branches. Enforces conventional commits and safety protocols.".to_string(),
             model_role: Some(ModelRole::Single("fast".to_string())),
+            provider_preferences: None,
             tools: vec![
                 "bash".to_string(),
                 "filesystem".to_string(),
@@ -65,6 +69,7 @@ pub fn foundation_agents() -> Vec<AgentConfig> {
             name: "modular-builder".to_string(),
             description: "Implementation-only agent. Requires complete spec with file paths, interfaces, and criteria. Will stop and ask if spec is incomplete.".to_string(),
             model_role: Some(ModelRole::Single("coding".to_string())),
+            provider_preferences: None,
             tools: vec![
                 "filesystem".to_string(),
                 "search".to_string(),
@@ -81,6 +86,7 @@ pub fn foundation_agents() -> Vec<AgentConfig> {
                 "security-audit".to_string(),
                 "general".to_string(),
             ])),
+            provider_preferences: None,
             tools: vec![
                 "filesystem".to_string(),
                 "search".to_string(),

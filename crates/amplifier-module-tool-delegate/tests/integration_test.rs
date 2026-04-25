@@ -73,6 +73,7 @@ fn make_registry() -> AgentRegistry {
         name: "explorer".to_string(),
         description: "Explores codebases.".to_string(),
         model_role: None,
+        provider_preferences: None,
         tools: vec!["filesystem".to_string(), "bash".to_string()],
         instruction: "You explore codebases.".to_string(),
     });
@@ -80,6 +81,7 @@ fn make_registry() -> AgentRegistry {
         name: "bug-hunter".to_string(),
         description: "Hunts bugs systematically.".to_string(),
         model_role: None,
+        provider_preferences: None,
         tools: vec!["bash".to_string()],
         instruction: "You hunt bugs systematically.".to_string(),
     });

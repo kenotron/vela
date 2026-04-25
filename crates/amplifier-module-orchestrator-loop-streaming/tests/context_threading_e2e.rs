@@ -169,6 +169,7 @@ async fn delegate_receives_parent_context_through_orchestrator() {
         name: "explorer".to_string(),
         description: "Deep local-context reconnaissance agent.".to_string(),
         model_role: None,
+        provider_preferences: None,
         tools: vec![],
         instruction: String::new(),
     });
