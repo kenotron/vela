@@ -93,13 +93,12 @@ fn make_registry() -> AgentRegistry {
 /// 1. Successful delegate to a known agent returns the expected JSON shape.
 #[tokio::test]
 async fn delegate_to_known_agent_returns_correct_shape() {
-    let tool = DelegateTool {
-        config: DelegateToolConfig::default(),
-        runner: Arc::new(EchoRunner {
+    let tool = DelegateTool::new(
+        Arc::new(EchoRunner {
             response: "exploration complete".to_string(),
         }),
-        registry: make_registry(),
-    };
+        make_registry(),
+    );
 
     let result = tool
         .execute(json!({
@@ -142,13 +141,12 @@ async fn delegate_to_known_agent_returns_correct_shape() {
 /// 2. Delegate without an agent name still succeeds.
 #[tokio::test]
 async fn delegate_without_agent_succeeds() {
-    let tool = DelegateTool {
-        config: DelegateToolConfig::default(),
-        runner: Arc::new(EchoRunner {
+    let tool = DelegateTool::new(
+        Arc::new(EchoRunner {
             response: "done".to_string(),
         }),
-        registry: make_registry(),
-    };
+        make_registry(),
+    );
 
     let result = tool
         .execute(json!({
@@ -168,14 +166,13 @@ async fn delegate_without_agent_succeeds() {
 async fn delegate_passes_agent_system_prompt_to_runner() {
     let captured: Arc<Mutex<Option<SpawnRequest>>> = Arc::new(Mutex::new(None));
 
-    let tool = DelegateTool {
-        config: DelegateToolConfig::default(),
-        runner: Arc::new(CapturingRunner {
+    let tool = DelegateTool::new(
+        Arc::new(CapturingRunner {
             captured: captured.clone(),
             response: "ok".to_string(),
         }),
-        registry: make_registry(),
-    };
+        make_registry(),
+    );
 
     tool.execute(json!({
         "agent": "explorer",
@@ -201,16 +198,16 @@ async fn delegate_passes_agent_system_prompt_to_runner() {
 async fn delegate_excludes_configured_tools() {
     let captured: Arc<Mutex<Option<SpawnRequest>>> = Arc::new(Mutex::new(None));
 
-    let tool = DelegateTool {
-        config: DelegateToolConfig {
-            exclude_tools: vec!["bash".to_string()],
-            ..DelegateToolConfig::default()
-        },
-        runner: Arc::new(CapturingRunner {
+    let mut tool = DelegateTool::new(
+        Arc::new(CapturingRunner {
             captured: captured.clone(),
             response: "ok".to_string(),
         }),
-        registry: make_registry(),
+        make_registry(),
+    );
+    tool.config = DelegateToolConfig {
+        exclude_tools: vec!["bash".to_string()],
+        ..DelegateToolConfig::default()
     };
 
     tool.execute(json!({
@@ -241,13 +238,12 @@ async fn delegate_excludes_configured_tools() {
 ///    lists available agents.
 #[tokio::test]
 async fn delegate_to_unknown_agent_returns_error_with_list() {
-    let tool = DelegateTool {
-        config: DelegateToolConfig::default(),
-        runner: Arc::new(EchoRunner {
+    let tool = DelegateTool::new(
+        Arc::new(EchoRunner {
             response: "irrelevant".to_string(),
         }),
-        registry: make_registry(),
-    };
+        make_registry(),
+    );
 
     let result = tool
         .execute(json!({
@@ -279,13 +275,12 @@ async fn delegate_to_unknown_agent_returns_error_with_list() {
 /// 6. Missing instruction returns `ToolError::Other` (invalid input).
 #[tokio::test]
 async fn delegate_missing_instruction_returns_invalid_input() {
-    let tool = DelegateTool {
-        config: DelegateToolConfig::default(),
-        runner: Arc::new(EchoRunner {
+    let tool = DelegateTool::new(
+        Arc::new(EchoRunner {
             response: "irrelevant".to_string(),
         }),
-        registry: make_registry(),
-    };
+        make_registry(),
+    );
 
     let result = tool
         .execute(json!({
@@ -304,11 +299,7 @@ async fn delegate_missing_instruction_returns_invalid_input() {
 /// 7. A runner failure surfaces as `ToolError::ExecutionFailed`.
 #[tokio::test]
 async fn delegate_runner_failure_surfaces_as_execution_failed() {
-    let tool = DelegateTool {
-        config: DelegateToolConfig::default(),
-        runner: Arc::new(FailRunner),
-        registry: make_registry(),
-    };
+    let tool = DelegateTool::new(Arc::new(FailRunner), make_registry());
 
     let result = tool
         .execute(json!({
@@ -327,13 +318,12 @@ async fn delegate_runner_failure_surfaces_as_execution_failed() {
 /// 8. Spec reports name == "delegate" and requires "instruction".
 #[test]
 fn delegate_spec_name_and_required() {
-    let tool = DelegateTool {
-        config: DelegateToolConfig::default(),
-        runner: Arc::new(EchoRunner {
+    let tool = DelegateTool::new(
+        Arc::new(EchoRunner {
             response: String::new(),
         }),
-        registry: make_registry(),
-    };
+        make_registry(),
+    );
 
     let spec = tool.get_spec();
 

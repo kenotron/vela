@@ -394,8 +394,72 @@ impl Tool for DelegateTool {
         &'a self,
         input: Value,
     ) -> Pin<Box<dyn Future<Output = Result<ToolResult, ToolError>> + Send + 'a>> {
+        let context = Arc::clone(&self.context);
+        let max_turns = self.config.max_context_turns;
+
         Box::pin(async move {
-            match self.dispatch(input).await {
+            // (2) Parse required `instruction`; return ToolError::Other if absent.
+            let raw_instruction = match input.get("instruction").and_then(|v| v.as_str()) {
+                Some(s) if !s.is_empty() => s.to_string(),
+                _ => {
+                    return Err(ToolError::Other {
+                        message: "missing required parameter: 'instruction'".to_string(),
+                    })
+                }
+            };
+
+            // (3) Parse context_depth:
+            //   "recent" | "recent_5" → Recent(max_turns)
+            //   "all"                 → All
+            //   otherwise             → None
+            let context_depth =
+                match input.get("context_depth").and_then(|v| v.as_str()) {
+                    Some("recent") | Some("recent_5") => {
+                        ContextDepth::Recent(max_turns as usize)
+                    }
+                    Some("all") => ContextDepth::All,
+                    _ => ContextDepth::None,
+                };
+
+            // (4) Parse context_scope:
+            //   "agents" → Agents
+            //   "full"   → Full
+            //   otherwise → Conversation
+            let context_scope =
+                match input.get("context_scope").and_then(|v| v.as_str()) {
+                    Some("agents") => ContextScope::Agents,
+                    Some("full") => ContextScope::Full,
+                    _ => ContextScope::Conversation,
+                };
+
+            // (5) Snapshot parent messages from the shared context buffer.
+            let parent_messages = context.lock().unwrap().clone();
+
+            // (6) Build the inherited context block (returns None when depth is None
+            //     or the filtered message list is empty).
+            let inherited = crate::context::build_inherited_context(
+                &parent_messages,
+                context_depth,
+                max_turns as usize,
+                context_scope,
+            );
+
+            // (7) Prepend [PARENT CONVERSATION CONTEXT] block when inherited is Some.
+            let effective_instruction = match inherited {
+                Some(ref block) => format!("{block}\n\n{raw_instruction}"),
+                None => raw_instruction.clone(),
+            };
+
+            // Rebuild the input JSON with the (possibly enriched) instruction so
+            // that dispatch() forwards it verbatim to the runner.  dispatch() uses
+            // an empty parent_messages list internally, so it will not add any
+            // further context — the block we built above is the only one.
+            let mut modified_input = input.clone();
+            modified_input["instruction"] = json!(effective_instruction);
+
+            // Delegate to the full dispatch pipeline (agent resolution, tool
+            // filtering, session-id generation, output formatting).
+            match self.dispatch(modified_input).await {
                 Ok(value) => Ok(ToolResult {
                     success: true,
                     output: Some(value),
@@ -500,6 +564,26 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    // -----------------------------------------------------------------------
+    // CapturingRunner — stores the SpawnRequest for assertion
+    // -----------------------------------------------------------------------
+    struct CapturingRunner {
+        captured: Arc<std::sync::Mutex<Option<SpawnRequest>>>,
+    }
+
+    impl AgentRunner for CapturingRunner {
+        fn run<'a>(
+            &'a self,
+            req: SpawnRequest,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send + 'a>> {
+            let captured = Arc::clone(&self.captured);
+            Box::pin(async move {
+                *captured.lock().unwrap() = Some(req);
+                Ok("captured_response".to_string())
+            })
+        }
+    }
+
     /// Construct a minimal DelegateTool for use in struct-level tests.
     fn make_tool() -> DelegateTool {
         DelegateTool::new(Arc::new(NopRunner), AgentRegistry::new())
@@ -575,5 +659,107 @@ mod tests {
         let ctx = tool.snapshot_context();
         assert_eq!(ctx.len(), 1);
         assert_eq!(ctx[0]["role"], json!("user"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Context injection tests (2)
+    // -----------------------------------------------------------------------
+
+    /// When context_depth is "all" and the context buffer has messages,
+    /// execute() must prepend the [PARENT CONVERSATION CONTEXT] block to the
+    /// instruction, and req.context must remain empty.
+    #[tokio::test]
+    async fn execute_prepends_parent_context_block() {
+        use amplifier_module_tool_task::ContextAwareTool;
+
+        let captured = Arc::new(std::sync::Mutex::new(None::<SpawnRequest>));
+        let tool = DelegateTool::new(
+            Arc::new(CapturingRunner {
+                captured: captured.clone(),
+            }),
+            AgentRegistry::new(),
+        );
+
+        // Seed the context buffer with a message that must appear in the instruction.
+        tool.set_execution_context(vec![
+            json!({"role": "user", "content": "rust is a systems language"}),
+        ]);
+
+        tool.execute(json!({
+            "agent": "self",
+            "instruction": "summarise what we discussed",
+            "context_depth": "all"
+        }))
+        .await
+        .expect("execute should succeed");
+
+        let lock = captured.lock().unwrap();
+        let req = lock
+            .as_ref()
+            .expect("CapturingRunner should have captured a request");
+
+        assert!(
+            req.instruction.contains("[PARENT CONVERSATION CONTEXT]"),
+            "instruction must contain context header; got:\n{}",
+            req.instruction
+        );
+        assert!(
+            req.instruction.contains("rust is a systems language"),
+            "instruction must contain parent message content; got:\n{}",
+            req.instruction
+        );
+        assert!(
+            req.instruction.contains("summarise what we discussed"),
+            "instruction must contain the raw instruction; got:\n{}",
+            req.instruction
+        );
+        assert!(
+            req.context.is_empty(),
+            "req.context must be empty (ephemeral); got: {:?}",
+            req.context
+        );
+    }
+
+    /// When context_depth is "none", execute() must NOT prepend any context
+    /// block, and the instruction must equal the raw instruction exactly.
+    #[tokio::test]
+    async fn execute_with_depth_none_omits_context_block() {
+        use amplifier_module_tool_task::ContextAwareTool;
+
+        let captured = Arc::new(std::sync::Mutex::new(None::<SpawnRequest>));
+        let tool = DelegateTool::new(
+            Arc::new(CapturingRunner {
+                captured: captured.clone(),
+            }),
+            AgentRegistry::new(),
+        );
+
+        // Context is set but must NOT be injected when depth is "none".
+        tool.set_execution_context(vec![
+            json!({"role": "user", "content": "some context that must not appear"}),
+        ]);
+
+        tool.execute(json!({
+            "agent": "self",
+            "instruction": "do the thing",
+            "context_depth": "none"
+        }))
+        .await
+        .expect("execute should succeed");
+
+        let lock = captured.lock().unwrap();
+        let req = lock
+            .as_ref()
+            .expect("CapturingRunner should have captured a request");
+
+        assert!(
+            !req.instruction.contains("[PARENT CONVERSATION CONTEXT]"),
+            "instruction must NOT contain context marker; got:\n{}",
+            req.instruction
+        );
+        assert_eq!(
+            req.instruction, "do the thing",
+            "instruction must be exactly the raw instruction"
+        );
     }
 }
