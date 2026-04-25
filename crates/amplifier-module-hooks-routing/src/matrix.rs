@@ -299,6 +299,26 @@ mod tests {
         );
     }
 
+    // 11. all_bundled_matrices_validate — all 7 bundled matrix YAML files exist and validate.
+    #[test]
+    fn all_bundled_matrices_validate() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("routing");
+        for name in [
+            "balanced",
+            "quality",
+            "economy",
+            "anthropic",
+            "openai",
+            "gemini",
+            "copilot",
+        ] {
+            let cfg = load_matrix_from_dirs(name, &[dir.as_path()])
+                .unwrap_or_else(|e| panic!("{name}.yaml: {e}"));
+            validate_matrix(&cfg.roles, false)
+                .unwrap_or_else(|e| panic!("{name}.yaml: {e}"));
+        }
+    }
+
     // 10. loader_first_match_wins — first dir's content wins over second dir.
     #[test]
     fn loader_first_match_wins() {
