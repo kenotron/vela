@@ -3,3 +3,479 @@ pub mod resolver;
 
 pub use context::{build_inherited_context, ContextDepth, ContextScope};
 pub use resolver::{resolve_agent, ResolvedAgent};
+
+use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+
+use serde_json::{json, Value};
+
+use amplifier_module_agent_runtime::AgentRegistry;
+
+// ---------------------------------------------------------------------------
+// Tool trait + related types
+// ---------------------------------------------------------------------------
+
+/// Specification for a tool's parameters, surfaced in the tool registry.
+pub struct ToolSpec {
+    pub name: String,
+    pub description: Option<String>,
+    /// JSON-Schema-style parameter object (type, properties, required, …).
+    pub parameters: HashMap<String, Value>,
+    pub extensions: HashMap<String, Value>,
+}
+
+/// Successful result returned by [`Tool::execute`].
+#[derive(Debug)]
+pub struct ToolResult {
+    pub success: bool,
+    pub output: Option<Value>,
+    pub error: Option<ToolError>,
+}
+
+/// Error variants returned by [`Tool::execute`].
+#[derive(Debug)]
+pub enum ToolError {
+    /// Validation / usage error (e.g. missing required parameter).
+    Other { message: String },
+    /// Execution failure with optional process capture.
+    ExecutionFailed {
+        message: String,
+        stdout: Option<String>,
+        stderr: Option<String>,
+        exit_code: Option<i32>,
+    },
+}
+
+/// Trait for all tools that can be invoked by an agent.
+pub trait Tool: Send + Sync {
+    fn name(&self) -> &str;
+    fn description(&self) -> &str;
+    fn get_spec(&self) -> ToolSpec;
+    fn execute<'a>(
+        &'a self,
+        input: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<ToolResult, ToolError>> + Send + 'a>>;
+}
+
+// ---------------------------------------------------------------------------
+// AgentRunner trait + SpawnRequest
+// ---------------------------------------------------------------------------
+
+/// Request struct passed to the runner when spawning a sub-agent.
+pub struct SpawnRequest {
+    pub instruction: String,
+    /// `None` means context is already embedded in `instruction`.
+    pub context_depth: Option<ContextDepth>,
+    pub context_scope: ContextScope,
+    pub context: Vec<Value>,
+    pub session_id: Option<String>,
+    pub agent_system_prompt: Option<String>,
+    pub tool_filter: Vec<String>,
+}
+
+/// Abstraction for running a sub-agent session.
+pub trait AgentRunner: Send + Sync {
+    fn run<'a>(
+        &'a self,
+        req: SpawnRequest,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send + 'a>>;
+}
+
+/// No-op runner used in tests — always returns an empty response.
+pub struct NopRunner;
+
+impl AgentRunner for NopRunner {
+    fn run<'a>(
+        &'a self,
+        _req: SpawnRequest,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send + 'a>> {
+        Box::pin(async { Ok(String::new()) })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DelegateTool configuration + struct
+// ---------------------------------------------------------------------------
+
+/// Runtime configuration for [`DelegateTool`].
+pub struct DelegateToolConfig {
+    /// Maximum number of context turns forwarded to a sub-agent.
+    pub max_context_turns: u64,
+    /// Tool names excluded from every sub-agent's tool list.
+    pub exclude_tools: Vec<String>,
+}
+
+impl Default for DelegateToolConfig {
+    fn default() -> Self {
+        Self {
+            max_context_turns: 10,
+            exclude_tools: vec![],
+        }
+    }
+}
+
+/// Tool that delegates tasks to named sub-agents from the agent registry.
+pub struct DelegateTool {
+    pub config: DelegateToolConfig,
+    pub runner: Arc<dyn AgentRunner>,
+    pub registry: AgentRegistry,
+}
+
+// ---------------------------------------------------------------------------
+// DelegateTool::dispatch  (pipeline implementation, placed between struct and
+// generate_sub_session_id as required by the spec)
+// ---------------------------------------------------------------------------
+
+impl DelegateTool {
+    /// Full dispatch pipeline: parse → resolve → build context → spawn → return.
+    async fn dispatch(&self, input: Value) -> anyhow::Result<Value> {
+        // ------------------------------------------------------------------
+        // 1. Parse required `instruction`
+        // ------------------------------------------------------------------
+        let instruction = match input.get("instruction").and_then(|v| v.as_str()) {
+            Some(s) if !s.is_empty() => s.to_string(),
+            _ => anyhow::bail!("missing required parameter: 'instruction'"),
+        };
+
+        // ------------------------------------------------------------------
+        // 2. Parse optional parameters
+        // ------------------------------------------------------------------
+        let agent_name = input
+            .get("agent")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let provided_session_id = input
+            .get("session_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let max_turns = self.config.max_context_turns;
+        let context_turns = input
+            .get("context_turns")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(5)
+            .min(max_turns) as usize;
+
+        let depth = match input
+            .get("context_depth")
+            .and_then(|v| v.as_str())
+            .unwrap_or("recent")
+        {
+            "none" => ContextDepth::None,
+            "all" => ContextDepth::All,
+            _ => ContextDepth::Recent(context_turns),
+        };
+
+        let scope = match input
+            .get("context_scope")
+            .and_then(|v| v.as_str())
+            .unwrap_or("conversation")
+        {
+            "agents" => ContextScope::Agents,
+            "full" => ContextScope::Full,
+            _ => ContextScope::Conversation,
+        };
+
+        // ------------------------------------------------------------------
+        // 3. Resolve agent (None if no agent name provided)
+        // ------------------------------------------------------------------
+        let resolved = if let Some(ref name) = agent_name {
+            Some(resolver::resolve_agent(name, &self.registry)?)
+        } else {
+            None
+        };
+
+        // ------------------------------------------------------------------
+        // 4. Phase 4 limitation: no parent messages available yet
+        // ------------------------------------------------------------------
+        let parent_messages: Vec<Value> = vec![];
+        let context_str =
+            build_inherited_context(&parent_messages, depth, context_turns, scope);
+
+        // ------------------------------------------------------------------
+        // 5. Build effective_instruction
+        // ------------------------------------------------------------------
+        let effective_instruction = match &context_str {
+            Some(ctx) => format!("{ctx}\n\n[YOUR TASK]\n{instruction}"),
+            None => instruction.clone(),
+        };
+
+        // ------------------------------------------------------------------
+        // 6. Resolve agent system prompt + tool filter + resolved agent name
+        // ------------------------------------------------------------------
+        let (agent_system_prompt, filtered_tools, resolved_agent_name) = match &resolved {
+            Some(ResolvedAgent::SelfDelegate) => (None, vec![], "self".to_string()),
+            Some(ResolvedAgent::FoundAgent(config)) => {
+                let system_prompt = if config.instruction.is_empty() {
+                    None
+                } else {
+                    Some(config.instruction.clone())
+                };
+                let filtered: Vec<String> = config
+                    .tools
+                    .iter()
+                    .filter(|t| !self.config.exclude_tools.contains(t))
+                    .cloned()
+                    .collect();
+                (system_prompt, filtered, config.name.clone())
+            }
+            None => (None, vec![], "agent".to_string()),
+        };
+
+        // ------------------------------------------------------------------
+        // 7. Generate sub_session_id
+        // ------------------------------------------------------------------
+        let sub_session_id = provided_session_id.unwrap_or_else(|| {
+            generate_sub_session_id("0000000000000000", &resolved_agent_name)
+        });
+
+        // ------------------------------------------------------------------
+        // 8. Build SpawnRequest and run
+        // ------------------------------------------------------------------
+        let req = SpawnRequest {
+            instruction: effective_instruction,
+            context_depth: None, // already embedded in instruction
+            context_scope: ContextScope::Conversation,
+            context: vec![],
+            session_id: Some(sub_session_id.clone()),
+            agent_system_prompt,
+            tool_filter: filtered_tools,
+        };
+
+        let response = self
+            .runner
+            .run(req)
+            .await
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "delegate agent '{}' failed: {}",
+                    resolved_agent_name,
+                    e
+                )
+            })?;
+
+        // ------------------------------------------------------------------
+        // 9. Return result
+        // ------------------------------------------------------------------
+        Ok(json!({
+            "success": true,
+            "output": {
+                "response": response,
+                "session_id": sub_session_id,
+                "agent": resolved_agent_name,
+                "turn_count": 1,
+                "status": "success"
+            }
+        }))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// generate_sub_session_id  (placed after DelegateTool::dispatch per spec)
+// ---------------------------------------------------------------------------
+
+/// Generate a deterministic sub-session ID from a parent session ID and an
+/// agent name.  Uses a millisecond timestamp suffix for uniqueness.
+fn generate_sub_session_id(_parent_id: &str, agent_name: &str) -> String {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    format!("sub_{}_{}", agent_name, ts)
+}
+
+// ---------------------------------------------------------------------------
+// impl Tool for DelegateTool
+// ---------------------------------------------------------------------------
+
+impl Tool for DelegateTool {
+    fn name(&self) -> &str {
+        "delegate"
+    }
+
+    fn description(&self) -> &str {
+        "Delegate a task to a named sub-agent from the agent registry"
+    }
+
+    fn get_spec(&self) -> ToolSpec {
+        let mut properties: HashMap<String, Value> = HashMap::new();
+
+        properties.insert(
+            "agent".to_string(),
+            json!({
+                "type": "string",
+                "description": "Name of the agent to delegate to, or 'self' to spawn a copy of the current agent"
+            }),
+        );
+        properties.insert(
+            "instruction".to_string(),
+            json!({
+                "type": "string",
+                "description": "The task instruction for the sub-agent"
+            }),
+        );
+        properties.insert(
+            "session_id".to_string(),
+            json!({
+                "type": "string",
+                "description": "Optional session ID to resume an existing sub-agent session"
+            }),
+        );
+        properties.insert(
+            "context_depth".to_string(),
+            json!({
+                "type": "string",
+                "enum": ["none", "recent", "all"],
+                "description": "How much parent context to pass to the sub-agent"
+            }),
+        );
+        properties.insert(
+            "context_turns".to_string(),
+            json!({
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10,
+                "description": "Number of recent turns to include when context_depth is 'recent'"
+            }),
+        );
+        properties.insert(
+            "context_scope".to_string(),
+            json!({
+                "type": "string",
+                "enum": ["conversation", "agents", "full"],
+                "description": "Which message types to include in the context"
+            }),
+        );
+        properties.insert(
+            "model_role".to_string(),
+            json!({
+                "type": "string",
+                "description": "Override the model role for this delegation"
+            }),
+        );
+
+        let mut parameters: HashMap<String, Value> = HashMap::new();
+        parameters.insert("type".to_string(), json!("object"));
+        parameters.insert("properties".to_string(), json!(properties));
+        parameters.insert("required".to_string(), json!(["instruction"]));
+
+        ToolSpec {
+            name: "delegate".to_string(),
+            description: Some(
+                "Delegate a task to a named sub-agent from the agent registry".to_string(),
+            ),
+            parameters,
+            extensions: HashMap::new(),
+        }
+    }
+
+    fn execute<'a>(
+        &'a self,
+        input: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<ToolResult, ToolError>> + Send + 'a>> {
+        Box::pin(async move {
+            match self.dispatch(input).await {
+                Ok(value) => Ok(ToolResult {
+                    success: true,
+                    output: Some(value),
+                    error: None,
+                }),
+                Err(e) => {
+                    let message = e.to_string();
+                    if message.contains("missing required parameter") {
+                        Err(ToolError::Other { message })
+                    } else {
+                        Err(ToolError::ExecutionFailed {
+                            message,
+                            stdout: None,
+                            stderr: None,
+                            exit_code: None,
+                        })
+                    }
+                }
+            }
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Construct a minimal DelegateTool for use in struct-level tests.
+    fn make_tool() -> DelegateTool {
+        DelegateTool {
+            config: DelegateToolConfig::default(),
+            runner: Arc::new(NopRunner),
+            registry: AgentRegistry::new(),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Struct tests (4)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn delegate_tool_name_returns_delegate() {
+        let tool = make_tool();
+        assert_eq!(tool.name(), "delegate");
+    }
+
+    #[test]
+    fn delegate_tool_description_is_correct() {
+        let tool = make_tool();
+        assert_eq!(
+            tool.description(),
+            "Delegate a task to a named sub-agent from the agent registry"
+        );
+    }
+
+    #[test]
+    fn get_spec_name_is_delegate() {
+        let tool = make_tool();
+        let spec = tool.get_spec();
+        assert_eq!(spec.name, "delegate");
+    }
+
+    #[test]
+    fn get_spec_required_includes_instruction() {
+        let tool = make_tool();
+        let spec = tool.get_spec();
+        let required = spec
+            .parameters
+            .get("required")
+            .expect("required field should exist in parameters");
+        let arr = required.as_array().expect("required should be a JSON array");
+        assert!(
+            arr.iter().any(|v| v.as_str() == Some("instruction")),
+            "'instruction' must appear in the required list"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Execute test (1)
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn execute_missing_instruction_returns_error() {
+        let tool = DelegateTool {
+            config: DelegateToolConfig::default(),
+            runner: Arc::new(NopRunner),
+            registry: AgentRegistry::new(),
+        };
+        let result = tool.execute(json!({})).await;
+        assert!(
+            matches!(result, Err(ToolError::Other { .. })),
+            "expected Err(ToolError::Other {{ .. }}) for missing instruction, got: {:?}",
+            result
+        );
+    }
+}
