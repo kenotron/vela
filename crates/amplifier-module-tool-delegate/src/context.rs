@@ -329,6 +329,11 @@ mod tests {
     // Test helpers
     // -----------------------------------------------------------------------
 
+    /// Generic turn helper: creates a message with any role and string content.
+    fn turn(role: &str, text: &str) -> Value {
+        json!({ "role": role, "content": text })
+    }
+
     fn user_msg(text: &str) -> Value {
         json!({ "role": "user", "content": text })
     }
@@ -371,9 +376,9 @@ mod tests {
     // -----------------------------------------------------------------------
     #[test]
     fn depth_none_returns_none() {
-        let messages = vec![user_msg("hello"), asst_msg("world")];
+        let msgs = vec![turn("user", "hi"), turn("assistant", "hello")];
         let result = build_inherited_context(
-            &messages,
+            &msgs,
             ContextDepth::None,
             5,
             ContextScope::Conversation,
