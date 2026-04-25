@@ -140,6 +140,7 @@ package com.vela.app.engine
             val textBuffer = StringBuilder()
             var anyTextEmitted  = false   // tracks whether the LLM produced ANY text this turn
             var toolsStarted    = 0       // counts tool calls so we know if tools ran
+            var lastDelegatingAgent: String? = null  // agent name from the most recent delegate() call
 
             // Per-turn hook state ── reset fresh for each turn
             val recentToolNames            = ArrayDeque<String>()            // ring buffer, max MAX_RECENT_TOOLS
@@ -150,13 +151,15 @@ package com.vela.app.engine
                 val text = textBuffer.toString().trim()
                 if (text.isNotEmpty()) {
                     anyTextEmitted = true
+                    val agentTag = lastDelegatingAgent.also { lastDelegatingAgent = null }
                     scope.launch {
                         turnEventDao.insert(TurnEventEntity(
-                            id     = UUID.randomUUID().toString(),
-                            turnId = turnId,
-                            seq    = seq.getAndIncrement(),
-                            type   = "text",
-                            text   = text,
+                            id        = UUID.randomUUID().toString(),
+                            turnId    = turnId,
+                            seq       = seq.getAndIncrement(),
+                            type      = "text",
+                            text      = text,
+                            agentName = agentTag,
                         ))
                     }
                     textBuffer.clear()
@@ -206,6 +209,13 @@ package com.vela.app.engine
 
                 onToolStart = { name, argsJson ->
                     flushText()
+
+                    // Track delegation agent name for text event attribution
+                    if (name == "delegate") {
+                        runCatching {
+                            JSONObject(argsJson).optString("agent").takeIf { it.isNotEmpty() }
+                        }.getOrNull()?.let { lastDelegatingAgent = it }
+                    }
 
                     // Track for PROVIDER_REQUEST reminder hooks
                     recentToolNames.addLast(name)

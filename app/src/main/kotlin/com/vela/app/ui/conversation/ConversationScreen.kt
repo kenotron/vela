@@ -100,8 +100,8 @@ fun ConversationScreen(
     var showVaultMenu         by remember { mutableStateOf(false) }
 
     val availableAgents    by viewModel.availableAgents.collectAsState()
-    val activeAgentName    by viewModel.activeAgentName.collectAsState()
     var showAgentInstaller by remember { mutableStateOf(false) }
+    var showAgentsSheet    by remember { mutableStateOf(false) }
 
     var textInput by remember { mutableStateOf("") }
     LaunchedEffect(pendingInput) {
@@ -229,59 +229,39 @@ fun ConversationScreen(
                     Text(activeTitle, maxLines = 1, overflow = TextOverflow.Ellipsis,
                          style = MaterialTheme.typography.titleMedium)
                 },
-                actions = {
-                    // ── Vault selector ───────────────────────────────────────
-                    if (allVaults.isNotEmpty()) {
-                        Box {
-                            IconButton(onClick = { showVaultMenu = true }) {
-                                Icon(
-                                    imageVector        = Icons.Default.Folder,
-                                    contentDescription = "Select vaults",
-                                    tint               = if (sessionActiveVaultIds.isNotEmpty())
-                                                             MaterialTheme.colorScheme.primary
-                                                         else
-                                                             MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            DropdownMenu(
-                                expanded          = showVaultMenu,
-                                onDismissRequest  = { showVaultMenu = false },
-                            ) {
-                                Text(
-                                    text     = "Active vaults",
-                                    style    = MaterialTheme.typography.labelSmall,
-                                    color    = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                                )
-                                HorizontalDivider()
-                                allVaults.forEach { vault ->
-                                    val active = vault.id in sessionActiveVaultIds
-                                    DropdownMenuItem(
-                                        text         = { Text(vault.name) },
-                                        onClick      = { viewModel.toggleVaultForSession(vault.id) },
-                                        leadingIcon  = {
-                                            if (active) Icon(Icons.Default.Check, null,
-                                                             tint = MaterialTheme.colorScheme.primary)
-                                            else Spacer(Modifier.size(24.dp))
-                                        },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                },
+                actions = {},
             )
         },
         bottomBar = {
             androidx.compose.foundation.layout.Column {
-                // Agent chip row — only renders when vault is active and agents loaded.
-                if (sessionActiveVaultIds.isNotEmpty()) {
-                    AgentChipRow(
-                        agents         = availableAgents,
-                        activeAgent    = activeAgentName,
-                        onAgentClick   = { viewModel.setActiveAgent(it) },
-                        onInstallClick = { showAgentInstaller = true },
-                    )
+                // Vault DropdownMenu — anchored in bottomBar, triggered from ComposerBox (+) menu
+                if (allVaults.isNotEmpty()) {
+                    Box {
+                        DropdownMenu(
+                            expanded         = showVaultMenu,
+                            onDismissRequest = { showVaultMenu = false },
+                        ) {
+                            Text(
+                                text     = "Active vaults",
+                                style    = MaterialTheme.typography.labelSmall,
+                                color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                            )
+                            HorizontalDivider()
+                            allVaults.forEach { vault ->
+                                val active = vault.id in sessionActiveVaultIds
+                                DropdownMenuItem(
+                                    text         = { Text(vault.name) },
+                                    onClick      = { viewModel.toggleVaultForSession(vault.id) },
+                                    leadingIcon  = {
+                                        if (active) Icon(Icons.Default.Check, null,
+                                                         tint = MaterialTheme.colorScheme.primary)
+                                        else Spacer(Modifier.size(24.dp))
+                                    },
+                                )
+                            }
+                        }
+                    }
                 }
                 ComposerBox(
                     value              = textInput,
@@ -296,6 +276,9 @@ fun ConversationScreen(
                     onPickPhoto        = { photoLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                     onPickFile         = { fileLauncher.launch(arrayOf("*/*")) },
                     onCamera           = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) },
+                    onVaultClick       = { showVaultMenu = true },
+                    hasActiveVault     = sessionActiveVaultIds.isNotEmpty(),
+                    onAgentsClick      = { showAgentsSheet = true },
                 )
             }
         },
@@ -331,6 +314,16 @@ fun ConversationScreen(
             onInstalled = {
                 viewModel.refreshAgents()
                 showAgentInstaller = false
+            },
+        )
+    }
+    if (showAgentsSheet) {
+        AgentsBottomSheet(
+            agents    = availableAgents,
+            onDismiss = { showAgentsSheet = false },
+            onInstall = {
+                showAgentsSheet = false
+                showAgentInstaller = true
             },
         )
     }

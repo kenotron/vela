@@ -13,6 +13,7 @@ package com.vela.app.ui.conversation
     import androidx.compose.material.icons.Icons
     import androidx.compose.material.icons.filled.Image
     import androidx.compose.material.icons.filled.InsertDriveFile
+    import androidx.compose.material.icons.filled.SmartToy
     import androidx.compose.material3.*
     import androidx.compose.runtime.*
     import androidx.compose.ui.Alignment
@@ -153,6 +154,7 @@ package com.vela.app.ui.conversation
                             text      = item.evt.event.text ?: "",
                             streaming = false,
                             maxW      = maxW,
+                            agentName = item.evt.event.agentName,
                         )
                     }
                 }
@@ -239,20 +241,42 @@ package com.vela.app.ui.conversation
     }
 
     @Composable
-    internal fun TextEventRow(text: String, streaming: Boolean, maxW: Dp) {
+    internal fun TextEventRow(text: String, streaming: Boolean, maxW: Dp, agentName: String? = null) {
         val cs  = MaterialTheme.colorScheme
         val inf = rememberInfiniteTransition(label = "pulse")
         val alpha by inf.animateFloat(0.3f, 1f, infiniteRepeatable(tween(600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "a")
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
-            // surfaceContainerHigh gives a noticeably lighter card tone than cs.surface
-            // so the bubble stands out clearly against the dark star-field background.
-            Box(Modifier.widthIn(max = maxW).background(cs.surfaceContainerHigh, AssistantShape).padding(horizontal = 14.dp, vertical = 10.dp)) {
-                Column {
-                    MarkdownText(text = text, color = cs.onSurface)
-                    if (streaming) {
-                        Spacer(Modifier.height(4.dp))
-                        Box(Modifier.size(7.dp).alpha(alpha).background(cs.onSurface.copy(alpha = 0.3f), CircleShape))
+            Column {
+                // Agent name badge — shown when response came via delegation
+                if (agentName != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.SmartToy,
+                            contentDescription = null,
+                            modifier = Modifier.size(12.dp),
+                            tint = cs.primary,
+                        )
+                        Text(
+                            agentName,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = cs.primary,
+                        )
+                    }
+                }
+                // surfaceContainerHigh gives a noticeably lighter card tone than cs.surface
+                // so the bubble stands out clearly against the dark star-field background.
+                Box(Modifier.widthIn(max = maxW).background(cs.surfaceContainerHigh, AssistantShape).padding(horizontal = 14.dp, vertical = 10.dp)) {
+                    Column {
+                        MarkdownText(text = text, color = cs.onSurface)
+                        if (streaming) {
+                            Spacer(Modifier.height(4.dp))
+                            Box(Modifier.size(7.dp).alpha(alpha).background(cs.onSurface.copy(alpha = 0.3f), CircleShape))
+                        }
                     }
                 }
             }

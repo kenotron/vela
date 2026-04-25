@@ -13,6 +13,15 @@ import javax.inject.Singleton
 private const val TAG = "AmplifierSession"
 
 /**
+ * Tools now executed natively in Rust (amplifier-core). Filtering these out prevents
+ * the Kotlin-side ToolRegistry definitions from shadowing the Rust implementations.
+ */
+internal val RUST_NATIVE_TOOLS = setOf(
+    "read_file", "write_file", "edit_file", "glob", "grep",
+    "bash", "todo", "load_skill",
+)
+
+/**
  * Thin, stateless wrapper around the amplifier-core JNI bridge.
  *
  * Owns NO history — callers pass [historyJson] pre-built from DB.
@@ -107,7 +116,9 @@ class AmplifierSession @Inject constructor(
 
     private fun buildToolsJson(): String {
         val arr = JSONArray()
-        toolRegistry.all().forEach { tool ->
+        toolRegistry.all()
+            .filter { tool -> tool.name !in RUST_NATIVE_TOOLS }
+            .forEach { tool ->
             val props = JSONObject()
             tool.parameters.forEach { p ->
                 props.put(p.name, JSONObject().put("type", p.type.lowercase()).put("description", p.description))

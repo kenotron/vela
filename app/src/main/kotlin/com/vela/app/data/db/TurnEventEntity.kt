@@ -30,4 +30,5 @@ data class TurnEventEntity(
     val toolArgs: String? = null,
     val toolResult: String? = null,
     val toolStatus: String? = null, // "running" | "done" | "error"
+    val agentName: String? = null,  // set when a text response came from a delegation sub-call
 )

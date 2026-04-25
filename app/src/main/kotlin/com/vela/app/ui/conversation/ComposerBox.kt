@@ -18,9 +18,11 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Stop
@@ -57,15 +59,20 @@ internal fun ComposerBox(
     onPickPhoto: () -> Unit,
     onPickFile: () -> Unit,
     onCamera: () -> Unit,
+    onVaultClick: () -> Unit = {},
+    hasActiveVault: Boolean = false,
+    onAgentsClick: () -> Unit = {},
 ) {
     var showAttachmentSheet by remember { mutableStateOf(false) }
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .navigationBarsPadding()
-            .imePadding()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            // windowInsetsPadding(navigationBars) adds nav-bar breathing room when
+            // keyboard is collapsed, and contributes nothing when the IME is open
+            // (imePadding in the outer Box already consumed that inset). No double-counting.
+            .windowInsetsPadding(WindowInsets.navigationBars)
+            .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
         shape = RoundedCornerShape(28.dp),
         tonalElevation = 3.dp,
         shadowElevation = 4.dp,
@@ -189,11 +196,14 @@ internal fun ComposerBox(
     // Attachment sheet
     if (showAttachmentSheet) {
         AttachmentSheet(
-            onDismiss   = { showAttachmentSheet = false },
-            onRecord    = { showAttachmentSheet = false; onRecord() },
-            onPickPhoto = { showAttachmentSheet = false; onPickPhoto() },
-            onPickFile  = { showAttachmentSheet = false; onPickFile() },
-            onCamera    = { showAttachmentSheet = false; onCamera() },
+            onDismiss      = { showAttachmentSheet = false },
+            onRecord       = { showAttachmentSheet = false; onRecord() },
+            onPickPhoto    = { showAttachmentSheet = false; onPickPhoto() },
+            onPickFile     = { showAttachmentSheet = false; onPickFile() },
+            onCamera       = { showAttachmentSheet = false; onCamera() },
+            onVaultClick   = { showAttachmentSheet = false; onVaultClick() },
+            hasActiveVault = hasActiveVault,
+            onAgentsClick  = { showAttachmentSheet = false; onAgentsClick() },
         )
     }
 }
@@ -208,6 +218,9 @@ internal fun AttachmentSheet(
     onPickPhoto: () -> Unit,
     onPickFile: () -> Unit,
     onCamera: () -> Unit,
+    onVaultClick: () -> Unit = {},
+    hasActiveVault: Boolean = false,
+    onAgentsClick: () -> Unit = {},
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -222,7 +235,7 @@ internal fun AttachmentSheet(
                 modifier = Modifier.padding(bottom = 4.dp),
             )
 
-            // ── Featured: Record Transcription ──────────────────────────────
+            // Featured: Record Transcription
             Card(
                 onClick = onRecord,
                 modifier = Modifier.fillMaxWidth(),
@@ -249,7 +262,7 @@ internal fun AttachmentSheet(
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                         Text(
-                            "AI transcribes your voice \u2014 attached to this message",
+                            "AI transcribes your voice — attached to this message",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
                         )
@@ -262,7 +275,7 @@ internal fun AttachmentSheet(
                 }
             }
 
-            // ── Standard options: Camera · Photos · Files ───────────────────
+            // Standard options: Camera, Photos, Files
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -285,6 +298,33 @@ internal fun AttachmentSheet(
                     onClick = { onPickFile(); onDismiss() },
                     modifier = Modifier.weight(1f),
                 )
+            }
+
+            // Chat settings row: Vault + Agents
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            Text(
+                "Chat settings",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                AttachOption(
+                    icon     = Icons.Default.Folder,
+                    label    = if (hasActiveVault) "Vault ✓" else "Vault",
+                    onClick  = { onVaultClick(); onDismiss() },
+                    modifier = Modifier.weight(1f),
+                )
+                AttachOption(
+                    icon     = Icons.Default.Person,
+                    label    = "Agents",
+                    onClick  = { onAgentsClick(); onDismiss() },
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.weight(1f))  // pad to match 3-column grid
             }
         }
     }
