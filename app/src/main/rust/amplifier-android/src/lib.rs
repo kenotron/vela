@@ -49,6 +49,7 @@ use amplifier_module_orchestrator_loop_streaming::{
 };
 use amplifier_module_provider_anthropic::{AnthropicConfig, AnthropicProvider};
 use amplifier_module_tool_delegate::{DelegateConfig, DelegateTool, SubagentRunner};
+use amplifier_context_foundation::FoundationContextHook;
 use amplifier_module_tool_filesystem::{
     EditFileTool, FilesystemConfig, GlobTool, GrepTool, ReadFileTool, WriteFileTool,
 };
@@ -405,8 +406,14 @@ async fn run_agent_loop(
     // Build context pre-loaded with converted history.
     let mut ctx = SimpleContext::new(history);
 
-    // Build hook registry from Kotlin hookCallbacks registrations.
+    // Build hook registry — foundation context first, then Kotlin bridges.
     let mut hooks = HookRegistry::new();
+
+    // Foundation context hook: injects delegation-instructions.md and
+    // multi-agent-patterns.md (exact ports from Python amplifier-foundation)
+    // before every LLM call so the model knows to delegate autonomously.
+    hooks.register(Box::new(FoundationContextHook::new()) as Box<dyn Hook>);
+
     for (cb_global, event_names) in hook_registrations {
         let events = crate::jni_hooks::parse_hook_events(&event_names);
         if !events.is_empty() {
