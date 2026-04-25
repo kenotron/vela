@@ -10,6 +10,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
+use tokio::sync::RwLock;
 
 use amplifier_module_agent_runtime::AgentRegistry;
 
@@ -120,7 +121,7 @@ impl Default for DelegateToolConfig {
 pub struct DelegateTool {
     pub config: DelegateToolConfig,
     pub runner: Arc<dyn AgentRunner>,
-    pub registry: AgentRegistry,
+    pub registry: Arc<RwLock<AgentRegistry>>,
     context: Arc<std::sync::Mutex<Vec<Value>>>,
 }
 
@@ -131,7 +132,7 @@ pub struct DelegateTool {
 
 impl DelegateTool {
     /// Create a new [`DelegateTool`] with default configuration.
-    pub fn new(runner: Arc<dyn AgentRunner>, registry: AgentRegistry) -> Self {
+    pub fn new(runner: Arc<dyn AgentRunner>, registry: Arc<RwLock<AgentRegistry>>) -> Self {
         Self {
             config: DelegateToolConfig::default(),
             runner,
@@ -201,7 +202,8 @@ impl DelegateTool {
         // 3. Resolve agent (None if no agent name provided)
         // ------------------------------------------------------------------
         let resolved = if let Some(ref name) = agent_name {
-            Some(resolver::resolve_agent(name, &self.registry)?)
+            let registry = self.registry.read().await;
+            Some(resolver::resolve_agent(name, &registry)?)
         } else {
             None
         };
@@ -607,7 +609,10 @@ mod tests {
 
     /// Construct a minimal DelegateTool for use in struct-level tests.
     fn make_tool() -> DelegateTool {
-        DelegateTool::new(Arc::new(NopRunner), AgentRegistry::new())
+        DelegateTool::new(
+            Arc::new(NopRunner),
+            Arc::new(tokio::sync::RwLock::new(AgentRegistry::new())),
+        )
     }
 
     // -----------------------------------------------------------------------
@@ -657,7 +662,10 @@ mod tests {
 
     #[tokio::test]
     async fn execute_missing_instruction_returns_error() {
-        let tool = DelegateTool::new(Arc::new(NopRunner), AgentRegistry::new());
+        let tool = DelegateTool::new(
+            Arc::new(NopRunner),
+            Arc::new(tokio::sync::RwLock::new(AgentRegistry::new())),
+        );
         let result = tool.execute(json!({})).await;
         assert!(
             matches!(result, Err(ToolError::Other { .. })),
@@ -674,7 +682,10 @@ mod tests {
     fn delegate_tool_implements_context_aware() {
         use amplifier_module_tool_task::ContextAwareTool;
 
-        let tool = Arc::new(DelegateTool::new(Arc::new(NopRunner), AgentRegistry::new()));
+        let tool = Arc::new(DelegateTool::new(
+            Arc::new(NopRunner),
+            Arc::new(tokio::sync::RwLock::new(AgentRegistry::new())),
+        ));
         let cat: Arc<dyn ContextAwareTool> = tool.clone();
         cat.set_execution_context(vec![json!({"role": "user", "content": "hello"})]);
         let ctx = tool.snapshot_context();
@@ -698,7 +709,7 @@ mod tests {
             Arc::new(CapturingRunner {
                 captured: captured.clone(),
             }),
-            AgentRegistry::new(),
+            Arc::new(tokio::sync::RwLock::new(AgentRegistry::new())),
         );
 
         // Seed the context buffer with a message that must appear in the instruction.
@@ -741,6 +752,19 @@ mod tests {
         );
     }
 
+    // -----------------------------------------------------------------------
+    // Arc<RwLock<AgentRegistry>> type acceptance test (task-10)
+    // -----------------------------------------------------------------------
+
+    /// Verifies that DelegateTool::new accepts Arc<RwLock<AgentRegistry>>.
+    /// This test will FAIL until the struct is updated (task-10 TDD red phase).
+    #[test]
+    fn delegate_tool_accepts_arc_rwlock_registry() {
+        let registry = Arc::new(tokio::sync::RwLock::new(AgentRegistry::new()));
+        let tool = DelegateTool::new(Arc::new(NopRunner), registry);
+        assert_eq!(tool.name(), "delegate");
+    }
+
     /// When context_depth is "none", execute() must NOT prepend any context
     /// block, and the instruction must equal the raw instruction exactly.
     #[tokio::test]
@@ -752,7 +776,7 @@ mod tests {
             Arc::new(CapturingRunner {
                 captured: captured.clone(),
             }),
-            AgentRegistry::new(),
+            Arc::new(tokio::sync::RwLock::new(AgentRegistry::new())),
         );
 
         // Context is set but must NOT be injected when depth is "none".

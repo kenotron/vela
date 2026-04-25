@@ -173,7 +173,10 @@ async fn delegate_receives_parent_context_through_orchestrator() {
         tools: vec![],
         instruction: String::new(),
     });
-    let delegate_tool = Arc::new(DelegateTool::new(runner, registry));
+    let delegate_tool = Arc::new(DelegateTool::new(
+        runner,
+        Arc::new(tokio::sync::RwLock::new(registry)),
+    ));
     orchestrator
         .register_context_aware_tool(delegate_tool as Arc<dyn ContextAwareTool>)
         .await;

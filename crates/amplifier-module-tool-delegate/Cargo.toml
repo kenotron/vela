@@ -6,10 +6,11 @@ edition = "2021"
 [dependencies]
 serde_json = "1"
 anyhow = "1"
+tokio = { version = "1", features = ["sync"] }
 amplifier-module-agent-runtime = { path = "../amplifier-module-agent-runtime" }
 amplifier-module-tool-task = { path = "../amplifier-module-tool-task" }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread", "sync"] }
 async-trait = "0.1"
 proptest = "1"

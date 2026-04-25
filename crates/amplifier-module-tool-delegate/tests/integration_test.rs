@@ -9,6 +9,7 @@ use amplifier_module_tool_delegate::{
     AgentRunner, DelegateTool, DelegateToolConfig, SpawnRequest, Tool, ToolError,
 };
 use serde_json::json;
+use tokio::sync::RwLock;
 
 // ---------------------------------------------------------------------------
 // Mock runners
@@ -67,7 +68,8 @@ impl AgentRunner for FailRunner {
 // ---------------------------------------------------------------------------
 
 /// Build a registry with two pre-registered agents for use across all tests.
-fn make_registry() -> AgentRegistry {
+/// Returns `Arc<RwLock<AgentRegistry>>` as required by `DelegateTool::new`.
+fn make_registry() -> Arc<RwLock<AgentRegistry>> {
     let mut registry = AgentRegistry::new();
     registry.register(AgentConfig {
         name: "explorer".to_string(),
@@ -85,7 +87,7 @@ fn make_registry() -> AgentRegistry {
         tools: vec!["bash".to_string()],
         instruction: "You hunt bugs systematically.".to_string(),
     });
-    registry
+    Arc::new(RwLock::new(registry))
 }
 
 // ---------------------------------------------------------------------------

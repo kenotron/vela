@@ -7,8 +7,9 @@ edition = "2021"
 amplifier-agent-foundation = { path = "../../amplifier-agent-foundation" }
 amplifier-module-agent-runtime = { path = "../../crates/amplifier-module-agent-runtime" }
 amplifier-module-tool-delegate = { path = "../../crates/amplifier-module-tool-delegate" }
+amplifier-module-hooks-routing = { path = "../../crates/amplifier-module-hooks-routing" }
 anyhow = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 
 [dev-dependencies]
 tempfile = "3"

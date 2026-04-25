@@ -1,7 +1,54 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
+use std::sync::Arc;
 
-fn main() {
-    println!("amplifier-android-sandbox: Phase 4 wiring smoke test binary");
+#[tokio::main]
+async fn main() -> Result<()> {
+    use amplifier_agent_foundation::foundation_agents;
+    use amplifier_module_agent_runtime::AgentRegistry;
+    use amplifier_module_hooks_routing::{HookRegistry, HooksRouting, ProviderMap, RoutingConfig};
+
+    // Build agent registry and populate it with foundation agents.
+    let mut agent_registry = AgentRegistry::new();
+    for agent in foundation_agents() {
+        agent_registry.register(agent);
+    }
+
+    // Switch to Arc<RwLock<AgentRegistry>> so the routing hook and the
+    // orchestrator can share the same registry for concurrent read/write.
+    let registry = Arc::new(tokio::sync::RwLock::new(agent_registry));
+
+    // Build the hook registry and attach the HooksRouting hooks.
+    let mut hook_registry = HookRegistry::new();
+
+    let routing = HooksRouting::new(
+        RoutingConfig::default(),
+        Arc::clone(&registry),
+    )
+    .context("failed to load routing matrix")?;
+    routing.register_on(&mut hook_registry);
+
+    // Push the live provider into the routing's provider map.
+    //
+    // In a production sandbox this would be:
+    //   let provider_arc: Arc<dyn amplifier_core::traits::Provider> =
+    //       Arc::from(build_real_provider());
+    //   orchestrator.register_provider(&args.provider, Arc::clone(&provider_arc)).await;
+    //   let mut provider_map = ProviderMap::new();
+    //   provider_map.insert(args.provider.clone(), Arc::clone(&provider_arc));
+    //   routing.set_providers(provider_map).await;
+    //
+    // For this wiring smoke test, call set_providers with an empty map
+    // (no live provider available in the sandbox binary).
+    let provider_map = ProviderMap::new();
+    routing.set_providers(provider_map).await;
+
+    println!(
+        "amplifier-android-sandbox: HooksRouting wired, matrix='{}', {} foundation agents loaded",
+        routing.matrix_name(),
+        registry.read().await.list().len(),
+    );
+
+    Ok(())
 }
 
 /// Attempt to reach an Ollama-compatible backend at localhost:11434.
@@ -21,8 +68,7 @@ mod tests {
     use amplifier_agent_foundation::foundation_agents;
     use amplifier_module_agent_runtime::AgentRegistry;
     use amplifier_module_tool_delegate::{
-        AgentRunner as SubagentRunner, DelegateTool, DelegateToolConfig as DelegateConfig,
-        SpawnRequest, Tool,
+        AgentRunner as SubagentRunner, DelegateTool, SpawnRequest, Tool,
     };
     use std::future::Future;
     use std::pin::Pin;
@@ -78,11 +124,10 @@ mod tests {
             reg.register(agent);
         }
 
-        let tool = DelegateTool {
-            config: DelegateConfig::default(),
-            runner: Arc::new(NopRunner),
-            registry: reg,
-        };
+        // Wrap registry in Arc<RwLock<_>> as required by task-10.
+        let registry = Arc::new(tokio::sync::RwLock::new(reg));
+
+        let tool = DelegateTool::new(Arc::new(NopRunner), registry);
 
         let spec = tool.get_spec();
 
@@ -111,6 +156,49 @@ mod tests {
         assert!(
             props_obj.contains_key("context_depth"),
             "properties should include 'context_depth'"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test 2b: hooks_routing_wires_to_arc_rwlock_registry
+    // -----------------------------------------------------------------------
+
+    /// Verifies that HooksRouting wires up correctly with Arc<RwLock<AgentRegistry>>.
+    /// This is the core integration test for task-10.
+    #[tokio::test]
+    async fn hooks_routing_wires_to_arc_rwlock_registry() {
+        use amplifier_module_hooks_routing::{HookRegistry, HooksRouting, ProviderMap, RoutingConfig};
+
+        let mut agent_registry = AgentRegistry::new();
+        for agent in foundation_agents() {
+            agent_registry.register(agent);
+        }
+
+        let registry = Arc::new(tokio::sync::RwLock::new(agent_registry));
+
+        let routing = HooksRouting::new(
+            RoutingConfig::default(),
+            Arc::clone(&registry),
+        )
+        .expect("HooksRouting::new should succeed with balanced matrix");
+
+        let mut hook_registry = HookRegistry::new();
+        routing.register_on(&mut hook_registry);
+
+        // set_providers must be called — the CRITICAL step per task-10 spec.
+        let provider_map = ProviderMap::new();
+        routing.set_providers(provider_map).await;
+
+        assert_eq!(
+            routing.matrix_name(), "balanced",
+            "should use the balanced matrix by default"
+        );
+
+        // Verify agents are still accessible via registry after wiring.
+        let reg = registry.read().await;
+        assert_eq!(
+            reg.list().len(), 6,
+            "registry should still have 6 foundation agents after wiring"
         );
     }
 
@@ -145,11 +233,12 @@ mod tests {
         println!("[smoke] {} foundation agents registered", reg.list().len());
 
         use amplifier_module_tool_delegate::{DelegateTool, DelegateToolConfig, NopRunner};
-        let _tool = DelegateTool {
-            config: DelegateToolConfig::default(),
-            runner: Arc::new(NopRunner),
-            registry: reg,
-        };
+        let _tool = DelegateTool::new(
+            Arc::new(NopRunner),
+            Arc::new(tokio::sync::RwLock::new(reg)),
+        );
         println!("[smoke] DelegateTool wiring verified for Phase 4");
+        // Optionally override config (DelegateTool::new uses default):
+        let _ = DelegateToolConfig::default();
     }
 }
