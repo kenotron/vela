@@ -4,15 +4,17 @@ pub mod composer;
 pub mod matrix;
 pub mod resolver;
 
+pub use amplifier_module_agent_runtime::ResolvedProvider;
 pub use matrix::{Candidate, MatrixConfig, RoleConfig, RolesMap};
-pub use resolver::{resolve_model_role, ProviderMap, ResolvedProvider};
+pub use resolver::{resolve_model_role, ProviderMap};
 
 use std::path::Path;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use tokio::sync::RwLock;
 
-use amplifier_module_agent_runtime::AgentRegistry;
+use amplifier_module_agent_runtime::{AgentRegistry, ModelRole};
 
 use crate::matrix::default_search_dirs;
 
@@ -35,6 +37,206 @@ impl Default for RoutingConfig {
             default_matrix: "balanced".into(),
             overrides: None,
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// HookEvent
+// ---------------------------------------------------------------------------
+
+/// Events that hooks can subscribe to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HookEvent {
+    /// Fired once on session start; hooks resolve model roles for all agents.
+    SessionStart,
+    /// Fired before each provider request; hooks may inject context.
+    ProviderRequest,
+}
+
+// ---------------------------------------------------------------------------
+// HookContext
+// ---------------------------------------------------------------------------
+
+/// Context passed to each hook handler.
+///
+/// Intentionally empty — reserved for future expansion (e.g., session ID,
+/// agent name, request metadata).
+#[derive(Debug, Clone, Default)]
+pub struct HookContext;
+
+// ---------------------------------------------------------------------------
+// HookResult
+// ---------------------------------------------------------------------------
+
+/// Return value from a hook handler.
+#[derive(Debug, Clone, PartialEq)]
+pub enum HookResult {
+    /// Continue with the normal flow — no additional action needed.
+    Continue,
+    /// Inject additional text into the agent's conversation context.
+    InjectContext(String),
+}
+
+// ---------------------------------------------------------------------------
+// Hook trait
+// ---------------------------------------------------------------------------
+
+/// Trait implemented by all hooks that can be registered with [`HookRegistry`].
+#[async_trait]
+pub trait Hook: Send + Sync {
+    /// Events this hook wants to receive.
+    fn events(&self) -> &[HookEvent];
+
+    /// Handle one event invocation.
+    async fn handle(&self, ctx: &HookContext) -> HookResult;
+}
+
+// ---------------------------------------------------------------------------
+// HookRegistry
+// ---------------------------------------------------------------------------
+
+/// Registry that holds hooks and dispatches events to them in priority order.
+///
+/// Lower priority number = earlier execution.
+pub struct HookRegistry {
+    /// Hooks sorted by ascending priority.
+    hooks: Vec<(i32, Arc<dyn Hook>)>,
+}
+
+impl HookRegistry {
+    /// Create an empty registry.
+    pub fn new() -> Self {
+        Self { hooks: Vec::new() }
+    }
+
+    /// Register a hook at the given priority level (lower = earlier).
+    pub fn register(&mut self, hook: Arc<dyn Hook>, priority: i32) {
+        self.hooks.push((priority, hook));
+        self.hooks.sort_by_key(|(p, _)| *p);
+    }
+
+    /// Emit an event to all subscribed hooks in priority order.
+    ///
+    /// Returns all results collected from hooks subscribed to `event`.
+    pub async fn emit(&self, event: HookEvent, ctx: &HookContext) -> Vec<HookResult> {
+        let mut results = Vec::new();
+        for (_, hook) in &self.hooks {
+            if hook.events().contains(&event) {
+                let result = hook.handle(ctx).await;
+                results.push(result);
+            }
+        }
+        results
+    }
+}
+
+impl Default for HookRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SessionStartHook
+// ---------------------------------------------------------------------------
+
+/// Hook that resolves each agent's `model_role` to concrete provider
+/// preferences on session start.
+///
+/// Algorithm (deadlock-safe):
+/// 1. Clone the provider map snapshot (cheap Arc clones).
+/// 2. Read-lock the agent registry to snapshot `(name, roles)` pairs; release.
+/// 3. Await `resolve_model_role` for each agent with no lock held on registry.
+/// 4. Write-lock the registry once to apply all resolved preferences.
+pub struct SessionStartHook {
+    matrix: MatrixConfig,
+    agent_registry: Arc<RwLock<AgentRegistry>>,
+    providers: Arc<RwLock<ProviderMap>>,
+}
+
+#[async_trait]
+impl Hook for SessionStartHook {
+    fn events(&self) -> &[HookEvent] {
+        const EVENTS: &[HookEvent] = &[HookEvent::SessionStart];
+        EVENTS
+    }
+
+    async fn handle(&self, _ctx: &HookContext) -> HookResult {
+        // Step 1: snapshot the provider map (Arc clones only, lock released immediately).
+        let providers_snapshot: ProviderMap = {
+            let guard = self.providers.read().await;
+            guard.clone()
+        };
+
+        // Step 2: snapshot (agent_name, roles) pairs; release read lock before any await.
+        let snapshots: Vec<(String, Vec<String>)> = {
+            let registry = self.agent_registry.read().await;
+            registry
+                .list()
+                .iter()
+                .filter_map(|cfg| {
+                    cfg.model_role.as_ref().map(|role| {
+                        let roles = match role {
+                            ModelRole::Single(r) => vec![r.clone()],
+                            ModelRole::Chain(rs) => rs.clone(),
+                        };
+                        (cfg.name.clone(), roles)
+                    })
+                })
+                .collect()
+        };
+        // agent_registry read lock is released here.
+
+        // Step 3: resolve each agent — no lock held on agent_registry during await.
+        let mut updates: Vec<(String, Vec<ResolvedProvider>)> = Vec::new();
+        for (agent_name, roles) in snapshots {
+            let resolved =
+                resolve_model_role(&roles, &self.matrix.roles, &providers_snapshot).await;
+            if !resolved.is_empty() {
+                updates.push((agent_name, resolved));
+            }
+        }
+
+        // Step 4: apply all updates under a single write lock.
+        {
+            let mut registry = self.agent_registry.write().await;
+            for (name, prefs) in updates {
+                registry.set_provider_preferences(&name, prefs);
+            }
+        }
+
+        HookResult::Continue
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ProviderRequestHook
+// ---------------------------------------------------------------------------
+
+/// Hook that injects the active routing matrix name and role catalog into
+/// the agent's context before each provider request.
+pub struct ProviderRequestHook {
+    matrix_name: String,
+    roles: RolesMap,
+}
+
+#[async_trait]
+impl Hook for ProviderRequestHook {
+    fn events(&self) -> &[HookEvent] {
+        const EVENTS: &[HookEvent] = &[HookEvent::ProviderRequest];
+        EVENTS
+    }
+
+    async fn handle(&self, _ctx: &HookContext) -> HookResult {
+        let mut buf = format!(
+            "Active routing matrix: {}\n\nAvailable model roles (use model_role parameter when delegating):\n",
+            self.matrix_name
+        );
+        // RolesMap = BTreeMap → deterministic alphabetical iteration order.
+        for (role_name, role_config) in &self.roles {
+            buf.push_str(&format!("  {} — {}\n", role_name, role_config.description));
+        }
+        HookResult::InjectContext(buf)
     }
 }
 
@@ -102,5 +304,25 @@ impl HooksRouting {
     /// Return all role names defined in the loaded matrix.
     pub fn role_names(&self) -> Vec<String> {
         self.matrix.roles.keys().cloned().collect()
+    }
+
+    /// Register this routing module's hooks onto a [`HookRegistry`].
+    ///
+    /// Registers:
+    /// - [`SessionStartHook`] at priority 5 — resolves model roles on session start.
+    /// - [`ProviderRequestHook`] at priority 15 — injects matrix catalog into context.
+    pub fn register_on(&self, registry: &mut HookRegistry) {
+        let session_start = SessionStartHook {
+            matrix: self.matrix.clone(),
+            agent_registry: Arc::clone(&self.agent_registry),
+            providers: Arc::clone(&self.providers),
+        };
+        registry.register(Arc::new(session_start), 5);
+
+        let provider_request = ProviderRequestHook {
+            matrix_name: self.matrix.name.clone(),
+            roles: self.matrix.roles.clone(),
+        };
+        registry.register(Arc::new(provider_request), 15);
     }
 }
