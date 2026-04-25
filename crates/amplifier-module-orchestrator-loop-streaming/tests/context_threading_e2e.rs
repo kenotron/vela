@@ -199,9 +199,9 @@ async fn delegate_receives_parent_context_through_orchestrator() {
     // (g) Assert the captured SpawnRequest
     // -----------------------------------------------------------------------
     let lock = captured.lock().unwrap();
-    let req = lock
-        .as_ref()
-        .expect("CapturingRunner should have captured a SpawnRequest — delegate was not dispatched");
+    let req = lock.as_ref().expect(
+        "CapturingRunner should have captured a SpawnRequest — delegate was not dispatched",
+    );
 
     assert!(
         req.instruction.contains("[PARENT CONVERSATION CONTEXT]"),
@@ -224,7 +224,8 @@ async fn delegate_receives_parent_context_through_orchestrator() {
         req.instruction
     );
     assert!(
-        req.instruction.contains("borrowing lets you reference without moving")
+        req.instruction
+            .contains("borrowing lets you reference without moving")
             || req.instruction.contains("what about borrowing"),
         "instruction must contain at least one recent conversation turn; got:\n{}",
         req.instruction

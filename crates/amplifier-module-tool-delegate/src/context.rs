@@ -85,9 +85,7 @@ pub fn build_inherited_context(
     // 6. Serialise into the block.
     let mut lines: Vec<String> = Vec::new();
     lines.push("[PARENT CONVERSATION CONTEXT]".to_string());
-    lines.push(
-        "The following is recent conversation history from the parent session:".to_string(),
-    );
+    lines.push("The following is recent conversation history from the parent session:".to_string());
     lines.push(String::new());
 
     for msg in &windowed {
@@ -179,10 +177,8 @@ fn keep_for_scope(msg: &Value, scope: &ContextScope, agent_tool_ids: &HashSet<St
                     if let Some(blocks) = content.as_array() {
                         return blocks.iter().any(|b| {
                             if b.get("type").and_then(|t| t.as_str()) == Some("tool_result") {
-                                let id = b
-                                    .get("tool_use_id")
-                                    .and_then(|i| i.as_str())
-                                    .unwrap_or("");
+                                let id =
+                                    b.get("tool_use_id").and_then(|i| i.as_str()).unwrap_or("");
                                 agent_tool_ids.contains(id)
                             } else {
                                 false
@@ -197,8 +193,7 @@ fn keep_for_scope(msg: &Value, scope: &ContextScope, agent_tool_ids: &HashSet<St
                         return blocks.iter().any(|b| {
                             let ty = b.get("type").and_then(|t| t.as_str()).unwrap_or("");
                             if matches!(ty, "tool_use" | "tool_call") {
-                                let name =
-                                    b.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                                let name = b.get("name").and_then(|n| n.as_str()).unwrap_or("");
                                 is_agent_tool_name(name)
                             } else {
                                 false
@@ -416,12 +411,8 @@ mod tests {
     #[test]
     fn depth_none_returns_none() {
         let msgs = vec![turn("user", "hi"), turn("assistant", "hello")];
-        let result = build_inherited_context(
-            &msgs,
-            ContextDepth::None,
-            5,
-            ContextScope::Conversation,
-        );
+        let result =
+            build_inherited_context(&msgs, ContextDepth::None, 5, ContextScope::Conversation);
         assert!(result.is_none(), "expected None for ContextDepth::None");
     }
 
@@ -448,7 +439,8 @@ mod tests {
             "missing header"
         );
         assert!(
-            result.contains("The following is recent conversation history from the parent session:"),
+            result
+                .contains("The following is recent conversation history from the parent session:"),
             "missing subtitle"
         );
         assert!(result.contains("[END PARENT CONTEXT]"), "missing footer");
@@ -530,13 +522,9 @@ mod tests {
             asst_msg("answer"),
             tool_result_msg("tool_123", "tool output"),
         ];
-        let result = build_inherited_context(
-            &messages,
-            ContextDepth::All,
-            5,
-            ContextScope::Conversation,
-        )
-        .expect("should produce output");
+        let result =
+            build_inherited_context(&messages, ContextDepth::All, 5, ContextScope::Conversation)
+                .expect("should produce output");
         assert!(
             !result.contains("tool output"),
             "tool_result should be excluded in Conversation scope"
@@ -554,9 +542,8 @@ mod tests {
             asst_tool_use_msg("call_abc", "delegate"),
             tool_result_msg("call_abc", "agent output here"),
         ];
-        let result =
-            build_inherited_context(&messages, ContextDepth::All, 5, ContextScope::Agents)
-                .expect("should produce output");
+        let result = build_inherited_context(&messages, ContextDepth::All, 5, ContextScope::Agents)
+            .expect("should produce output");
         assert!(
             result.contains("[agent_result:"),
             "delegate result should appear as [agent_result: ...]"
@@ -578,9 +565,8 @@ mod tests {
             asst_tool_use_msg("bash_xyz", "bash"),
             tool_result_msg("bash_xyz", "bash output here"),
         ];
-        let result =
-            build_inherited_context(&messages, ContextDepth::All, 5, ContextScope::Agents)
-                .expect("should produce output");
+        let result = build_inherited_context(&messages, ContextDepth::All, 5, ContextScope::Agents)
+            .expect("should produce output");
         assert!(
             !result.contains("bash output here"),
             "bash result should be excluded in Agents scope"
@@ -599,9 +585,8 @@ mod tests {
             asst_tool_use_msg("t1", "bash"),
             tool_result_msg("t1", "bash result text"),
         ];
-        let result =
-            build_inherited_context(&messages, ContextDepth::All, 5, ContextScope::Full)
-                .expect("should produce output");
+        let result = build_inherited_context(&messages, ContextDepth::All, 5, ContextScope::Full)
+            .expect("should produce output");
         assert!(
             result.contains("[tool_result:"),
             "Full scope should include tool_result blocks"
@@ -723,20 +708,22 @@ mod tests {
             asst_msg("plain answer"),
             tool_result_msg("call_id_xyz", "secret tool output text"),
         ];
-        let result = build_inherited_context(
-            &messages,
-            ContextDepth::All,
-            5,
-            ContextScope::Conversation,
-        )
-        .expect("should produce output containing plain turns");
+        let result =
+            build_inherited_context(&messages, ContextDepth::All, 5, ContextScope::Conversation)
+                .expect("should produce output containing plain turns");
 
         assert!(
             !result.contains("secret tool output text"),
             "tool_result text must be dropped in Conversation scope"
         );
-        assert!(result.contains("plain question"), "plain user text must be present");
-        assert!(result.contains("plain answer"), "plain assistant text must be present");
+        assert!(
+            result.contains("plain question"),
+            "plain user text must be present"
+        );
+        assert!(
+            result.contains("plain answer"),
+            "plain assistant text must be present"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -756,9 +743,8 @@ mod tests {
             asst_tool_use_msg("bash_id", "bash"),
             tool_result_msg("bash_id", "from_bash"),
         ];
-        let result =
-            build_inherited_context(&messages, ContextDepth::All, 5, ContextScope::Agents)
-                .expect("should produce output");
+        let result = build_inherited_context(&messages, ContextDepth::All, 5, ContextScope::Agents)
+            .expect("should produce output");
 
         // Plain conversational turns must be present.
         assert!(result.contains("u1"), "user text 'u1' must be present");
@@ -788,11 +774,13 @@ mod tests {
             asst_tool_use_msg("bash_id", "bash"),
             tool_result_msg("bash_id", "bash_out"),
         ];
-        let result =
-            build_inherited_context(&messages, ContextDepth::All, 5, ContextScope::Full)
-                .expect("should produce output");
+        let result = build_inherited_context(&messages, ContextDepth::All, 5, ContextScope::Full)
+            .expect("should produce output");
 
-        assert!(result.contains("u1"), "user text 'u1' must be present in Full scope");
+        assert!(
+            result.contains("u1"),
+            "user text 'u1' must be present in Full scope"
+        );
         assert!(
             result.contains("bash_out"),
             "bash tool_result 'bash_out' must be present in Full scope"

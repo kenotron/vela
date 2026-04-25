@@ -150,7 +150,11 @@ mod tests {
         });
         let result = compose_matrix(&base, &overrides).expect("should succeed");
         let reasoning = result.get("reasoning").expect("reasoning role present");
-        assert_eq!(reasoning.candidates.len(), 1, "should have exactly 1 candidate");
+        assert_eq!(
+            reasoning.candidates.len(),
+            1,
+            "should have exactly 1 candidate"
+        );
         assert_eq!(
             reasoning.candidates[0]
                 .get("provider")
@@ -179,7 +183,11 @@ mod tests {
         });
         let result = compose_matrix(&base, &overrides).expect("should succeed");
         let reasoning = result.get("reasoning").expect("reasoning role present");
-        assert_eq!(reasoning.candidates.len(), 3, "should have exactly 3 candidates");
+        assert_eq!(
+            reasoning.candidates.len(),
+            3,
+            "should have exactly 3 candidates"
+        );
         assert_eq!(
             reasoning.candidates[0]
                 .get("provider")
@@ -220,8 +228,7 @@ mod tests {
                 }
             }
         });
-        let err =
-            compose_matrix(&base, &overrides).expect_err("should error with 2 'base' tokens");
+        let err = compose_matrix(&base, &overrides).expect_err("should error with 2 'base' tokens");
         assert!(
             err.to_string().contains("'base'"),
             "error message should mention 'base', got: {err}"
@@ -258,9 +265,7 @@ mod tests {
         assert_eq!(fast.description, "Fast responses");
         assert_eq!(fast.candidates.len(), 1);
         assert_eq!(
-            fast.candidates[0]
-                .get("provider")
-                .and_then(|v| v.as_str()),
+            fast.candidates[0].get("provider").and_then(|v| v.as_str()),
             Some("openai"),
             "fast provider unchanged"
         );

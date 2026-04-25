@@ -314,8 +314,7 @@ mod tests {
         ] {
             let cfg = load_matrix_from_dirs(name, &[dir.as_path()])
                 .unwrap_or_else(|e| panic!("{name}.yaml: {e}"));
-            validate_matrix(&cfg.roles, false)
-                .unwrap_or_else(|e| panic!("{name}.yaml: {e}"));
+            validate_matrix(&cfg.roles, false).unwrap_or_else(|e| panic!("{name}.yaml: {e}"));
         }
     }
 

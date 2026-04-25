@@ -337,7 +337,9 @@ fn delegate_spec_name_and_required() {
         .parameters
         .get("required")
         .expect("parameters should contain a 'required' key");
-    let arr = required.as_array().expect("'required' should be a JSON array");
+    let arr = required
+        .as_array()
+        .expect("'required' should be a JSON array");
     assert!(
         arr.iter().any(|v| v.as_str() == Some("instruction")),
         "'instruction' must appear in the required list; got: {:?}",

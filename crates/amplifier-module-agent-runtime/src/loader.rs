@@ -1,8 +1,8 @@
 //! Directory loader — walks a directory and loads all agent bundle files into
 //! an [`AgentRegistry`].
 
-use std::path::{Path, PathBuf};
 use crate::{parser, AgentRegistry};
+use std::path::{Path, PathBuf};
 
 /// Load all agent bundle files from `dir` into `registry`.
 ///
@@ -70,10 +70,10 @@ pub fn default_search_dirs(vault_path: &Path) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::AgentRegistry;
     use std::fs;
     use std::path::PathBuf;
     use tempfile::TempDir;
-    use crate::AgentRegistry;
 
     // ---- Fixtures -----------------------------------------------------------
 
@@ -115,8 +115,14 @@ You are a bug hunter expert.
         let count = load_from_dir(&mut registry, dir.path()).expect("load_from_dir should succeed");
 
         assert_eq!(count, 2, "expected 2 agents loaded");
-        assert!(registry.get("explorer").is_some(), "explorer should be registered");
-        assert!(registry.get("bug-hunter").is_some(), "bug-hunter should be registered");
+        assert!(
+            registry.get("explorer").is_some(),
+            "explorer should be registered"
+        );
+        assert!(
+            registry.get("bug-hunter").is_some(),
+            "bug-hunter should be registered"
+        );
     }
 
     #[test]
@@ -129,8 +135,14 @@ You are a bug hunter expert.
         let mut registry = AgentRegistry::new();
         let count = load_from_dir(&mut registry, dir.path()).expect("load_from_dir should succeed");
 
-        assert_eq!(count, 1, "expected only 1 agent loaded (non-.md files ignored)");
-        assert!(registry.get("explorer").is_some(), "explorer should be registered");
+        assert_eq!(
+            count, 1,
+            "expected only 1 agent loaded (non-.md files ignored)"
+        );
+        assert!(
+            registry.get("explorer").is_some(),
+            "explorer should be registered"
+        );
     }
 
     #[test]
@@ -147,8 +159,14 @@ You are a bug hunter expert.
         let mut registry = AgentRegistry::new();
         let count = load_from_dir(&mut registry, dir.path()).expect("load_from_dir should succeed");
 
-        assert_eq!(count, 1, "expected 1 agent loaded (broken file skipped silently)");
-        assert!(registry.get("explorer").is_some(), "explorer should be registered");
+        assert_eq!(
+            count, 1,
+            "expected 1 agent loaded (broken file skipped silently)"
+        );
+        assert!(
+            registry.get("explorer").is_some(),
+            "explorer should be registered"
+        );
     }
 
     #[test]

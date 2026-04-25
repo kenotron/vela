@@ -552,8 +552,15 @@ mod tests {
             fn execute(
                 &self,
                 _input: Value,
-            ) -> Pin<Box<dyn Future<Output = Result<ToolResult, ToolError>> + Send + '_>> {
-                Box::pin(async { Ok(ToolResult { success: true, output: None, error: None }) })
+            ) -> Pin<Box<dyn Future<Output = Result<ToolResult, ToolError>> + Send + '_>>
+            {
+                Box::pin(async {
+                    Ok(ToolResult {
+                        success: true,
+                        output: None,
+                        error: None,
+                    })
+                })
             }
         }
 

@@ -130,9 +130,16 @@ fn new_applies_overrides() {
         general.description, "Overridden general",
         "override description should be applied"
     );
-    assert_eq!(general.candidates.len(), 1, "should have exactly 1 candidate from override");
+    assert_eq!(
+        general.candidates.len(),
+        1,
+        "should have exactly 1 candidate from override"
+    );
     // Other roles from balanced matrix should still be present
-    assert!(routing.role("fast").is_some(), "fast role should be inherited from base matrix");
+    assert!(
+        routing.role("fast").is_some(),
+        "fast role should be inherited from base matrix"
+    );
 }
 
 #[test]
@@ -187,12 +194,18 @@ async fn session_start_rewrites_provider_preferences_for_three_agents() {
     let agent_registry = Arc::new(RwLock::new(AgentRegistry::new()));
     {
         let mut reg = agent_registry.write().await;
-        reg.register(make_agent("explorer", ModelRole::Single("fast".to_string())));
+        reg.register(make_agent(
+            "explorer",
+            ModelRole::Single("fast".to_string()),
+        ));
         reg.register(make_agent(
             "zen-architect",
             ModelRole::Chain(vec!["reasoning".to_string(), "general".to_string()]),
         ));
-        reg.register(make_agent("bug-hunter", ModelRole::Single("coding".to_string())));
+        reg.register(make_agent(
+            "bug-hunter",
+            ModelRole::Single("coding".to_string()),
+        ));
     }
 
     // 2. Build HooksRouting (balanced)
@@ -201,7 +214,10 @@ async fn session_start_rewrites_provider_preferences_for_three_agents() {
 
     // 3. Build provider map
     let providers = make_providers(vec![
-        ("anthropic", vec!["claude-haiku-3", "claude-sonnet-4-5", "claude-opus-4-7"]),
+        (
+            "anthropic",
+            vec!["claude-haiku-3", "claude-sonnet-4-5", "claude-opus-4-7"],
+        ),
         ("openai", vec!["gpt-5.5", "gpt-5-mini"]),
         ("ollama", vec!["llama3.2"]),
     ]);
@@ -212,13 +228,16 @@ async fn session_start_rewrites_provider_preferences_for_three_agents() {
     // 5. Register hooks and emit SessionStart
     let mut hooks = HookRegistry::new();
     routing.register_on(&mut hooks);
-    hooks.emit(HookEvent::SessionStart, &HookContext::default()).await;
+    hooks.emit(HookEvent::SessionStart, &HookContext).await;
 
     // 6. Verify provider preferences
     let reg = agent_registry.read().await;
 
     let explorer = reg.get("explorer").expect("explorer should exist");
-    let explorer_prefs = explorer.provider_preferences.as_ref().expect("should have prefs");
+    let explorer_prefs = explorer
+        .provider_preferences
+        .as_ref()
+        .expect("should have prefs");
     assert_eq!(
         explorer_prefs[0].provider, "anthropic",
         "explorer: expected provider 'anthropic'"
@@ -228,8 +247,13 @@ async fn session_start_rewrites_provider_preferences_for_three_agents() {
         "explorer: expected model 'claude-haiku-3'"
     );
 
-    let zen = reg.get("zen-architect").expect("zen-architect should exist");
-    let zen_prefs = zen.provider_preferences.as_ref().expect("should have prefs");
+    let zen = reg
+        .get("zen-architect")
+        .expect("zen-architect should exist");
+    let zen_prefs = zen
+        .provider_preferences
+        .as_ref()
+        .expect("should have prefs");
     assert_eq!(
         zen_prefs[0].provider, "anthropic",
         "zen-architect: expected provider 'anthropic'"
@@ -240,7 +264,10 @@ async fn session_start_rewrites_provider_preferences_for_three_agents() {
     );
 
     let bug = reg.get("bug-hunter").expect("bug-hunter should exist");
-    let bug_prefs = bug.provider_preferences.as_ref().expect("should have prefs");
+    let bug_prefs = bug
+        .provider_preferences
+        .as_ref()
+        .expect("should have prefs");
     assert_eq!(
         bug_prefs[0].provider, "anthropic",
         "bug-hunter: expected provider 'anthropic'"
@@ -263,10 +290,14 @@ async fn provider_request_injects_role_catalog() {
     routing.register_on(&mut hooks);
 
     // Emit ProviderRequest
-    let results = hooks.emit(HookEvent::ProviderRequest, &HookContext::default()).await;
+    let results = hooks.emit(HookEvent::ProviderRequest, &HookContext).await;
 
     // Should have exactly one result and it should be InjectContext
-    assert_eq!(results.len(), 1, "expected exactly one result from ProviderRequest");
+    assert_eq!(
+        results.len(),
+        1,
+        "expected exactly one result from ProviderRequest"
+    );
 
     match &results[0] {
         HookResult::InjectContext(buf) => {

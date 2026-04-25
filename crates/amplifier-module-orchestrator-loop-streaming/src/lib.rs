@@ -22,7 +22,11 @@ pub enum ContentBlock {
     /// A text / end-turn block.
     Text { text: String },
     /// A tool-call block.
-    ToolCall { id: String, name: String, input: Value },
+    ToolCall {
+        id: String,
+        name: String,
+        input: Value,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -187,9 +191,7 @@ impl LoopOrchestrator {
     }
 
     /// Return a snapshot of the context-aware tool registry.
-    pub async fn snapshot_context_aware_tools(
-        &self,
-    ) -> HashMap<String, Arc<dyn ContextAwareTool>> {
+    pub async fn snapshot_context_aware_tools(&self) -> HashMap<String, Arc<dyn ContextAwareTool>> {
         self.context_aware_tools.read().await.clone()
     }
 
@@ -310,10 +312,11 @@ impl LoopOrchestrator {
             //     before the per-call dispatch loop.
             // -----------------------------------------------------------
             let cat_snapshot = self.snapshot_context_aware_tools().await;
-            let context_messages: Vec<Value> = context
-                .get_messages_for_request(None, None)
-                .await
-                .map_err(|e| anyhow!("get_messages_for_request failed: {e}"))?;
+            let context_messages: Vec<Value> =
+                context
+                    .get_messages_for_request(None, None)
+                    .await
+                    .map_err(|e| anyhow!("get_messages_for_request failed: {e}"))?;
 
             // Record the assistant's tool-use turn in context.
             let tool_use_blocks: Vec<Value> = tool_calls
@@ -429,7 +432,8 @@ mod tests {
             fn execute(
                 &self,
                 _input: Value,
-            ) -> Pin<Box<dyn Future<Output = Result<ToolResult, ToolError>> + Send + '_>> {
+            ) -> Pin<Box<dyn Future<Output = Result<ToolResult, ToolError>> + Send + '_>>
+            {
                 Box::pin(async {
                     Ok(ToolResult {
                         success: true,
@@ -441,9 +445,7 @@ mod tests {
         }
 
         let orchestrator = LoopOrchestrator::new(LoopConfig::default());
-        orchestrator
-            .register_tool(Arc::new(DummyTool))
-            .await;
+        orchestrator.register_tool(Arc::new(DummyTool)).await;
         let tools = orchestrator.snapshot_tools().await;
         assert!(tools.contains_key("dummy"));
     }
@@ -479,7 +481,8 @@ mod tests {
             fn execute(
                 &self,
                 _input: Value,
-            ) -> Pin<Box<dyn Future<Output = Result<ToolResult, ToolError>> + Send + '_>> {
+            ) -> Pin<Box<dyn Future<Output = Result<ToolResult, ToolError>> + Send + '_>>
+            {
                 Box::pin(async {
                     Ok(ToolResult {
                         success: true,
@@ -669,9 +672,7 @@ mod tests {
         let provider = Arc::new(StubCallingProvider {
             call_count: StdMutex::new(0),
         });
-        orchestrator
-            .register_provider("anthropic", provider)
-            .await;
+        orchestrator.register_provider("anthropic", provider).await;
         orchestrator
             .register_context_aware_tool(stub_cat as Arc<dyn ContextAwareTool>)
             .await;
@@ -697,8 +698,7 @@ mod tests {
         );
 
         let has_user_prompt = messages.iter().any(|msg| {
-            let is_user =
-                msg.get("role").and_then(|r| r.as_str()) == Some("user");
+            let is_user = msg.get("role").and_then(|r| r.as_str()) == Some("user");
             let has_prompt = msg
                 .get("content")
                 .and_then(|c| c.as_str())

@@ -212,8 +212,7 @@ impl DelegateTool {
         // 4. Phase 4 limitation: no parent messages available yet
         // ------------------------------------------------------------------
         let parent_messages: Vec<Value> = vec![];
-        let context_str =
-            build_inherited_context(&parent_messages, depth, context_turns, scope);
+        let context_str = build_inherited_context(&parent_messages, depth, context_turns, scope);
 
         // ------------------------------------------------------------------
         // 5. Build effective_instruction
@@ -248,9 +247,8 @@ impl DelegateTool {
         // ------------------------------------------------------------------
         // 7. Generate sub_session_id
         // ------------------------------------------------------------------
-        let sub_session_id = provided_session_id.unwrap_or_else(|| {
-            generate_sub_session_id("0000000000000000", &resolved_agent_name)
-        });
+        let sub_session_id = provided_session_id
+            .unwrap_or_else(|| generate_sub_session_id("0000000000000000", &resolved_agent_name));
 
         // ------------------------------------------------------------------
         // 8. Build SpawnRequest and run
@@ -265,17 +263,9 @@ impl DelegateTool {
             tool_filter: filtered_tools,
         };
 
-        let response = self
-            .runner
-            .run(req)
-            .await
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "delegate agent '{}' failed: {}",
-                    resolved_agent_name,
-                    e
-                )
-            })?;
+        let response = self.runner.run(req).await.map_err(|e| {
+            anyhow::anyhow!("delegate agent '{}' failed: {}", resolved_agent_name, e)
+        })?;
 
         // ------------------------------------------------------------------
         // 9. Return result
@@ -414,25 +404,21 @@ impl Tool for DelegateTool {
             //   "recent" | "recent_5" → Recent(max_turns)
             //   "all"                 → All
             //   otherwise             → None
-            let context_depth =
-                match input.get("context_depth").and_then(|v| v.as_str()) {
-                    Some("recent") | Some("recent_5") => {
-                        ContextDepth::Recent(max_turns as usize)
-                    }
-                    Some("all") => ContextDepth::All,
-                    _ => ContextDepth::None,
-                };
+            let context_depth = match input.get("context_depth").and_then(|v| v.as_str()) {
+                Some("recent") | Some("recent_5") => ContextDepth::Recent(max_turns as usize),
+                Some("all") => ContextDepth::All,
+                _ => ContextDepth::None,
+            };
 
             // (4) Parse context_scope:
             //   "agents" → Agents
             //   "full"   → Full
             //   otherwise → Conversation
-            let context_scope =
-                match input.get("context_scope").and_then(|v| v.as_str()) {
-                    Some("agents") => ContextScope::Agents,
-                    Some("full") => ContextScope::Full,
-                    _ => ContextScope::Conversation,
-                };
+            let context_scope = match input.get("context_scope").and_then(|v| v.as_str()) {
+                Some("agents") => ContextScope::Agents,
+                Some("full") => ContextScope::Full,
+                _ => ContextScope::Conversation,
+            };
 
             // (5) Snapshot parent messages from the shared context buffer.
             let parent_messages = context.lock().unwrap().clone();
@@ -649,7 +635,9 @@ mod tests {
             .parameters
             .get("required")
             .expect("required field should exist in parameters");
-        let arr = required.as_array().expect("required should be a JSON array");
+        let arr = required
+            .as_array()
+            .expect("required should be a JSON array");
         assert!(
             arr.iter().any(|v| v.as_str() == Some("instruction")),
             "'instruction' must appear in the required list"

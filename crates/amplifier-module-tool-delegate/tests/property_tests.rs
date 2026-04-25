@@ -24,9 +24,7 @@ fn arb_message() -> impl Strategy<Value = Value> {
         "[a-z]{1,8}",
     ];
     let arb_content = ".{0,64}";
-    (arb_role, arb_content).prop_map(|(role, content)| {
-        json!({ "role": role, "content": content })
-    })
+    (arb_role, arb_content).prop_map(|(role, content)| json!({ "role": role, "content": content }))
 }
 
 // ---------------------------------------------------------------------------

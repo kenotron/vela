@@ -47,11 +47,8 @@ You are a zen architect who embodies ruthless simplicity. You operate in three m
 fn registry_loads_agents_from_directory() {
     let dir = TempDir::new().expect("create temp dir");
     fs::write(dir.path().join("explorer.md"), EXPLORER_AGENT_MD).expect("write explorer.md");
-    fs::write(
-        dir.path().join("zen-architect.md"),
-        ZEN_ARCHITECT_AGENT_MD,
-    )
-    .expect("write zen-architect.md");
+    fs::write(dir.path().join("zen-architect.md"), ZEN_ARCHITECT_AGENT_MD)
+        .expect("write zen-architect.md");
 
     let mut registry = AgentRegistry::new();
     let count = registry
@@ -61,7 +58,9 @@ fn registry_loads_agents_from_directory() {
     assert_eq!(count, 2, "expected 2 agents loaded");
 
     // Verify explorer agent.
-    let explorer = registry.get("explorer").expect("explorer should be registered");
+    let explorer = registry
+        .get("explorer")
+        .expect("explorer should be registered");
     assert_eq!(
         explorer.model_role,
         Some(ModelRole::Single("fast".to_string())),
@@ -95,11 +94,8 @@ fn registry_loads_agents_from_directory() {
 fn available_names_lists_all_registered() {
     let dir = TempDir::new().expect("create temp dir");
     fs::write(dir.path().join("explorer.md"), EXPLORER_AGENT_MD).expect("write explorer.md");
-    fs::write(
-        dir.path().join("zen-architect.md"),
-        ZEN_ARCHITECT_AGENT_MD,
-    )
-    .expect("write zen-architect.md");
+    fs::write(dir.path().join("zen-architect.md"), ZEN_ARCHITECT_AGENT_MD)
+        .expect("write zen-architect.md");
 
     let mut registry = AgentRegistry::new();
     registry

@@ -146,8 +146,8 @@ mod tests {
     #[test]
     fn resolve_with_empty_registry_lists_none_registered() {
         let registry = AgentRegistry::new();
-        let err = resolve_agent("anything", &registry)
-            .expect_err("should error when registry is empty");
+        let err =
+            resolve_agent("anything", &registry).expect_err("should error when registry is empty");
         let msg = err.to_string();
         assert!(
             msg.contains("none registered") || msg.contains("[]"),

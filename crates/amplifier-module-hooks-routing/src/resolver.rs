@@ -1,7 +1,5 @@
 use std::cmp::Reverse;
 use std::collections::HashMap;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use amplifier_core::traits::Provider;
@@ -237,6 +235,8 @@ pub async fn resolve_model_role(
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+    use std::future::Future;
+    use std::pin::Pin;
 
     use amplifier_core::{
         errors::ProviderError,
@@ -311,9 +311,8 @@ mod tests {
             _request: amplifier_core::messages::ChatRequest,
         ) -> Pin<
             Box<
-                dyn Future<
-                        Output = Result<amplifier_core::messages::ChatResponse, ProviderError>,
-                    > + Send
+                dyn Future<Output = Result<amplifier_core::messages::ChatResponse, ProviderError>>
+                    + Send
                     + '_,
             >,
         > {
@@ -535,8 +534,7 @@ mod tests {
             vec![json!({"provider": "anthropic", "model": "claude-opus-4"})],
         )]);
 
-        let result =
-            resolve_model_role(&["general".to_string()], &roles_map, &providers).await;
+        let result = resolve_model_role(&["general".to_string()], &roles_map, &providers).await;
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].provider, "anthropic");
@@ -622,9 +620,11 @@ mod tests {
             ],
         )]);
 
-        let result =
-            resolve_model_role(&["general".to_string()], &roles_map, &providers).await;
+        let result = resolve_model_role(&["general".to_string()], &roles_map, &providers).await;
 
-        assert!(result.is_empty(), "should return empty Vec when unresolvable");
+        assert!(
+            result.is_empty(),
+            "should return empty Vec when unresolvable"
+        );
     }
 }

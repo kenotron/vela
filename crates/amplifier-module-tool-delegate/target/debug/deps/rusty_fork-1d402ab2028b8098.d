@@ -1,0 +1,11 @@
+/Users/ken/workspace/vela/crates/amplifier-module-tool-delegate/target/debug/deps/rusty_fork-1d402ab2028b8098.d: /Users/ken/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rusty-fork-0.3.1/src/lib.rs /Users/ken/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rusty-fork-0.3.1/src/sugar.rs /Users/ken/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rusty-fork-0.3.1/src/fork_test.rs /Users/ken/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rusty-fork-0.3.1/src/error.rs /Users/ken/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rusty-fork-0.3.1/src/cmdline.rs /Users/ken/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rusty-fork-0.3.1/src/fork.rs /Users/ken/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rusty-fork-0.3.1/src/child_wrapper.rs
+
+/Users/ken/workspace/vela/crates/amplifier-module-tool-delegate/target/debug/deps/librusty_fork-1d402ab2028b8098.rmeta: /Users/ken/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rusty-fork-0.3.1/src/lib.rs /Users/ken/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rusty-fork-0.3.1/src/sugar.rs /Users/ken/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rusty-fork-0.3.1/src/fork_test.rs /Users/ken/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rusty-fork-0.3.1/src/error.rs /Users/ken/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rusty-fork-0.3.1/src/cmdline.rs /Users/ken/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rusty-fork-0.3.1/src/fork.rs /Users/ken/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rusty-fork-0.3.1/src/child_wrapper.rs
+
+/Users/ken/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rusty-fork-0.3.1/src/lib.rs:
+/Users/ken/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rusty-fork-0.3.1/src/sugar.rs:
+/Users/ken/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rusty-fork-0.3.1/src/fork_test.rs:
+/Users/ken/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rusty-fork-0.3.1/src/error.rs:
+/Users/ken/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rusty-fork-0.3.1/src/cmdline.rs:
+/Users/ken/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rusty-fork-0.3.1/src/fork.rs:
+/Users/ken/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rusty-fork-0.3.1/src/child_wrapper.rs:
