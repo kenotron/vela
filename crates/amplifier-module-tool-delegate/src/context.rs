@@ -16,8 +16,7 @@ use std::collections::HashSet;
 pub enum ContextDepth {
     /// Include no context at all.
     None,
-    /// Include recent N turns (uses the `turns` parameter of
-    /// `build_inherited_context`).
+    /// Include recent N turns — slices the last `2*N` filtered messages.
     Recent(usize),
     /// Include all available messages.
     All,
@@ -42,11 +41,12 @@ pub enum ContextScope {
 ///
 /// Returns `None` when:
 /// - `depth == ContextDepth::None`
+/// - `depth == ContextDepth::Recent(0)`
 /// - the filtered message list is empty
 pub fn build_inherited_context(
     messages: &[Value],
     depth: ContextDepth,
-    turns: usize,
+    _turns: usize, // kept for API compatibility; Recent(n) uses `n` directly
     scope: ContextScope,
 ) -> Option<String> {
     // 1. None depth → skip entirely.
@@ -54,33 +54,33 @@ pub fn build_inherited_context(
         return None;
     }
 
-    // 1b. Compute the window size.
-    let max_messages: usize = match depth {
-        ContextDepth::None => unreachable!(),
-        ContextDepth::Recent(_) => turns.saturating_mul(2),
-        ContextDepth::All => usize::MAX,
-    };
-
     // 2. Pre-compute agent tool-call IDs (needed for Agents scope).
     let agent_tool_ids = find_agent_tool_call_ids(messages);
 
     // 3. Filter messages by scope.
     let filtered: Vec<&Value> = messages
         .iter()
-        .filter(|msg| include_in_scope(msg, &scope, &agent_tool_ids))
+        .filter(|msg| keep_for_scope(msg, &scope, &agent_tool_ids))
         .collect();
 
-    // 4. Empty → nothing to emit.
-    if filtered.is_empty() {
+    // 4. Apply depth slicing.
+    let windowed: Vec<&Value> = match &depth {
+        ContextDepth::None => unreachable!(),
+        ContextDepth::All => filtered,
+        ContextDepth::Recent(n) => {
+            if *n == 0 || filtered.is_empty() {
+                return None;
+            }
+            let want = n.saturating_mul(2);
+            let start = filtered.len().saturating_sub(want);
+            filtered[start..].to_vec()
+        }
+    };
+
+    // 5. Empty → nothing to emit.
+    if windowed.is_empty() {
         return None;
     }
-
-    // 5. Apply depth window — take the *last* max_messages.
-    let windowed: &[&Value] = if max_messages >= filtered.len() {
-        &filtered
-    } else {
-        &filtered[filtered.len() - max_messages..]
-    };
 
     // 6. Serialise into the block.
     let mut lines: Vec<String> = Vec::new();
@@ -90,9 +90,13 @@ pub fn build_inherited_context(
     );
     lines.push(String::new());
 
-    for msg in windowed {
+    for msg in &windowed {
         let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("");
-        let text = extract_text_content(msg, &scope, &agent_tool_ids);
+        let content = match msg.get("content") {
+            Some(c) => c,
+            None => continue,
+        };
+        let text = render_content(content, &scope, &agent_tool_ids);
         if text.is_empty() {
             continue;
         }
@@ -105,6 +109,10 @@ pub fn build_inherited_context(
             }
             "assistant" => {
                 lines.push(format!("ASSISTANT: {}", text));
+                lines.push(String::new());
+            }
+            "system" => {
+                lines.push(format!("SYSTEM: {}", text));
                 lines.push(String::new());
             }
             _ => {}
@@ -120,114 +128,114 @@ pub fn build_inherited_context(
 // Private helpers
 // ---------------------------------------------------------------------------
 
-/// Collect the `id` of every `tool_use` block in assistant messages whose
-/// `name` is one of the agent-delegation tool names.
-fn find_agent_tool_call_ids(messages: &[Value]) -> HashSet<String> {
-    const AGENT_NAMES: &[&str] = &["delegate", "task", "spawn_agent"];
-    let mut ids = HashSet::new();
-
-    for msg in messages {
-        if msg.get("role").and_then(|r| r.as_str()) != Some("assistant") {
-            continue;
-        }
-        if let Some(blocks) = msg.get("content").and_then(|c| c.as_array()) {
-            for block in blocks {
-                if block.get("type").and_then(|t| t.as_str()) != Some("tool_use") {
-                    continue;
-                }
-                let name = block.get("name").and_then(|n| n.as_str()).unwrap_or("");
-                if AGENT_NAMES.contains(&name) {
-                    if let Some(id) = block.get("id").and_then(|i| i.as_str()) {
-                        ids.insert(id.to_string());
-                    }
-                }
-            }
-        }
-    }
-
-    ids
+/// Returns `true` if `name` is one of the recognised agent-delegation tool names.
+fn is_agent_tool_name(name: &str) -> bool {
+    matches!(name, "delegate" | "spawn_agent" | "task")
 }
 
-/// Returns `true` if the message is a conversational turn (user text or
-/// assistant text), as opposed to a pure tool-invocation message.
-///
-/// - user : non-empty string  OR  array with at least one non-`tool_result` block
-/// - assistant : non-empty string  OR  array with at least one `text` block
-fn is_conversation_message(msg: &Value, role: &str) -> bool {
-    let Some(content) = msg.get("content") else {
-        return false;
-    };
-
-    match role {
-        "user" => {
-            if let Some(s) = content.as_str() {
-                !s.is_empty()
-            } else if let Some(blocks) = content.as_array() {
-                blocks
-                    .iter()
-                    .any(|b| b.get("type").and_then(|t| t.as_str()) != Some("tool_result"))
-            } else {
-                false
-            }
-        }
-        "assistant" => {
-            if let Some(s) = content.as_str() {
-                !s.is_empty()
-            } else if let Some(blocks) = content.as_array() {
-                blocks
-                    .iter()
-                    .any(|b| b.get("type").and_then(|t| t.as_str()) == Some("text"))
-            } else {
-                false
-            }
-        }
-        _ => false,
-    }
-}
-
-/// Decide whether `msg` passes the scope filter.
-fn include_in_scope(msg: &Value, scope: &ContextScope, agent_tool_ids: &HashSet<String>) -> bool {
+/// Returns `true` if `msg` passes the scope filter.
+fn keep_for_scope(msg: &Value, scope: &ContextScope, agent_tool_ids: &HashSet<String>) -> bool {
     let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("");
 
     match scope {
-        ContextScope::Conversation => is_conversation_message(msg, role),
-
-        ContextScope::Agents => {
-            if is_conversation_message(msg, role) {
-                return true;
+        ContextScope::Conversation => {
+            // Only user, assistant, system — and no tool_result or tool_call/tool_use blocks.
+            if !matches!(role, "user" | "assistant" | "system") {
+                return false;
             }
-            // Also include user-role messages whose tool_result tool_use_id is in agent_tool_ids.
-            if role == "user" {
-                if let Some(blocks) = msg.get("content").and_then(|c| c.as_array()) {
-                    return blocks.iter().any(|b| {
-                        if b.get("type").and_then(|t| t.as_str()) == Some("tool_result") {
-                            let id = b
-                                .get("tool_use_id")
-                                .and_then(|i| i.as_str())
-                                .unwrap_or("");
-                            return agent_tool_ids.contains(id);
-                        }
-                        false
-                    });
+            if let Some(content) = msg.get("content") {
+                if content_has_block_type(content, "tool_result")
+                    || content_has_block_type(content, "tool_use")
+                    || content_has_block_type(content, "tool_call")
+                {
+                    return false;
                 }
             }
-            false
+            true
         }
 
-        ContextScope::Full => matches!(role, "user" | "assistant"),
+        ContextScope::Agents => {
+            if !matches!(role, "user" | "assistant" | "system") {
+                return false;
+            }
+
+            if let Some(content) = msg.get("content") {
+                // Plain string content: always conversational.
+                if content.as_str().is_some() {
+                    return true;
+                }
+
+                let has_tool_result = content_has_block_type(content, "tool_result");
+                let has_tool_call = content_has_block_type(content, "tool_use")
+                    || content_has_block_type(content, "tool_call");
+
+                // Pure conversational message (no tool blocks).
+                if !has_tool_result && !has_tool_call {
+                    return true;
+                }
+
+                // User message with tool_result: include if any result is from an agent call.
+                if role == "user" && has_tool_result {
+                    if let Some(blocks) = content.as_array() {
+                        return blocks.iter().any(|b| {
+                            if b.get("type").and_then(|t| t.as_str()) == Some("tool_result") {
+                                let id = b
+                                    .get("tool_use_id")
+                                    .and_then(|i| i.as_str())
+                                    .unwrap_or("");
+                                agent_tool_ids.contains(id)
+                            } else {
+                                false
+                            }
+                        });
+                    }
+                }
+
+                // Assistant message with tool_use/tool_call: include if any call is an agent tool.
+                if role == "assistant" && has_tool_call {
+                    if let Some(blocks) = content.as_array() {
+                        return blocks.iter().any(|b| {
+                            let ty = b.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                            if matches!(ty, "tool_use" | "tool_call") {
+                                let name =
+                                    b.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                                is_agent_tool_name(name)
+                            } else {
+                                false
+                            }
+                        });
+                    }
+                }
+
+                false
+            } else {
+                // No content field: include.
+                true
+            }
+        }
+
+        ContextScope::Full => matches!(role, "user" | "assistant" | "system"),
     }
 }
 
-/// Extract displayable text from a message, honouring the scope rules.
-pub fn extract_text_content(
-    msg: &Value,
+/// Returns `true` if `content` is an array containing any block whose `"type"`
+/// field equals `ty`.
+fn content_has_block_type(content: &Value, ty: &str) -> bool {
+    if let Some(blocks) = content.as_array() {
+        blocks
+            .iter()
+            .any(|b| b.get("type").and_then(|t| t.as_str()) == Some(ty))
+    } else {
+        false
+    }
+}
+
+/// Render a content value to a displayable string, honouring scope rules.
+fn render_content(
+    content: &Value,
     scope: &ContextScope,
     agent_tool_ids: &HashSet<String>,
 ) -> String {
-    let Some(content) = msg.get("content") else {
-        return String::new();
-    };
-
     // Plain string content.
     if let Some(s) = content.as_str() {
         return s.to_string();
@@ -248,6 +256,10 @@ pub fn extract_text_content(
                         }
                     }
                 }
+                "tool_use" | "tool_call" => {
+                    let name = block.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                    parts.push(format!("[tool_call:{}]", name));
+                }
                 "tool_result" => match scope {
                     ContextScope::Full => {
                         let output = get_tool_result_output(block);
@@ -266,10 +278,10 @@ pub fn extract_text_content(
                         }
                     }
                     ContextScope::Conversation => {
-                        // Skip tool_result blocks entirely.
+                        // Already filtered out by keep_for_scope; skip defensively.
                     }
                 },
-                _ => {} // ignore tool_use, images, etc.
+                _ => {} // ignore images, etc.
             }
         }
 
@@ -277,6 +289,33 @@ pub fn extract_text_content(
     }
 
     String::new()
+}
+
+/// Collect the `id` of every `tool_use` block in assistant messages whose
+/// `name` is one of the agent-delegation tool names.
+fn find_agent_tool_call_ids(messages: &[Value]) -> HashSet<String> {
+    let mut ids = HashSet::new();
+
+    for msg in messages {
+        if msg.get("role").and_then(|r| r.as_str()) != Some("assistant") {
+            continue;
+        }
+        if let Some(blocks) = msg.get("content").and_then(|c| c.as_array()) {
+            for block in blocks {
+                if block.get("type").and_then(|t| t.as_str()) != Some("tool_use") {
+                    continue;
+                }
+                let name = block.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                if is_agent_tool_name(name) {
+                    if let Some(id) = block.get("id").and_then(|i| i.as_str()) {
+                        ids.insert(id.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    ids
 }
 
 /// Pull the textual output from a `tool_result` content block.
@@ -433,7 +472,7 @@ mod tests {
 
     // -----------------------------------------------------------------------
     // 5. recent_depth_limits_to_n_turns
-    //    6 messages (3 turns); Recent(_) + turns=1 → max_messages=2 → last turn only
+    //    6 messages (3 turns); Recent(1) → last 2 messages = turn 3 only.
     // -----------------------------------------------------------------------
     #[test]
     fn recent_depth_limits_to_n_turns() {
@@ -447,8 +486,8 @@ mod tests {
         ];
         let result = build_inherited_context(
             &messages,
-            ContextDepth::Recent(0), // inner value ignored; `turns` param drives it
-            1,                        // turns=1 → max_messages=2
+            ContextDepth::Recent(1), // Recent(1) → last 2 messages = 1 turn pair
+            5,                       // turns param is ignored; n=1 drives the window
             ContextScope::Conversation,
         )
         .expect("should produce output");
@@ -624,5 +663,79 @@ mod tests {
             result.contains(&"b".repeat(3000)),
             "assistant full content should be present"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // 13. recent_keeps_last_n_turn_pairs
+    //     Recent(2) with 6 messages (3 turn-pairs) → keep last 2 pairs only.
+    // -----------------------------------------------------------------------
+    #[test]
+    fn recent_keeps_last_n_turn_pairs() {
+        let messages = vec![
+            user_msg("u1"),
+            asst_msg("a1"),
+            user_msg("u2"),
+            asst_msg("a2"),
+            user_msg("u3"),
+            asst_msg("a3"),
+        ];
+        let result = build_inherited_context(
+            &messages,
+            ContextDepth::Recent(2), // Recent(2) → last 2*2=4 messages
+            99,                      // turns param is ignored; n=2 drives the window
+            ContextScope::Conversation,
+        )
+        .expect("should produce output for Recent(2)");
+
+        assert!(!result.contains("u1"), "u1 should be excluded");
+        assert!(!result.contains("a1"), "a1 should be excluded");
+        assert!(result.contains("u2"), "u2 should be included");
+        assert!(result.contains("a2"), "a2 should be included");
+        assert!(result.contains("u3"), "u3 should be included");
+        assert!(result.contains("a3"), "a3 should be included");
+    }
+
+    // -----------------------------------------------------------------------
+    // 14. recent_zero_yields_none
+    //     Recent(0) must return None regardless of message count.
+    // -----------------------------------------------------------------------
+    #[test]
+    fn recent_zero_yields_none() {
+        let messages = vec![user_msg("hello"), asst_msg("world")];
+        let result = build_inherited_context(
+            &messages,
+            ContextDepth::Recent(0),
+            5,
+            ContextScope::Conversation,
+        );
+        assert!(result.is_none(), "Recent(0) should return None");
+    }
+
+    // -----------------------------------------------------------------------
+    // 15. scope_conversation_drops_tool_results
+    //     A user message whose content array is purely tool_result blocks
+    //     must be dropped under Conversation scope; plain turns must survive.
+    // -----------------------------------------------------------------------
+    #[test]
+    fn scope_conversation_drops_tool_results() {
+        let messages = vec![
+            user_msg("plain question"),
+            asst_msg("plain answer"),
+            tool_result_msg("call_id_xyz", "secret tool output text"),
+        ];
+        let result = build_inherited_context(
+            &messages,
+            ContextDepth::All,
+            5,
+            ContextScope::Conversation,
+        )
+        .expect("should produce output containing plain turns");
+
+        assert!(
+            !result.contains("secret tool output text"),
+            "tool_result text must be dropped in Conversation scope"
+        );
+        assert!(result.contains("plain question"), "plain user text must be present");
+        assert!(result.contains("plain answer"), "plain assistant text must be present");
     }
 }
