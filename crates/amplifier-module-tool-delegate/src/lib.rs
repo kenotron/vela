@@ -520,26 +520,47 @@ impl amplifier_module_tool_task::Tool for DelegateTool {
                 + 'a,
         >,
     > {
+        // Delegate to the local execute() which reads self.context and builds
+        // the inherited [PARENT CONVERSATION CONTEXT] block before dispatch.
+        let local_fut = <Self as Tool>::execute(self, input);
         Box::pin(async move {
-            match self.dispatch(input).await {
-                Ok(value) => Ok(amplifier_module_tool_task::ToolResult {
-                    success: true,
-                    output: Some(value),
-                    error: None,
-                }),
-                Err(e) => {
-                    let message = e.to_string();
-                    if message.contains("missing required parameter") {
-                        Err(amplifier_module_tool_task::ToolError::Other { message })
-                    } else {
-                        Err(amplifier_module_tool_task::ToolError::ExecutionFailed {
+            match local_fut.await {
+                Ok(r) => Ok(amplifier_module_tool_task::ToolResult {
+                    success: r.success,
+                    output: r.output,
+                    error: r.error.map(|e| match e {
+                        ToolError::Other { message } => {
+                            amplifier_module_tool_task::ToolError::Other { message }
+                        }
+                        ToolError::ExecutionFailed {
                             message,
-                            stdout: None,
-                            stderr: None,
-                            exit_code: None,
-                        })
+                            stdout,
+                            stderr,
+                            exit_code,
+                        } => amplifier_module_tool_task::ToolError::ExecutionFailed {
+                            message,
+                            stdout,
+                            stderr,
+                            exit_code,
+                        },
+                    }),
+                }),
+                Err(e) => Err(match e {
+                    ToolError::Other { message } => {
+                        amplifier_module_tool_task::ToolError::Other { message }
                     }
-                }
+                    ToolError::ExecutionFailed {
+                        message,
+                        stdout,
+                        stderr,
+                        exit_code,
+                    } => amplifier_module_tool_task::ToolError::ExecutionFailed {
+                        message,
+                        stdout,
+                        stderr,
+                        exit_code,
+                    },
+                }),
             }
         })
     }

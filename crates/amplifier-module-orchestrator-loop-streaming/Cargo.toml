@@ -12,3 +12,5 @@ async-trait = "0.1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros", "sync"] }
+amplifier-module-tool-delegate = { path = "../amplifier-module-tool-delegate" }
+amplifier-module-agent-runtime = { path = "../amplifier-module-agent-runtime" }
