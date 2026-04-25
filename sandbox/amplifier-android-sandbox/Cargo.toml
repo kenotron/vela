@@ -1,0 +1,14 @@
+[package]
+name = "amplifier-android-sandbox"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+amplifier-agent-foundation = { path = "../../amplifier-agent-foundation" }
+amplifier-module-agent-runtime = { path = "../../crates/amplifier-module-agent-runtime" }
+amplifier-module-tool-delegate = { path = "../../crates/amplifier-module-tool-delegate" }
+anyhow = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[dev-dependencies]
+tempfile = "3"
