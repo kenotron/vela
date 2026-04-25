@@ -78,6 +78,8 @@ name = "amplifier-module-session-store"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "chrono",
  "dirs",
  "serde",
  "serde_json",

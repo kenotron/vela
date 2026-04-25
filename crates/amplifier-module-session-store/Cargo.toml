@@ -10,6 +10,7 @@ anyhow = { workspace = true }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 dirs = "5"
+chrono = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

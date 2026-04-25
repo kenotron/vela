@@ -8,6 +8,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
+use chrono::Utc;
 use tokio::sync::Mutex;
 
 use crate::format::{SessionEvent, SessionMetadata};
@@ -136,8 +137,45 @@ impl SessionStore for FileSessionStore {
         append_jsonl(&self.events_file(session_id), &event)
     }
 
-    async fn finish(&self, _session_id: &str, _status: &str) -> anyhow::Result<()> {
-        anyhow::bail!("finish not implemented yet")
+    async fn finish(&self, session_id: &str, status: &str, turn_count: u32) -> anyhow::Result<()> {
+        // 1. Compute current timestamp.
+        let now = Utc::now().to_rfc3339();
+
+        // 2. Append session_end event to events.jsonl.
+        let event = SessionEvent::SessionEnd {
+            status: status.to_string(),
+            turn_count,
+            timestamp: now,
+        };
+        append_jsonl(&self.events_file(session_id), &event)?;
+
+        // 3. Under index lock: rewrite index.jsonl, updating the matching entry's status.
+        let idx_path = self.index_file();
+        let _guard = self.index_lock.lock().await;
+
+        let existing = match std::fs::read_to_string(&idx_path) {
+            Ok(s) => s,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => return Err(e.into()),
+        };
+
+        let mut out = String::new();
+        for line in existing.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let mut entry: SessionMetadata = serde_json::from_str(line)?;
+            if entry.session_id == session_id {
+                entry.status = status.to_string();
+            }
+            out.push_str(&serde_json::to_string(&entry)?);
+            out.push('\n');
+        }
+
+        // 4. Atomically overwrite the index file.
+        std::fs::write(&idx_path, out)?;
+
+        Ok(())
     }
 
     async fn find(&self, _session_id: &str) -> anyhow::Result<Option<SessionMetadata>> {
@@ -255,6 +293,65 @@ mod tests {
         assert!(
             SessionStore::exists(&store, "s1"),
             "exists should return true after begin"
+        );
+    }
+
+    #[tokio::test]
+    async fn finish_appends_session_end_and_rewrites_index_status() {
+        let tmp = TempDir::new().expect("tempdir");
+        let store = FileSessionStore::new_with_root(tmp.path().to_path_buf());
+
+        // Begin a session with status "active".
+        let meta = SessionMetadata {
+            session_id: "s1".to_string(),
+            agent_name: "test-agent".to_string(),
+            parent_id: None,
+            created: "2026-04-24T00:00:00Z".to_string(),
+            status: "active".to_string(),
+        };
+        SessionStore::begin(&store, "s1", meta).await.expect("begin");
+
+        // Finish the session.
+        SessionStore::finish(&store, "s1", "success", 4)
+            .await
+            .expect("finish");
+
+        // (a) Last line of events.jsonl contains session_end, status=success, turn_count=4.
+        let events_path = tmp.path().join("s1").join("events.jsonl");
+        let events_content = std::fs::read_to_string(&events_path).expect("read events.jsonl");
+        let event_lines: Vec<&str> = events_content.lines().collect();
+        let last_line = event_lines.last().expect("events.jsonl should not be empty");
+        assert!(
+            last_line.contains(r#""type":"session_end""#),
+            r#"last line should contain "type":"session_end": {last_line}"#
+        );
+        assert!(
+            last_line.contains(r#""status":"success""#),
+            r#"last line should contain "status":"success": {last_line}"#
+        );
+        assert!(
+            last_line.contains(r#""turn_count":4"#),
+            r#"last line should contain "turn_count":4: {last_line}"#
+        );
+
+        // (b) index.jsonl still has exactly 1 line, now status=success, no longer status=active.
+        let index_path = tmp.path().join("index.jsonl");
+        let index_content = std::fs::read_to_string(&index_path).expect("read index.jsonl");
+        let index_lines: Vec<&str> = index_content.lines().collect();
+        assert_eq!(
+            index_lines.len(),
+            1,
+            "index.jsonl should still have exactly 1 line after finish, got: {index_lines:?}"
+        );
+        assert!(
+            index_lines[0].contains(r#""status":"success""#),
+            r#"index line should contain "status":"success": {}"#,
+            index_lines[0]
+        );
+        assert!(
+            !index_lines[0].contains(r#""status":"active""#),
+            r#"index line should NOT contain "status":"active": {}"#,
+            index_lines[0]
         );
     }
 

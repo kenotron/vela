@@ -36,3 +36,4 @@ tokio = { version = "1", features = ["sync"] }
 tempfile = "3"
 globset = "0.4"
 regex = "1"
+chrono = { version = "0.4", features = ["serde"] }

@@ -23,7 +23,7 @@ pub trait SessionStore: Send + Sync {
 
     /// Finalises a session by recording a `session_end` event and updating
     /// the index entry's `status`.
-    async fn finish(&self, session_id: &str, status: &str) -> anyhow::Result<()>;
+    async fn finish(&self, session_id: &str, status: &str, turn_count: u32) -> anyhow::Result<()>;
 
     /// Looks up the metadata for a session by ID.
     async fn find(&self, session_id: &str) -> anyhow::Result<Option<SessionMetadata>>;
