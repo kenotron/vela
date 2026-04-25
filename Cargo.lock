@@ -65,11 +65,14 @@ name = "amplifier-module-orchestrator-loop-streaming"
 version = "0.1.0"
 dependencies = [
  "amplifier-module-agent-runtime",
+ "amplifier-module-session-store",
  "amplifier-module-tool-delegate",
  "amplifier-module-tool-task",
  "anyhow",
  "async-trait",
+ "chrono",
  "serde_json",
+ "tempfile",
  "tokio",
 ]
 

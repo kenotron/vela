@@ -10,6 +10,8 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::RwLock;
 
+use amplifier_module_session_store::format::SessionEvent;
+use amplifier_module_session_store::SessionStore;
 use amplifier_module_tool_task::{ContextAwareTool, Tool};
 
 // ---------------------------------------------------------------------------
@@ -132,6 +134,7 @@ impl Default for LoopConfig {
 /// 3. A `messages` buffer of conversation-history [`Value`] entries.
 /// 4. A `context_aware_tools` registry of [`ContextAwareTool`] objects keyed by name.
 /// 5. A `providers` registry of [`Provider`] objects keyed by name.
+/// 6. An optional [`SessionStore`] for persisting events.
 pub struct LoopOrchestrator {
     /// Loop configuration (max steps, system prompt, …).
     pub config: LoopConfig,
@@ -143,6 +146,16 @@ pub struct LoopOrchestrator {
     pub context_aware_tools: RwLock<HashMap<String, Arc<dyn ContextAwareTool>>>,
     /// Provider registry keyed by provider name.
     pub providers: RwLock<HashMap<String, Arc<dyn Provider>>>,
+    /// Optional session store for event persistence.
+    session_store: RwLock<Option<Arc<dyn SessionStore>>>,
+    /// Session ID to use when persisting events.
+    session_id: RwLock<Option<String>>,
+    /// Agent name for the current session.
+    #[allow(dead_code)]
+    agent_name: RwLock<Option<String>>,
+    /// Parent session ID (for sub-sessions).
+    #[allow(dead_code)]
+    parent_id: RwLock<Option<String>>,
 }
 
 impl LoopOrchestrator {
@@ -154,6 +167,10 @@ impl LoopOrchestrator {
             messages: RwLock::new(Vec::new()),
             context_aware_tools: RwLock::new(HashMap::new()),
             providers: RwLock::new(HashMap::new()),
+            session_store: RwLock::new(None),
+            session_id: RwLock::new(None),
+            agent_name: RwLock::new(None),
+            parent_id: RwLock::new(None),
         }
     }
 
@@ -208,6 +225,78 @@ impl LoopOrchestrator {
     }
 
     // -----------------------------------------------------------------------
+    // Session store attachment (task-9)
+    // -----------------------------------------------------------------------
+
+    /// Attach a [`SessionStore`] and associated session metadata to this orchestrator.
+    ///
+    /// Uses `try_write().expect(...)` for each field — panics only on lock contention,
+    /// which should not occur during normal sequential setup.
+    pub fn attach_store(
+        &self,
+        store: Arc<dyn SessionStore>,
+        session_id: String,
+        agent_name: String,
+        parent_id: Option<String>,
+    ) {
+        *self
+            .session_store
+            .try_write()
+            .expect("attach_store contention on session_store") = Some(store);
+        *self
+            .session_id
+            .try_write()
+            .expect("attach_store contention on session_id") = Some(session_id);
+        *self
+            .agent_name
+            .try_write()
+            .expect("attach_store contention on agent_name") = Some(agent_name);
+        *self
+            .parent_id
+            .try_write()
+            .expect("attach_store contention on parent_id") = parent_id;
+    }
+
+    /// Persist a single [`SessionEvent`] to the attached store, if any.
+    ///
+    /// If no store or session ID is attached, this is a no-op.
+    async fn persist(&self, event: SessionEvent) -> anyhow::Result<()> {
+        let store = {
+            let guard = self.session_store.read().await;
+            guard.as_ref().cloned()
+        };
+        let sid = {
+            let guard = self.session_id.read().await;
+            guard.as_ref().cloned()
+        };
+
+        if let (Some(store), Some(sid)) = (store, sid) {
+            store.append_event(&sid, event).await?;
+        }
+        Ok(())
+    }
+
+    /// Finalise the attached session by appending a `session_end` event.
+    ///
+    /// `turn_count` is passed as `0` — callers may query `load()` for the real count.
+    /// If no store is attached this is a no-op.
+    pub async fn finish_store(&self, status: &str) -> anyhow::Result<()> {
+        let store = {
+            let guard = self.session_store.read().await;
+            guard.as_ref().cloned()
+        };
+        let sid = {
+            let guard = self.session_id.read().await;
+            guard.as_ref().cloned()
+        };
+
+        if let (Some(store), Some(sid)) = (store, sid) {
+            store.finish(&sid, status, 0).await?;
+        }
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
     // Agentic loop execution (task-9)
     // -----------------------------------------------------------------------
 
@@ -242,6 +331,14 @@ impl LoopOrchestrator {
             .add_message(user_message)
             .await
             .map_err(|e| anyhow!("add_message failed: {e}"))?;
+
+        // Persist the user turn to the attached session store (if any).
+        self.persist(SessionEvent::Turn {
+            role: "user".to_string(),
+            content: user_prompt.clone(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        })
+        .await?;
 
         // Step 2: select a provider (first registered).
         let provider = {
@@ -304,6 +401,15 @@ impl LoopOrchestrator {
                     })
                     .collect::<Vec<_>>()
                     .join("");
+
+                // Persist the assistant turn before returning.
+                self.persist(SessionEvent::Turn {
+                    role: "assistant".to_string(),
+                    content: text.clone(),
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                })
+                .await?;
+
                 return Ok(text);
             }
 
@@ -360,7 +466,7 @@ impl LoopOrchestrator {
                         cat.set_execution_context(context_messages.clone());
                     }
 
-                    let result = tool.execute(args_value).await;
+                    let result = tool.execute(args_value.clone()).await;
                     let content = match result {
                         Ok(r) => r
                             .output
@@ -368,6 +474,15 @@ impl LoopOrchestrator {
                             .unwrap_or_else(|| "ok".to_string()),
                         Err(e) => format!("Error: {:?}", e),
                     };
+
+                    // Persist a ToolCall event after execution.
+                    self.persist(SessionEvent::ToolCall {
+                        tool: call.name.clone(),
+                        args: args_value.clone(),
+                        result: content.clone(),
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                    })
+                    .await?;
 
                     result_blocks.push(serde_json::json!({
                         "type": "tool_result",
@@ -401,11 +516,14 @@ impl LoopOrchestrator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use amplifier_module_session_store::file::FileSessionStore;
+    use amplifier_module_session_store::format::{SessionEvent, SessionMetadata};
     use amplifier_module_tool_task::{ContextAwareTool, ToolError, ToolResult, ToolSpec};
     use serde_json::json;
     use std::future::Future;
     use std::pin::Pin;
     use std::sync::Mutex as StdMutex;
+    use tempfile::TempDir;
 
     // -----------------------------------------------------------------------
     // Existing baseline tests
@@ -710,6 +828,152 @@ mod tests {
             has_user_prompt,
             "messages passed to set_execution_context should contain \
              a user message with 'the user prompt'"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Task-9 (session-store): persist events when store is attached
+    // -----------------------------------------------------------------------
+
+    /// Verifies that attach_store / finish_store exist and that execute()
+    /// writes SessionStart (via store.begin), a user Turn, an assistant Turn,
+    /// and SessionEnd (via finish_store) to the FileSessionStore.
+    #[tokio::test]
+    async fn execute_persists_events_when_store_attached() {
+        // -------------------------------------------------------------------
+        // MockProvider: always returns a single Text block (no tool calls)
+        // -------------------------------------------------------------------
+        struct MockProvider;
+
+        #[async_trait::async_trait]
+        impl Provider for MockProvider {
+            async fn complete(
+                &self,
+                _messages: Vec<Value>,
+                _tools: Vec<Value>,
+                _system_prompt: Option<String>,
+            ) -> anyhow::Result<Vec<ContentBlock>> {
+                Ok(vec![ContentBlock::Text {
+                    text: "assistant reply".to_string(),
+                }])
+            }
+
+            fn parse_tool_calls(&self, _response: &[ContentBlock]) -> Vec<ToolCall> {
+                vec![]
+            }
+        }
+
+        // -------------------------------------------------------------------
+        // SimpleContext: plain Vec<Value> backing store
+        // -------------------------------------------------------------------
+        struct SimpleContext {
+            messages: Vec<Value>,
+        }
+
+        impl SimpleContext {
+            fn new() -> Self {
+                Self {
+                    messages: Vec::new(),
+                }
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl Context for SimpleContext {
+            async fn get_messages_for_request(
+                &self,
+                _depth: Option<usize>,
+                _scope: Option<usize>,
+            ) -> anyhow::Result<Vec<Value>> {
+                Ok(self.messages.clone())
+            }
+
+            async fn add_message(&mut self, message: Value) -> anyhow::Result<()> {
+                self.messages.push(message);
+                Ok(())
+            }
+        }
+
+        // -------------------------------------------------------------------
+        // Setup: TempDir + FileSessionStore wrapped in Arc
+        // -------------------------------------------------------------------
+        let tmp = TempDir::new().expect("tempdir");
+        let store: Arc<FileSessionStore> =
+            Arc::new(FileSessionStore::new_with_root(tmp.path().to_path_buf()));
+
+        // Build orchestrator and attach store
+        let orch = LoopOrchestrator::new(LoopConfig::default());
+        orch.attach_store(
+            store.clone() as Arc<dyn SessionStore>,
+            "test-session-1".to_string(),
+            "test-agent".to_string(),
+            None,
+        );
+
+        // Register provider
+        orch.register_provider("anthropic", Arc::new(MockProvider))
+            .await;
+
+        // Begin the session in the store (writes SessionStart event)
+        let meta = SessionMetadata {
+            session_id: "test-session-1".to_string(),
+            agent_name: "test-agent".to_string(),
+            parent_id: None,
+            created: chrono::Utc::now().to_rfc3339(),
+            status: "active".to_string(),
+        };
+        store.begin("test-session-1", meta).await.expect("begin");
+
+        // Build context + hooks
+        let mut ctx = SimpleContext::new();
+        let hooks = HookRegistry::new();
+
+        // -------------------------------------------------------------------
+        // Execute the loop
+        // -------------------------------------------------------------------
+        orch.execute("hello".to_string(), &mut ctx, &hooks, |_| {})
+            .await
+            .expect("execute should succeed");
+
+        // Finalise the session
+        orch.finish_store("success").await.expect("finish_store");
+
+        // -------------------------------------------------------------------
+        // Assertions: load events and verify
+        // -------------------------------------------------------------------
+        let events = store.load("test-session-1").await.expect("load");
+
+        assert!(
+            events.len() >= 4,
+            "expected at least 4 events (SessionStart, user Turn, assistant Turn, SessionEnd), got {}",
+            events.len()
+        );
+
+        // First event: SessionStart (written by store.begin)
+        assert!(
+            matches!(events[0], SessionEvent::SessionStart { .. }),
+            "events[0] should be SessionStart, got: {:?}",
+            events[0]
+        );
+
+        // Contains at least one user Turn
+        let has_user_turn = events.iter().any(|e| {
+            matches!(e, SessionEvent::Turn { role, .. } if role == "user")
+        });
+        assert!(has_user_turn, "events should contain a user Turn");
+
+        // Contains at least one assistant Turn
+        let has_assistant_turn = events.iter().any(|e| {
+            matches!(e, SessionEvent::Turn { role, .. } if role == "assistant")
+        });
+        assert!(has_assistant_turn, "events should contain an assistant Turn");
+
+        // Last event: SessionEnd (written by finish_store)
+        let last = events.last().expect("events should not be empty");
+        assert!(
+            matches!(last, SessionEvent::SessionEnd { .. }),
+            "last event should be SessionEnd, got: {:?}",
+            last
         );
     }
 }

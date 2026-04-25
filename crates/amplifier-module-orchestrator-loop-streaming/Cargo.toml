@@ -5,12 +5,17 @@ edition = "2021"
 
 [dependencies]
 amplifier-module-tool-task = { path = "../amplifier-module-tool-task" }
+amplifier-module-session-store = { path = "../amplifier-module-session-store" }
 serde_json = "1"
 tokio = { version = "1", features = ["sync"] }
 anyhow = "1"
 async-trait = "0.1"
+chrono = { workspace = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros", "sync"] }
 amplifier-module-tool-delegate = { path = "../amplifier-module-tool-delegate" }
 amplifier-module-agent-runtime = { path = "../amplifier-module-agent-runtime" }
+amplifier-module-session-store = { path = "../amplifier-module-session-store" }
+tempfile = "3"
+chrono = { workspace = true }
