@@ -80,6 +80,30 @@ impl FileSessionStore {
     pub fn index_file(&self) -> PathBuf {
         self.root.join("index.jsonl")
     }
+
+    /// Reads and parses all events from the session's JSONL transcript, in
+    /// original on-disk order.
+    ///
+    /// Returns an error if the file cannot be read or any non-empty line is not
+    /// valid JSONL; the error message identifies the file and the 1-based line
+    /// number of the first bad line.
+    pub async fn load(&self, session_id: &str) -> anyhow::Result<Vec<SessionEvent>> {
+        let path = self.events_file(session_id);
+        let body = std::fs::read_to_string(&path)
+            .map_err(|e| anyhow::anyhow!("could not read {}: {}", path.display(), e))?;
+
+        let mut events = Vec::new();
+        for (i, line) in body.lines().enumerate() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let event: SessionEvent = serde_json::from_str(line).map_err(|e| {
+                anyhow::anyhow!("malformed JSONL at {} line {}: {}", path.display(), i + 1, e)
+            })?;
+            events.push(event);
+        }
+        Ok(events)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -183,7 +207,23 @@ impl SessionStore for FileSessionStore {
     }
 
     async fn list(&self) -> anyhow::Result<Vec<SessionMetadata>> {
-        anyhow::bail!("list not implemented yet")
+        let path = self.index_file();
+        let body = match std::fs::read_to_string(&path) {
+            Ok(s) => s,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
+            Err(e) => return Err(e.into()),
+        };
+
+        let mut entries = Vec::new();
+        for (i, line) in body.lines().enumerate() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let entry: SessionMetadata = serde_json::from_str(line)
+                .map_err(|e| anyhow::anyhow!("malformed index.jsonl line {}: {}", i + 1, e))?;
+            entries.push(entry);
+        }
+        Ok(entries)
     }
 
     fn exists(&self, session_id: &str) -> bool {
@@ -352,6 +392,105 @@ mod tests {
             !index_lines[0].contains(r#""status":"active""#),
             r#"index line should NOT contain "status":"active": {}"#,
             index_lines[0]
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // load / list tests (task-7)
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn load_returns_events_in_order() {
+        let (tmp, store) = make_store();
+        let meta = SessionMetadata {
+            session_id: "s1".to_string(),
+            agent_name: "test-agent".to_string(),
+            parent_id: None,
+            created: "2026-04-25T00:00:00Z".to_string(),
+            status: "active".to_string(),
+        };
+        SessionStore::begin(&store, "s1", meta).await.expect("begin");
+
+        let turn = crate::format::SessionEvent::Turn {
+            role: "user".to_string(),
+            content: "hello".to_string(),
+            timestamp: "2026-04-25T00:00:01Z".to_string(),
+        };
+        SessionStore::append_event(&store, "s1", turn)
+            .await
+            .expect("append_event");
+
+        SessionStore::finish(&store, "s1", "success", 1)
+            .await
+            .expect("finish");
+
+        let events = store.load("s1").await.expect("load");
+        assert_eq!(events.len(), 3, "expected exactly 3 events, got: {}", events.len());
+        assert!(
+            matches!(events[0], crate::format::SessionEvent::SessionStart { .. }),
+            "first event should be SessionStart"
+        );
+        assert!(
+            matches!(events[1], crate::format::SessionEvent::Turn { .. }),
+            "second event should be Turn"
+        );
+        assert!(
+            matches!(events[2], crate::format::SessionEvent::SessionEnd { .. }),
+            "third event should be SessionEnd"
+        );
+        // suppress unused tmp warning
+        let _ = &tmp;
+    }
+
+    #[tokio::test]
+    async fn load_returns_clear_error_on_malformed_jsonl() {
+        let (tmp, store) = make_store();
+
+        // Manually create a session dir 'bad' with events.jsonl that has one
+        // valid session_start line followed by NOT JSON on line 2.
+        let session_dir = tmp.path().join("bad");
+        std::fs::create_dir_all(&session_dir).expect("create dir");
+        let events_path = session_dir.join("events.jsonl");
+        let valid_line = serde_json::to_string(&crate::format::SessionEvent::SessionStart {
+            session_id: "bad".to_string(),
+            parent_id: None,
+            agent_name: "test".to_string(),
+            timestamp: "2026-04-25T00:00:00Z".to_string(),
+        })
+        .expect("serialize");
+        std::fs::write(&events_path, format!("{valid_line}\nNOT JSON\n")).expect("write");
+
+        let result = store.load("bad").await;
+        assert!(result.is_err(), "expected an error for malformed JSONL");
+        let msg = format!("{}", result.unwrap_err());
+        assert!(
+            msg.contains("malformed") || msg.contains("line 2"),
+            "error should mention 'malformed' or 'line 2', got: {msg}"
+        );
+        // no panic = test passes
+    }
+
+    #[tokio::test]
+    async fn list_returns_all_sessions_in_order() {
+        let (_tmp, store) = make_store();
+
+        for (i, id) in ["s1", "s2", "s3"].iter().enumerate() {
+            let meta = SessionMetadata {
+                session_id: id.to_string(),
+                agent_name: "test-agent".to_string(),
+                parent_id: None,
+                created: format!("2026-04-25T00:00:0{}Z", i),
+                status: "active".to_string(),
+            };
+            SessionStore::begin(&store, id, meta).await.expect("begin");
+        }
+
+        let sessions = SessionStore::list(&store).await.expect("list");
+        let ids: Vec<&str> = sessions.iter().map(|s| s.session_id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec!["s1", "s2", "s3"],
+            "expected [s1, s2, s3] in order, got: {ids:?}"
         );
     }
 
