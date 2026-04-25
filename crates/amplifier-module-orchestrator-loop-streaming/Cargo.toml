@@ -1,0 +1,12 @@
+[package]
+name = "amplifier-module-orchestrator-loop-streaming"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+amplifier-module-tool-task = { path = "../amplifier-module-tool-task" }
+serde_json = "1"
+tokio = { version = "1", features = ["sync"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros", "sync"] }
