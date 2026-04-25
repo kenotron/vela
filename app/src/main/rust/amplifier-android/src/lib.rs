@@ -85,6 +85,7 @@ static RT: Lazy<Runtime> = Lazy::new(|| {
 /// * `user_input`         – The user's current message text.
 /// * `_user_content_json` – Optional content-blocks JSON (null = use plain `user_input`).
 /// * `system_prompt`      – Optional system prompt. Pass `""` to omit.
+/// * `vault_path`         – Filesystem path to the active vault root (used to load `.agents/`).
 /// * `token_cb`           – Kotlin `TokenCallback` (`fun onToken(text: String)`).
 /// * `tool_cb`            – Kotlin `ToolCallback` (`fun executeTool(name, argsJson): String`).
 /// * `hook_callbacks`     – Kotlin `Array<HookRegistration>` — lifecycle hook registry.
@@ -109,6 +110,7 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
     user_input: JString,
     _user_content_json: JObject,    // Kotlin: String? — reserved for content-blocks (unused)
     system_prompt: JString,
+    vault_path: JString,
     token_cb: JObject,
     tool_cb: JObject,               // Kotlin: ToolCallback → executeTool()
     hook_callbacks: JObject,        // Kotlin: Array<HookRegistration>
@@ -128,6 +130,7 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
     let history_json  = jstring_to_rust(&mut env, &history_json,  "history_json");
     let user_input    = jstring_to_rust(&mut env, &user_input,    "user_input");
     let system_prompt = jstring_to_rust(&mut env, &system_prompt, "system_prompt");
+    let vault_path    = jstring_to_rust(&mut env, &vault_path,    "vault_path");
 
     // ── Obtain JavaVM ─────────────────────────────────────────────────────────────────────
     let jvm = match env.get_java_vm() {
@@ -165,6 +168,7 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
         history_json,
         user_input,
         system_prompt,
+        vault_path,
         jvm,
         token_cb_global,
         tool_cb_global,
@@ -276,11 +280,13 @@ async fn run_agent_loop(
     history_json: String,
     user_input: String,
     system_prompt: String,
+    vault_path: String,
     jvm: Arc<JavaVM>,
     token_cb: Arc<GlobalRef>,
     tool_cb: Arc<GlobalRef>,
     hook_registrations: Vec<(Arc<GlobalRef>, Vec<String>)>,
 ) -> anyhow::Result<String> {
+    let _vault_path = vault_path;
     // Parse history and convert Anthropic wire format → amplifier-core format.
     let raw_history: Vec<Value> = serde_json::from_str(&history_json).unwrap_or_else(|e| {
         log::warn!("run_agent_loop: failed to parse history_json: {e}");
