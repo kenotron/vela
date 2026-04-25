@@ -183,6 +183,29 @@ pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeRun(
     }
 }
 
+// ──────────────────────────── nativeListAgents JNI entry ────────────────────────────
+
+/// Build an [`AgentRegistry`] for the given vault and return all agents as a JSON array.
+///
+/// Wire format: `[{"name":"...","description":"...","tools":[...]}, ...]`
+/// On any failure, returns `"[]"`.
+///
+/// # Parameters
+/// * `vault_path` – Filesystem path to the active vault root.
+#[no_mangle]
+pub extern "C" fn Java_com_vela_app_ai_AmplifierBridge_nativeListAgents(
+    mut env: JNIEnv,
+    _class: JClass,
+    vault_path: JString,
+) -> jstring {
+    let vault_path = jstring_to_rust(&mut env, &vault_path, "vault_path");
+    let registry = crate::agents::build_agent_registry(std::path::Path::new(&vault_path));
+    let json = crate::agents::list_agents_to_json(&registry);
+    env.new_string(json)
+        .map(|s| s.into_raw())
+        .unwrap_or(std::ptr::null_mut())
+}
+
 // ─────────────────────────────── Hook registrations builder ──────────────────────────────
 
 /// Parse a Kotlin `Array<HookRegistration>` JObject into a list of
