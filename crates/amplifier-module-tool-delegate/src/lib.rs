@@ -121,6 +121,7 @@ pub struct DelegateTool {
     pub config: DelegateToolConfig,
     pub runner: Arc<dyn AgentRunner>,
     pub registry: AgentRegistry,
+    context: Arc<std::sync::Mutex<Vec<Value>>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -129,6 +130,23 @@ pub struct DelegateTool {
 // ---------------------------------------------------------------------------
 
 impl DelegateTool {
+    /// Create a new [`DelegateTool`] with default configuration.
+    pub fn new(runner: Arc<dyn AgentRunner>, registry: AgentRegistry) -> Self {
+        Self {
+            config: DelegateToolConfig::default(),
+            runner,
+            registry,
+            context: Arc::new(std::sync::Mutex::new(Vec::new())),
+        }
+    }
+
+    /// Returns a snapshot of the currently stored execution context messages.
+    ///
+    /// Primarily used in tests and debug tooling.
+    pub fn snapshot_context(&self) -> Vec<Value> {
+        self.context.lock().unwrap().clone()
+    }
+
     /// Full dispatch pipeline: parse → resolve → build context → spawn → return.
     async fn dispatch(&self, input: Value) -> anyhow::Result<Value> {
         // ------------------------------------------------------------------
@@ -402,6 +420,78 @@ impl Tool for DelegateTool {
 }
 
 // ---------------------------------------------------------------------------
+// impl amplifier_module_tool_task::Tool for DelegateTool
+// ---------------------------------------------------------------------------
+
+impl amplifier_module_tool_task::Tool for DelegateTool {
+    fn name(&self) -> &str {
+        "delegate"
+    }
+
+    fn description(&self) -> &str {
+        "Delegate a task to a named sub-agent from the agent registry"
+    }
+
+    fn get_spec(&self) -> amplifier_module_tool_task::ToolSpec {
+        let local = <Self as Tool>::get_spec(self);
+        amplifier_module_tool_task::ToolSpec {
+            name: local.name,
+            description: local.description,
+            parameters: local.parameters,
+            extensions: local.extensions,
+        }
+    }
+
+    fn execute<'a>(
+        &'a self,
+        input: Value,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<
+                        amplifier_module_tool_task::ToolResult,
+                        amplifier_module_tool_task::ToolError,
+                    >,
+                > + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            match self.dispatch(input).await {
+                Ok(value) => Ok(amplifier_module_tool_task::ToolResult {
+                    success: true,
+                    output: Some(value),
+                    error: None,
+                }),
+                Err(e) => {
+                    let message = e.to_string();
+                    if message.contains("missing required parameter") {
+                        Err(amplifier_module_tool_task::ToolError::Other { message })
+                    } else {
+                        Err(amplifier_module_tool_task::ToolError::ExecutionFailed {
+                            message,
+                            stdout: None,
+                            stderr: None,
+                            exit_code: None,
+                        })
+                    }
+                }
+            }
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// impl ContextAwareTool for DelegateTool
+// ---------------------------------------------------------------------------
+
+impl amplifier_module_tool_task::ContextAwareTool for DelegateTool {
+    fn set_execution_context(&self, messages: Vec<Value>) {
+        *self.context.lock().unwrap() = messages;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -412,11 +502,7 @@ mod tests {
 
     /// Construct a minimal DelegateTool for use in struct-level tests.
     fn make_tool() -> DelegateTool {
-        DelegateTool {
-            config: DelegateToolConfig::default(),
-            runner: Arc::new(NopRunner),
-            registry: AgentRegistry::new(),
-        }
+        DelegateTool::new(Arc::new(NopRunner), AgentRegistry::new())
     }
 
     // -----------------------------------------------------------------------
@@ -466,16 +552,28 @@ mod tests {
 
     #[tokio::test]
     async fn execute_missing_instruction_returns_error() {
-        let tool = DelegateTool {
-            config: DelegateToolConfig::default(),
-            runner: Arc::new(NopRunner),
-            registry: AgentRegistry::new(),
-        };
+        let tool = DelegateTool::new(Arc::new(NopRunner), AgentRegistry::new());
         let result = tool.execute(json!({})).await;
         assert!(
             matches!(result, Err(ToolError::Other { .. })),
             "expected Err(ToolError::Other {{ .. }}) for missing instruction, got: {:?}",
             result
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // ContextAwareTool test (1)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn delegate_tool_implements_context_aware() {
+        use amplifier_module_tool_task::ContextAwareTool;
+
+        let tool = Arc::new(DelegateTool::new(Arc::new(NopRunner), AgentRegistry::new()));
+        let cat: Arc<dyn ContextAwareTool> = tool.clone();
+        cat.set_execution_context(vec![json!({"role": "user", "content": "hello"})]);
+        let ctx = tool.snapshot_context();
+        assert_eq!(ctx.len(), 1);
+        assert_eq!(ctx[0]["role"], json!("user"));
     }
 }
