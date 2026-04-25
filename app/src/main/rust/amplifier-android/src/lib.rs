@@ -42,11 +42,13 @@
 
 use std::sync::Arc;
 
+use amplifier_module_agent_runtime::AgentRegistry;
 use amplifier_module_context_simple::SimpleContext;
 use amplifier_module_orchestrator_loop_streaming::{
     Hook, HookRegistry, LoopConfig, LoopOrchestrator,
 };
 use amplifier_module_provider_anthropic::{AnthropicConfig, AnthropicProvider};
+use amplifier_module_tool_delegate::{DelegateConfig, DelegateTool, SubagentRunner};
 use android_logger::Config;
 use jni::objects::{GlobalRef, JClass, JObject, JObjectArray, JString, JValue};
 use jni::sys::jstring;
@@ -286,7 +288,6 @@ async fn run_agent_loop(
     tool_cb: Arc<GlobalRef>,
     hook_registrations: Vec<(Arc<GlobalRef>, Vec<String>)>,
 ) -> anyhow::Result<String> {
-    let _vault_path = vault_path;
     // Parse history and convert Anthropic wire format → amplifier-core format.
     let raw_history: Vec<Value> = serde_json::from_str(&history_json).unwrap_or_else(|e| {
         log::warn!("run_agent_loop: failed to parse history_json: {e}");
@@ -316,6 +317,21 @@ async fn run_agent_loop(
     for tool in tool_map.into_values() {
         orch.register_tool(tool).await;
     }
+
+    // ── Build agent registry (foundation + vault/.agents/) and register DelegateTool ──
+    let agent_registry: Arc<AgentRegistry> =
+        crate::agents::build_agent_registry(std::path::Path::new(&vault_path));
+
+    let delegate_tool = DelegateTool::new(
+        Arc::clone(&orch) as Arc<dyn SubagentRunner>,
+        Arc::clone(&agent_registry),
+        DelegateConfig::default(),
+    );
+    orch.register_tool(Arc::new(delegate_tool)).await;
+    log::info!(
+        "[amplifier-android] DelegateTool registered with {} agents",
+        agent_registry.available_names().len()
+    );
 
     // Build context pre-loaded with converted history.
     let mut ctx = SimpleContext::new(history);
@@ -527,6 +543,24 @@ mod tests {
         // Already-core-format tool_result should retain tool_call_id unchanged.
         assert_eq!(block["tool_call_id"], "toolu_01");
         assert_eq!(block["output"],       "result");
+    }
+
+    /// Verify that DelegateTool can be constructed with a LoopOrchestrator as the
+    /// SubagentRunner — confirming the Arc coercion used in run_agent_loop compiles.
+    #[test]
+    fn delegate_tool_wired_with_orchestrator_as_runner() {
+        use amplifier_module_orchestrator_loop_streaming::{LoopConfig, LoopOrchestrator};
+        let config = LoopConfig { max_steps: 1, system_prompt: String::new() };
+        let orch: Arc<LoopOrchestrator> = Arc::new(LoopOrchestrator::new(config));
+        let registry: Arc<AgentRegistry> =
+            crate::agents::build_agent_registry(std::path::Path::new("/tmp"));
+        let _tool = DelegateTool::new(
+            Arc::clone(&orch) as Arc<dyn SubagentRunner>,
+            Arc::clone(&registry),
+            DelegateConfig::default(),
+        );
+        // If this compiles, DelegateTool accepts LoopOrchestrator as SubagentRunner.
+        assert!(registry.available_names().len() >= 6, "expected foundation agents");
     }
 
     #[test]

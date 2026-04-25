@@ -12,13 +12,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "amplifier-agent-foundation"
+version = "0.1.0"
+dependencies = [
+ "amplifier-module-agent-runtime",
+]
+
+[[package]]
 name = "amplifier-android"
 version = "0.1.0"
 dependencies = [
+ "amplifier-agent-foundation",
  "amplifier-core",
+ "amplifier-module-agent-runtime",
  "amplifier-module-context-simple",
  "amplifier-module-orchestrator-loop-streaming",
  "amplifier-module-provider-anthropic",
+ "amplifier-module-tool-delegate",
  "amplifier-module-tool-skills",
  "amplifier-module-tool-task",
  "amplifier-module-tool-todo",
@@ -31,6 +41,7 @@ dependencies = [
  "once_cell",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
 ]
 
@@ -52,6 +63,16 @@ dependencies = [
  "tonic",
  "tonic-build",
  "uuid",
+]
+
+[[package]]
+name = "amplifier-module-agent-runtime"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "serde_yaml",
 ]
 
 [[package]]
@@ -101,9 +122,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "amplifier-module-tool-delegate"
+version = "0.1.0"
+dependencies = [
+ "amplifier-core",
+ "amplifier-module-agent-runtime",
+ "amplifier-module-tool-task",
+ "anyhow",
+ "async-trait",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "amplifier-module-tool-skills"
 version = "0.1.0"
-source = "git+https://github.com/kenotron-ms/amplifier-rust?branch=main#f0d7e4df93060c1e8aefc1ae539bdef4778cfb3b"
 dependencies = [
  "amplifier-core",
  "amplifier-module-tool-task",
@@ -118,7 +152,6 @@ dependencies = [
 [[package]]
 name = "amplifier-module-tool-task"
 version = "0.1.0"
-source = "git+https://github.com/kenotron-ms/amplifier-rust?branch=main#f0d7e4df93060c1e8aefc1ae539bdef4778cfb3b"
 dependencies = [
  "amplifier-core",
  "anyhow",

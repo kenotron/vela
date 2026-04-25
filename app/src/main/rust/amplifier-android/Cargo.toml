@@ -50,5 +50,13 @@ opt-level = "z"      # minimise binary size
 strip = true
 lto = true
 
+# Patch git versions of amplifier-rust crates with local path versions so that
+# amplifier-module-tool-delegate (local) and amplifier-module-orchestrator-loop-streaming
+# (git) both resolve to the same amplifier-module-tool-task instance, enabling the
+# Arc<dyn SubagentRunner> coercion to work without type identity mismatch.
+[patch."https://github.com/kenotron-ms/amplifier-rust"]
+amplifier-module-tool-task   = { path = "../../../../../../amplifier-rust/crates/amplifier-module-tool-task" }
+amplifier-module-tool-skills = { path = "../../../../../../amplifier-rust/crates/amplifier-module-tool-skills" }
+
 [dev-dependencies]
 tempfile = "3"
