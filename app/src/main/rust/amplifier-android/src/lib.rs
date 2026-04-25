@@ -59,6 +59,7 @@ use tokio::runtime::Runtime;
 
 mod jni_hooks;
 mod jni_tools;
+mod agents;
 use jni_tools::build_tool_map;
 
 // ─────────────────────────────── Shared Tokio runtime ────────────────────────────────────
