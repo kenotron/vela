@@ -80,6 +80,9 @@ dependencies = [
 name = "amplifier-module-session-store"
 version = "0.1.0"
 dependencies = [
+ "amplifier-core",
+ "amplifier-module-orchestrator-loop-streaming",
+ "amplifier-module-tool-task",
  "anyhow",
  "async-trait",
  "chrono",

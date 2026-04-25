@@ -12,6 +12,9 @@
     amplifier-module-provider-anthropic           = { path = "../../../../../../amplifier-rust/crates/amplifier-module-provider-anthropic" }
     amplifier-module-context-simple               = { path = "../../../../../../amplifier-rust/crates/amplifier-module-context-simple" }
     amplifier-module-tool-task                    = { path = "../../../../../../amplifier-rust/crates/amplifier-module-tool-task" }
+    amplifier-module-tool-filesystem              = { path = "../../../../../../amplifier-rust/crates/amplifier-module-tool-filesystem" }
+    amplifier-module-tool-bash                    = { path = "../../../../../../amplifier-rust/crates/amplifier-module-tool-bash" }
+    amplifier-module-tool-search                  = { path = "../../../../../../amplifier-rust/crates/amplifier-module-tool-search" }
     amplifier-module-tool-skills                  = { path = "../../../../../../amplifier-rust/crates/amplifier-module-tool-skills" }
     amplifier-module-tool-todo                    = { path = "../../../../../../amplifier-rust/crates/amplifier-module-tool-todo" }
     amplifier-module-tool-web                     = { path = "../../../../../../amplifier-rust/crates/amplifier-module-tool-web" }

@@ -49,6 +49,14 @@ use amplifier_module_orchestrator_loop_streaming::{
 };
 use amplifier_module_provider_anthropic::{AnthropicConfig, AnthropicProvider};
 use amplifier_module_tool_delegate::{DelegateConfig, DelegateTool, SubagentRunner};
+use amplifier_module_tool_filesystem::{
+    EditFileTool, FilesystemConfig, GlobTool, GrepTool, ReadFileTool, WriteFileTool,
+};
+use amplifier_module_tool_bash::{BashConfig, BashTool, SafetyProfile};
+use amplifier_module_tool_search::{GrepCodebaseTool, SearchConfig};
+use amplifier_module_tool_todo::TodoTool;
+use amplifier_module_tool_web::fetch::FetchUrlTool;
+use amplifier_module_tool_skills::SkillEngine;
 use android_logger::Config;
 use jni::objects::{GlobalRef, JClass, JObject, JObjectArray, JString, JValue};
 use jni::sys::jstring;
@@ -341,6 +349,43 @@ async fn run_agent_loop(
     for tool in tool_map.into_values() {
         orch.register_tool(tool).await;
     }
+
+    // ── Rust-native tools (registered after Kotlin bridges → take priority by name) ──
+    let vault_path_buf = std::path::PathBuf::from(&vault_path);
+
+    // Filesystem (vault-scoped)
+    let fs_config = FilesystemConfig::new(vault_path_buf.clone());
+    orch.register_tool(Arc::new(ReadFileTool::new(Arc::clone(&fs_config)))).await;
+    orch.register_tool(Arc::new(WriteFileTool::new(Arc::clone(&fs_config)))).await;
+    orch.register_tool(Arc::new(EditFileTool::new(Arc::clone(&fs_config)))).await;
+    orch.register_tool(Arc::new(GlobTool::new(Arc::clone(&fs_config)))).await;
+    orch.register_tool(Arc::new(GrepTool::new(Arc::clone(&fs_config)))).await;
+
+    // Bash (Android toybox allowlist)
+    orch.register_tool(Arc::new(BashTool::new(BashConfig {
+        safety_profile: SafetyProfile::Android,
+        working_dir: vault_path_buf.clone(),
+        timeout_secs: 30,
+    }))).await;
+
+    // Web fetch
+    orch.register_tool(Arc::new(FetchUrlTool::new())).await;
+
+    // Codebase search
+    orch.register_tool(Arc::new(GrepCodebaseTool::new(SearchConfig::new(vault_path_buf.clone())))).await;
+
+    // Todo (session-scoped)
+    orch.register_tool(Arc::new(TodoTool::default())).await;
+
+    // Skills engine
+    let skills_dir = vault_path_buf.join("skills");
+    std::fs::create_dir_all(&skills_dir).ok();
+    orch.register_tool(Arc::new(SkillEngine::new(vault_path_buf.clone()))).await;
+
+    log::info!(
+        "[amplifier-android] Rust-native tools registered: read_file, write_file, edit_file, \
+         glob, grep, bash, web_fetch, grep_codebase, todo, skills"
+    );
 
     // ── Build agent registry (foundation + vault/.agents/) and register DelegateTool ──
     let agent_registry: Arc<AgentRegistry> =
