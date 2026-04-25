@@ -5,7 +5,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use amplifier_core::traits::Provider;
-use amplifier_module_agent_runtime::ResolvedProvider;
+pub use amplifier_module_agent_runtime::ResolvedProvider;
 use globset::{Glob, GlobMatcher};
 use regex::Regex;
 
