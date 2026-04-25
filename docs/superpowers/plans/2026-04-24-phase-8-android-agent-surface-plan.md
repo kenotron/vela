@@ -1315,3 +1315,22 @@ Phase 8 is complete when **all** of the following are true:
 - ☐ Manual UI verification steps 1–6 above all pass on a real device
 
 If any item is unchecked, Phase 8 is incomplete — surface the failure and stop. Do not declare success without evidence.
+
+---
+
+## Manual UI verification
+
+After installing the debug APK on a device with at least one vault active:
+
+1. Open ConversationScreen with a vault selected.
+2. Verify the agent chip row renders above the composer with the six foundation
+   agents (explorer, zen-architect, bug-hunter, git-ops, modular-builder,
+   security-guardian) plus a trailing [+] chip.
+3. Tap an agent chip — it must show a filled background indicating active state.
+4. Tap the same chip again — it must clear to unselected.
+5. Type "what files are here?" and send. Open the tool execution log
+   (or logcat for "amplifier") — verify a `delegate` tool call appears with
+   `agent="<selected>"` and the user message as `instruction`.
+6. From a desktop, drop a new `.md` agent bundle into `<vault>/.agents/`,
+   sync the vault, then tap the [+] chip in the chip row → "Refresh".
+   The new agent must appear as a chip.
