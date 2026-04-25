@@ -346,3 +346,177 @@ async fn crash_resume_end_to_end() {
         user_turn_contents
     );
 }
+
+// =============================================================================
+// Concurrent sessions — no cross-contamination
+// =============================================================================
+
+#[tokio::test]
+async fn three_concurrent_sessions_dont_corrupt_each_other() {
+    use std::sync::Arc;
+
+    use amplifier_module_session_store::file::FileSessionStore;
+    use amplifier_module_session_store::format::{SessionEvent, SessionMetadata};
+    use amplifier_module_session_store::SessionStore;
+    use chrono::Utc;
+    use tempfile::TempDir;
+
+    let tmp = TempDir::new().expect("tempdir");
+    let store: Arc<FileSessionStore> =
+        Arc::new(FileSessionStore::new_with_root(tmp.path().to_path_buf()));
+
+    // Spawn 3 tasks that each write to their own session concurrently.
+    let mut handles = Vec::new();
+    for i in 0usize..3 {
+        let store_clone = Arc::clone(&store);
+        let handle = tokio::spawn(async move {
+            let sid = format!("sess-{i}");
+            let now = Utc::now().to_rfc3339();
+            let meta = SessionMetadata {
+                session_id: sid.clone(),
+                agent_name: format!("agent-{i}"),
+                parent_id: None,
+                created: now,
+                status: "active".to_string(),
+            };
+            store_clone.begin(&sid, meta).await.expect("begin");
+
+            for n in 0usize..50 {
+                let now = Utc::now().to_rfc3339();
+                let event = SessionEvent::Turn {
+                    role: "user".to_string(),
+                    content: format!("msg {i}-{n}"),
+                    timestamp: now,
+                };
+                store_clone
+                    .append_event(&sid, event)
+                    .await
+                    .expect("append_event");
+            }
+
+            store_clone
+                .finish(&sid, "success", 50)
+                .await
+                .expect("finish");
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.await.expect("spawned task panicked");
+    }
+
+    // Verify each session has exactly 52 events with no cross-contamination.
+    for i in 0usize..3 {
+        let sid = format!("sess-{i}");
+        let events = store.load(&sid).await.expect("load");
+
+        assert_eq!(
+            events.len(),
+            52,
+            "session {sid} should have 52 events (1 start + 50 turns + 1 end), got {}",
+            events.len()
+        );
+
+        assert!(
+            matches!(&events[0], SessionEvent::SessionStart { .. }),
+            "first event of {sid} should be SessionStart, got: {:?}",
+            events[0]
+        );
+        assert!(
+            matches!(&events[51], SessionEvent::SessionEnd { .. }),
+            "last event of {sid} should be SessionEnd, got: {:?}",
+            events[51]
+        );
+
+        // Every Turn in the middle must belong to this session (no cross-contamination).
+        let expected_prefix = format!("msg {i}-");
+        for event in &events[1..51] {
+            if let SessionEvent::Turn { content, .. } = event {
+                assert!(
+                    content.starts_with(&expected_prefix),
+                    "session {sid}: turn content '{content}' should start with '{expected_prefix}'"
+                );
+            } else {
+                panic!("session {sid}: expected Turn event, got: {event:?}");
+            }
+        }
+    }
+
+    // The shared index must list exactly 3 sessions, all with status="success".
+    let sessions = store.list().await.expect("list");
+    assert_eq!(
+        sessions.len(),
+        3,
+        "index should have 3 sessions, got {}",
+        sessions.len()
+    );
+    for session in &sessions {
+        assert_eq!(
+            session.status, "success",
+            "session {} should have status 'success', got '{}'",
+            session.session_id, session.status
+        );
+    }
+}
+
+// =============================================================================
+// Malformed events.jsonl — clear error, no panic
+// =============================================================================
+
+#[tokio::test]
+async fn malformed_events_jsonl_returns_clear_error_no_panic() {
+    use amplifier_module_session_store::file::FileSessionStore;
+    use amplifier_module_session_store::format::SessionEvent;
+    use amplifier_module_session_store::SessionStore;
+    use tempfile::TempDir;
+
+    let tmp = TempDir::new().expect("tempdir");
+    let store = FileSessionStore::new_with_root(tmp.path().to_path_buf());
+    let sid = "broken";
+
+    // Manually create the session directory.
+    let session_dir = tmp.path().join(sid);
+    std::fs::create_dir_all(&session_dir).expect("create session dir");
+
+    let events_path = session_dir.join("events.jsonl");
+
+    // Line 1: valid session_start.
+    let valid_start = serde_json::to_string(&SessionEvent::SessionStart {
+        session_id: sid.to_string(),
+        parent_id: None,
+        agent_name: "test-agent".to_string(),
+        timestamp: "2026-04-25T00:00:00Z".to_string(),
+    })
+    .expect("serialize session_start");
+
+    // Line 3: valid turn.
+    let valid_turn = serde_json::to_string(&SessionEvent::Turn {
+        role: "user".to_string(),
+        content: "hello".to_string(),
+        timestamp: "2026-04-25T00:00:01Z".to_string(),
+    })
+    .expect("serialize turn");
+
+    // Write three lines: valid, invalid, valid.
+    std::fs::write(
+        &events_path,
+        format!("{valid_start}\nnot json at all\n{valid_turn}\n"),
+    )
+    .expect("write events.jsonl");
+
+    let result = store.load(sid).await;
+
+    // Must return Err — no panic.
+    assert!(result.is_err(), "expected an Err for malformed JSONL, got Ok");
+
+    let err_msg = format!("{}", result.unwrap_err());
+    assert!(
+        err_msg.contains("malformed"),
+        "error should contain 'malformed', got: {err_msg}"
+    );
+    assert!(
+        err_msg.contains("line 2"),
+        "error should reference 'line 2' (the bad line), got: {err_msg}"
+    );
+}
