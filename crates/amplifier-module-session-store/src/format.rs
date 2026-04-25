@@ -80,8 +80,14 @@ mod tests {
             timestamp: "2024-01-01T00:00:00Z".to_string(),
         };
         let json = serde_json::to_string(&event).expect("serialize");
-        assert!(json.contains(r#""type":"session_start""#), "missing type discriminator: {json}");
-        assert!(json.contains(r#""session_id":"abc""#), "missing session_id: {json}");
+        assert!(
+            json.contains(r#""type":"session_start""#),
+            "missing type discriminator: {json}"
+        );
+        assert!(
+            json.contains(r#""session_id":"abc""#),
+            "missing session_id: {json}"
+        );
         let back: SessionEvent = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back, event);
     }
@@ -94,7 +100,10 @@ mod tests {
             timestamp: "2024-01-01T00:00:01Z".to_string(),
         };
         let json = serde_json::to_string(&event).expect("serialize");
-        assert!(json.contains(r#""type":"turn""#), "missing type discriminator: {json}");
+        assert!(
+            json.contains(r#""type":"turn""#),
+            "missing type discriminator: {json}"
+        );
         let back: SessionEvent = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back, event);
     }
@@ -108,7 +117,10 @@ mod tests {
             timestamp: "2024-01-01T00:00:02Z".to_string(),
         };
         let json = serde_json::to_string(&event).expect("serialize");
-        assert!(json.contains(r#""type":"tool_call""#), "missing type discriminator: {json}");
+        assert!(
+            json.contains(r#""type":"tool_call""#),
+            "missing type discriminator: {json}"
+        );
         let back: SessionEvent = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back, event);
     }
@@ -121,7 +133,10 @@ mod tests {
             timestamp: "2024-01-01T00:00:03Z".to_string(),
         };
         let json = serde_json::to_string(&event).expect("serialize");
-        assert!(json.contains(r#""type":"session_end""#), "missing type discriminator: {json}");
+        assert!(
+            json.contains(r#""type":"session_end""#),
+            "missing type discriminator: {json}"
+        );
         let back: SessionEvent = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back, event);
     }
@@ -136,10 +151,19 @@ mod tests {
             status: "active".to_string(),
         };
         let json = serde_json::to_string(&entry).expect("serialize");
-        assert!(json.contains(r#""session_id":"sess-1""#), "missing session_id: {json}");
-        assert!(json.contains(r#""agent_name":"explorer""#), "missing agent_name: {json}");
+        assert!(
+            json.contains(r#""session_id":"sess-1""#),
+            "missing session_id: {json}"
+        );
+        assert!(
+            json.contains(r#""agent_name":"explorer""#),
+            "missing agent_name: {json}"
+        );
         // parent_id: None should be omitted
-        assert!(!json.contains("parent_id"), "parent_id should be omitted when None: {json}");
+        assert!(
+            !json.contains("parent_id"),
+            "parent_id should be omitted when None: {json}"
+        );
         let back: IndexEntry = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back, entry);
     }

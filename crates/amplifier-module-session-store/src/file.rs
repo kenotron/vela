@@ -39,9 +39,11 @@ impl FileSessionStore {
     ///
     /// Returns an error if the home directory cannot be determined.
     pub fn new() -> anyhow::Result<Self> {
-        let home = dirs::home_dir()
-            .ok_or_else(|| anyhow::anyhow!("cannot determine home directory"))?;
-        Ok(Self::new_with_root(home.join(".amplifier").join("sessions")))
+        let home =
+            dirs::home_dir().ok_or_else(|| anyhow::anyhow!("cannot determine home directory"))?;
+        Ok(Self::new_with_root(
+            home.join(".amplifier").join("sessions"),
+        ))
     }
 
     /// Creates a new `FileSessionStore` rooted at the given `root` path.
@@ -80,7 +82,6 @@ impl FileSessionStore {
     pub fn index_file(&self) -> PathBuf {
         self.root.join("index.jsonl")
     }
-
 }
 
 // ---------------------------------------------------------------------------
@@ -218,7 +219,12 @@ impl SessionStore for FileSessionStore {
                 continue;
             }
             let event: SessionEvent = serde_json::from_str(line).map_err(|e| {
-                anyhow::anyhow!("malformed JSONL at {} line {}: {}", path.display(), i + 1, e)
+                anyhow::anyhow!(
+                    "malformed JSONL at {} line {}: {}",
+                    path.display(),
+                    i + 1,
+                    e
+                )
             })?;
             events.push(event);
         }
@@ -249,7 +255,10 @@ mod tests {
     fn session_dir_path_is_under_root() {
         let (tmp, store) = make_store();
         let dir = store.session_dir("abc-123");
-        assert!(dir.starts_with(tmp.path()), "session_dir should be under root");
+        assert!(
+            dir.starts_with(tmp.path()),
+            "session_dir should be under root"
+        );
         assert!(
             dir.ends_with("abc-123"),
             "session_dir should end with session_id, got: {dir:?}"
@@ -284,7 +293,9 @@ mod tests {
             created: "2026-04-24T00:00:00Z".to_string(),
             status: "active".to_string(),
         };
-        SessionStore::begin(&store, "s1", meta).await.expect("begin");
+        SessionStore::begin(&store, "s1", meta)
+            .await
+            .expect("begin");
 
         let event = crate::format::SessionEvent::Turn {
             role: "user".to_string(),
@@ -323,7 +334,9 @@ mod tests {
             created: "2026-04-24T00:00:00Z".to_string(),
             status: "active".to_string(),
         };
-        SessionStore::begin(&store, "s1", meta).await.expect("begin");
+        SessionStore::begin(&store, "s1", meta)
+            .await
+            .expect("begin");
 
         assert!(
             SessionStore::exists(&store, "s1"),
@@ -344,7 +357,9 @@ mod tests {
             created: "2026-04-24T00:00:00Z".to_string(),
             status: "active".to_string(),
         };
-        SessionStore::begin(&store, "s1", meta).await.expect("begin");
+        SessionStore::begin(&store, "s1", meta)
+            .await
+            .expect("begin");
 
         // Finish the session.
         SessionStore::finish(&store, "s1", "success", 4)
@@ -355,7 +370,9 @@ mod tests {
         let events_path = tmp.path().join("s1").join("events.jsonl");
         let events_content = std::fs::read_to_string(&events_path).expect("read events.jsonl");
         let event_lines: Vec<&str> = events_content.lines().collect();
-        let last_line = event_lines.last().expect("events.jsonl should not be empty");
+        let last_line = event_lines
+            .last()
+            .expect("events.jsonl should not be empty");
         assert!(
             last_line.contains(r#""type":"session_end""#),
             r#"last line should contain "type":"session_end": {last_line}"#
@@ -404,7 +421,9 @@ mod tests {
             created: "2026-04-25T00:00:00Z".to_string(),
             status: "active".to_string(),
         };
-        SessionStore::begin(&store, "s1", meta).await.expect("begin");
+        SessionStore::begin(&store, "s1", meta)
+            .await
+            .expect("begin");
 
         let turn = crate::format::SessionEvent::Turn {
             role: "user".to_string(),
@@ -420,7 +439,12 @@ mod tests {
             .expect("finish");
 
         let events = store.load("s1").await.expect("load");
-        assert_eq!(events.len(), 3, "expected exactly 3 events, got: {}", events.len());
+        assert_eq!(
+            events.len(),
+            3,
+            "expected exactly 3 events, got: {}",
+            events.len()
+        );
         assert!(
             matches!(events[0], crate::format::SessionEvent::SessionStart { .. }),
             "first event should be SessionStart"
@@ -502,7 +526,9 @@ mod tests {
             status: "active".to_string(),
         };
 
-        SessionStore::begin(&store, "s1", meta).await.expect("begin");
+        SessionStore::begin(&store, "s1", meta)
+            .await
+            .expect("begin");
 
         // (a) session directory exists
         assert!(
@@ -515,7 +541,11 @@ mod tests {
         assert!(events_path.exists(), "events.jsonl should exist");
         let events_content = std::fs::read_to_string(&events_path).expect("read events.jsonl");
         let event_lines: Vec<&str> = events_content.lines().collect();
-        assert_eq!(event_lines.len(), 1, "events.jsonl should have exactly 1 line");
+        assert_eq!(
+            event_lines.len(),
+            1,
+            "events.jsonl should have exactly 1 line"
+        );
         assert!(
             event_lines[0].contains(r#""type":"session_start""#),
             r#"line should contain "type":"session_start": {}"#,
@@ -531,7 +561,11 @@ mod tests {
         let index_path = tmp.path().join("index.jsonl");
         let index_content = std::fs::read_to_string(&index_path).expect("read index.jsonl");
         let index_lines: Vec<&str> = index_content.lines().collect();
-        assert_eq!(index_lines.len(), 1, "index.jsonl should have exactly 1 line");
+        assert_eq!(
+            index_lines.len(),
+            1,
+            "index.jsonl should have exactly 1 line"
+        );
         assert!(
             index_lines[0].contains(r#""status":"active""#),
             r#"index line should contain "status":"active": {}"#,

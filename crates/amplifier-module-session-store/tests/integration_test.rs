@@ -25,8 +25,7 @@ mod common {
     // ---- amplifier-core trait imports ----
     use amplifier_core::errors::ProviderError;
     use amplifier_core::messages::{
-        ChatRequest, ChatResponse, ContentBlock as CoreContentBlock,
-        ToolCall as CoreToolCall,
+        ChatRequest, ChatResponse, ContentBlock as CoreContentBlock, ToolCall as CoreToolCall,
     };
     use amplifier_core::models::{ModelInfo, ProviderInfo};
     use amplifier_core::traits::Provider as CoreProvider;
@@ -182,7 +181,7 @@ async fn crash_resume_end_to_end() {
 
         // Register a provider scripted to reply "found: a.rs, b.rs, c.rs".
         let provider = Arc::new(ScriptedProvider::new(vec![
-            "found: a.rs, b.rs, c.rs".to_string(),
+            "found: a.rs, b.rs, c.rs".to_string()
         ]));
         orch.register_provider("anthropic", provider as Arc<dyn OrcProvider>)
             .await;
@@ -233,7 +232,12 @@ async fn crash_resume_end_to_end() {
             continue;
         }
         let _valid_json: serde_json::Value = serde_json::from_str(line).unwrap_or_else(|e| {
-            panic!("Line {} of events.jsonl is not valid JSON: {}\n{}", i + 1, e, line)
+            panic!(
+                "Line {} of events.jsonl is not valid JSON: {}\n{}",
+                i + 1,
+                e,
+                line
+            )
         });
         let _valid_event: SessionEvent = serde_json::from_str(line).unwrap_or_else(|e| {
             panic!(
@@ -334,13 +338,13 @@ async fn crash_resume_end_to_end() {
         .collect();
 
     assert!(
-        user_turn_contents.iter().any(|&t| t == "list all Rust files"),
+        user_turn_contents.contains(&"list all Rust files"),
         "store should still contain prior user turn 'list all Rust files'; \
          user turns found: {:?}",
         user_turn_contents
     );
     assert!(
-        user_turn_contents.iter().any(|&t| t == "now count them"),
+        user_turn_contents.contains(&"now count them"),
         "store should contain new user turn 'now count them' after resume; \
          user turns found: {:?}",
         user_turn_contents
@@ -508,7 +512,10 @@ async fn malformed_events_jsonl_returns_clear_error_no_panic() {
     let result = store.load(sid).await;
 
     // Must return Err — no panic.
-    assert!(result.is_err(), "expected an Err for malformed JSONL, got Ok");
+    assert!(
+        result.is_err(),
+        "expected an Err for malformed JSONL, got Ok"
+    );
 
     let err_msg = format!("{}", result.unwrap_err());
     assert!(

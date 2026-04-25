@@ -164,11 +164,7 @@ pub trait SubagentRunner: Send + Sync {
     /// The default implementation returns an error indicating that resume is
     /// not supported. Implementors that support session persistence should
     /// override this method.
-    async fn resume(
-        &self,
-        _session_id: &str,
-        _instruction: String,
-    ) -> anyhow::Result<SpawnResult> {
+    async fn resume(&self, _session_id: &str, _instruction: String) -> anyhow::Result<SpawnResult> {
         anyhow::bail!("resume not supported by this runner")
     }
 }

@@ -456,16 +456,16 @@ impl Tool for DelegateTool {
                 }
 
                 // Delegate to runner.resume().
-                let spawn_result = self
-                    .runner
-                    .resume(&sid, raw_instruction)
-                    .await
-                    .map_err(|e| ToolError::ExecutionFailed {
-                        message: e.to_string(),
-                        stdout: None,
-                        stderr: None,
-                        exit_code: None,
-                    })?;
+                let spawn_result =
+                    self.runner
+                        .resume(&sid, raw_instruction)
+                        .await
+                        .map_err(|e| ToolError::ExecutionFailed {
+                            message: e.to_string(),
+                            stdout: None,
+                            stderr: None,
+                            exit_code: None,
+                        })?;
 
                 return Ok(ToolResult {
                     success: true,
@@ -885,7 +885,8 @@ mod tests {
                 &'a self,
                 session_id: &'a str,
                 _instruction: String,
-            ) -> Pin<Box<dyn Future<Output = anyhow::Result<SpawnResult>> + Send + 'a>> {
+            ) -> Pin<Box<dyn Future<Output = anyhow::Result<SpawnResult>> + Send + 'a>>
+            {
                 let called = Arc::clone(&self.called);
                 let sid = session_id.to_string();
                 Box::pin(async move {
@@ -935,7 +936,11 @@ mod tests {
             }))
             .await;
 
-        assert!(result.is_ok(), "expected success for resume, got: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "expected success for resume, got: {:?}",
+            result
+        );
         let tool_result = result.unwrap();
         assert!(tool_result.success);
         assert_eq!(

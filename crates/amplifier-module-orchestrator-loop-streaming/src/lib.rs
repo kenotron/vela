@@ -12,7 +12,9 @@ use tokio::sync::RwLock;
 
 use amplifier_module_session_store::format::SessionEvent;
 use amplifier_module_session_store::SessionStore;
-use amplifier_module_tool_task::{ContextAwareTool, SpawnRequest, SpawnResult, SubagentRunner, Tool};
+use amplifier_module_tool_task::{
+    ContextAwareTool, SpawnRequest, SpawnResult, SubagentRunner, Tool,
+};
 
 // ---------------------------------------------------------------------------
 // ContentBlock
@@ -568,9 +570,7 @@ impl LoopOrchestrator {
         let hooks = HookRegistry::new();
 
         // (7) Execute one more loop step — execute() will persist the new turns.
-        let response = self
-            .execute(instruction, &mut ctx, &hooks, |_| {})
-            .await?;
+        let response = self.execute(instruction, &mut ctx, &hooks, |_| {}).await?;
 
         // (8) Return the result with the session ID.
         Ok(SpawnResult {
@@ -596,11 +596,7 @@ impl SubagentRunner for LoopOrchestrator {
 
     /// Resume a prior sub-agent session by delegating to the inherent
     /// [`LoopOrchestrator::resume`] method.
-    async fn resume(
-        &self,
-        session_id: &str,
-        instruction: String,
-    ) -> anyhow::Result<SpawnResult> {
+    async fn resume(&self, session_id: &str, instruction: String) -> anyhow::Result<SpawnResult> {
         LoopOrchestrator::resume(self, session_id, instruction).await
     }
 }
@@ -1088,16 +1084,19 @@ mod tests {
         );
 
         // Contains at least one user Turn
-        let has_user_turn = events.iter().any(|e| {
-            matches!(e, SessionEvent::Turn { role, .. } if role == "user")
-        });
+        let has_user_turn = events
+            .iter()
+            .any(|e| matches!(e, SessionEvent::Turn { role, .. } if role == "user"));
         assert!(has_user_turn, "events should contain a user Turn");
 
         // Contains at least one assistant Turn
-        let has_assistant_turn = events.iter().any(|e| {
-            matches!(e, SessionEvent::Turn { role, .. } if role == "assistant")
-        });
-        assert!(has_assistant_turn, "events should contain an assistant Turn");
+        let has_assistant_turn = events
+            .iter()
+            .any(|e| matches!(e, SessionEvent::Turn { role, .. } if role == "assistant"));
+        assert!(
+            has_assistant_turn,
+            "events should contain an assistant Turn"
+        );
 
         // Last event: SessionEnd (written by finish_store)
         let last = events.last().expect("events should not be empty");
@@ -1185,10 +1184,7 @@ mod tests {
             )
             .await
             .expect("append assistant turn");
-        store
-            .finish(&sid, "success", 1)
-            .await
-            .expect("finish");
+        store.finish(&sid, "success", 1).await.expect("finish");
 
         // -------------------------------------------------------------------
         // Build a fresh LoopOrchestrator and attach the same store + session
@@ -1233,12 +1229,12 @@ mod tests {
             .collect();
 
         assert!(
-            user_turn_contents.iter().any(|&t| t == "list rust files"),
+            user_turn_contents.contains(&"list rust files"),
             "store should contain prior user turn 'list rust files'; turns: {:?}",
             user_turn_contents
         );
         assert!(
-            user_turn_contents.iter().any(|&t| t == "now count them"),
+            user_turn_contents.contains(&"now count them"),
             "store should contain new user turn 'now count them'; turns: {:?}",
             user_turn_contents
         );
