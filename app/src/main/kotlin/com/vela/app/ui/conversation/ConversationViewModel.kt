@@ -163,6 +163,12 @@ class ConversationViewModel @Inject constructor(
                 refreshAgents()
             }
         }
+
+        // Trigger an initial agent list as soon as the vault list resolves to non-empty.
+        viewModelScope.launch {
+            allVaults.first { it.isNotEmpty() }
+            refreshAgents()
+        }
     }
 
     fun onTextInput(text: String)  = processInput(text)
