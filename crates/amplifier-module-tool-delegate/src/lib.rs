@@ -13,6 +13,8 @@ use serde_json::{json, Value};
 use tokio::sync::RwLock;
 
 use amplifier_module_agent_runtime::AgentRegistry;
+use amplifier_module_session_store::SessionStore;
+use amplifier_module_tool_task::SpawnResult;
 
 // ---------------------------------------------------------------------------
 // Tool trait + related types
@@ -82,6 +84,21 @@ pub trait AgentRunner: Send + Sync {
         &'a self,
         req: SpawnRequest,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send + 'a>>;
+
+    /// Resume an existing sub-agent session with a new instruction.
+    ///
+    /// The default implementation returns an error indicating that resume is
+    /// not supported.  Implementors that support session persistence should
+    /// override this method.
+    fn resume<'a>(
+        &'a self,
+        _session_id: &'a str,
+        _instruction: String,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<SpawnResult>> + Send + 'a>> {
+        Box::pin(std::future::ready(Err(anyhow::anyhow!(
+            "resume not supported by this runner"
+        ))))
+    }
 }
 
 /// No-op runner used in tests — always returns an empty response.
@@ -123,6 +140,7 @@ pub struct DelegateTool {
     pub runner: Arc<dyn AgentRunner>,
     pub registry: Arc<RwLock<AgentRegistry>>,
     context: Arc<std::sync::Mutex<Vec<Value>>>,
+    store: Option<Arc<dyn SessionStore>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -138,6 +156,24 @@ impl DelegateTool {
             runner,
             registry,
             context: Arc::new(std::sync::Mutex::new(Vec::new())),
+            store: None,
+        }
+    }
+
+    /// Create a new [`DelegateTool`] with an attached [`SessionStore`] for
+    /// session-resume support.
+    pub fn new_with_store(
+        runner: Arc<dyn AgentRunner>,
+        registry: Arc<RwLock<AgentRegistry>>,
+        config: DelegateToolConfig,
+        store: Arc<dyn SessionStore>,
+    ) -> Self {
+        Self {
+            config,
+            runner,
+            registry,
+            context: Arc::new(std::sync::Mutex::new(Vec::new())),
+            store: Some(store),
         }
     }
 
@@ -399,6 +435,44 @@ impl Tool for DelegateTool {
                     })
                 }
             };
+
+            // (2b) Parse optional session_id and dispatch to resume path if present.
+            let session_id = input
+                .get("session_id")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+
+            if let Some(sid) = session_id {
+                // Require an attached store.
+                let store = self.store.as_ref().ok_or_else(|| ToolError::Other {
+                    message: "session_id provided but no SessionStore configured".to_string(),
+                })?;
+
+                // Verify the session exists.
+                if !store.exists(&sid) {
+                    return Err(ToolError::Other {
+                        message: format!("session not found: {sid}"),
+                    });
+                }
+
+                // Delegate to runner.resume().
+                let spawn_result = self
+                    .runner
+                    .resume(&sid, raw_instruction)
+                    .await
+                    .map_err(|e| ToolError::ExecutionFailed {
+                        message: e.to_string(),
+                        stdout: None,
+                        stderr: None,
+                        exit_code: None,
+                    })?;
+
+                return Ok(ToolResult {
+                    success: true,
+                    output: Some(Value::String(spawn_result.response)),
+                    error: None,
+                });
+            }
 
             // (3) Parse context_depth:
             //   "recent" | "recent_5" → Recent(max_turns)
@@ -737,6 +811,144 @@ mod tests {
             req.context.is_empty(),
             "req.context must be empty (ephemeral); got: {:?}",
             req.context
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Session-store + resume tests (task-11)
+    // -----------------------------------------------------------------------
+
+    /// Calling execute() with a session_id that does not exist in the store
+    /// must return Err whose message contains "session not found" or the sid.
+    #[tokio::test]
+    async fn delegate_returns_error_when_session_id_unknown() {
+        use amplifier_module_session_store::file::FileSessionStore;
+        use tempfile::TempDir;
+
+        let tmp = TempDir::new().unwrap();
+        let store = Arc::new(FileSessionStore::new_with_root(tmp.path().to_path_buf()));
+        let registry = Arc::new(tokio::sync::RwLock::new(AgentRegistry::new()));
+        let tool = DelegateTool::new_with_store(
+            Arc::new(NopRunner),
+            registry,
+            DelegateToolConfig::default(),
+            store as Arc<dyn amplifier_module_session_store::SessionStore>,
+        );
+
+        let result = tool
+            .execute(json!({
+                "agent": "explorer",
+                "instruction": "do something",
+                "session_id": "does-not-exist"
+            }))
+            .await;
+
+        assert!(result.is_err(), "expected Err for unknown session_id");
+        let msg = match result.unwrap_err() {
+            ToolError::Other { message } => message,
+            ToolError::ExecutionFailed { message, .. } => message,
+        };
+        assert!(
+            msg.contains("session not found") || msg.contains("does-not-exist"),
+            "error message should mention 'session not found' or 'does-not-exist', got: {msg}"
+        );
+    }
+
+    /// Calling execute() with a session_id that exists in the store must
+    /// dispatch to runner.resume(), not runner.run(), and surface the response.
+    #[tokio::test]
+    async fn delegate_calls_resume_when_session_id_present() {
+        use amplifier_module_session_store::file::FileSessionStore;
+        use amplifier_module_session_store::format::SessionMetadata;
+        use amplifier_module_session_store::SessionStore as SessionStoreTrait;
+        use amplifier_module_tool_task::SpawnResult;
+        use tempfile::TempDir;
+
+        // ---- ResumeRecorder: records whether run or resume was called -------
+        struct ResumeRecorder {
+            called: Arc<std::sync::Mutex<Option<String>>>,
+        }
+
+        impl AgentRunner for ResumeRecorder {
+            fn run<'a>(
+                &'a self,
+                _req: SpawnRequest,
+            ) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send + 'a>> {
+                let called = Arc::clone(&self.called);
+                Box::pin(async move {
+                    *called.lock().unwrap() = Some("run".to_string());
+                    Ok(String::new())
+                })
+            }
+
+            fn resume<'a>(
+                &'a self,
+                session_id: &'a str,
+                _instruction: String,
+            ) -> Pin<Box<dyn Future<Output = anyhow::Result<SpawnResult>> + Send + 'a>> {
+                let called = Arc::clone(&self.called);
+                let sid = session_id.to_string();
+                Box::pin(async move {
+                    *called.lock().unwrap() = Some(format!("resume:{sid}"));
+                    Ok(SpawnResult {
+                        response: "from resume".to_string(),
+                        session_id: sid,
+                    })
+                })
+            }
+        }
+
+        // ---- Set up store with a pre-existing session ----------------------
+        let tmp = TempDir::new().unwrap();
+        let store = Arc::new(FileSessionStore::new_with_root(tmp.path().to_path_buf()));
+
+        let meta = SessionMetadata {
+            session_id: "real-sid".to_string(),
+            agent_name: "explorer".to_string(),
+            parent_id: None,
+            created: "2026-04-25T00:00:00Z".to_string(),
+            status: "active".to_string(),
+        };
+        SessionStoreTrait::begin(store.as_ref(), "real-sid", meta)
+            .await
+            .expect("begin session");
+
+        // ---- Build tool with recorder and store ----------------------------
+        let called = Arc::new(std::sync::Mutex::new(None::<String>));
+        let recorder = Arc::new(ResumeRecorder {
+            called: Arc::clone(&called),
+        });
+        let registry = Arc::new(tokio::sync::RwLock::new(AgentRegistry::new()));
+        let tool = DelegateTool::new_with_store(
+            recorder,
+            registry,
+            DelegateToolConfig::default(),
+            store as Arc<dyn amplifier_module_session_store::SessionStore>,
+        );
+
+        // ---- Execute with session_id present --------------------------------
+        let result = tool
+            .execute(json!({
+                "agent": "explorer",
+                "instruction": "continue the work",
+                "session_id": "real-sid"
+            }))
+            .await;
+
+        assert!(result.is_ok(), "expected success for resume, got: {:?}", result);
+        let tool_result = result.unwrap();
+        assert!(tool_result.success);
+        assert_eq!(
+            tool_result.output,
+            Some(Value::String("from resume".to_string())),
+            "output should be the resume response string"
+        );
+
+        let called_val = called.lock().unwrap().clone();
+        assert_eq!(
+            called_val,
+            Some("resume:real-sid".to_string()),
+            "recorder should record resume:real-sid"
         );
     }
 

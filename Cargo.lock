@@ -95,11 +95,14 @@ name = "amplifier-module-tool-delegate"
 version = "0.1.0"
 dependencies = [
  "amplifier-module-agent-runtime",
+ "amplifier-module-session-store",
  "amplifier-module-tool-task",
  "anyhow",
  "async-trait",
+ "chrono",
  "proptest",
  "serde_json",
+ "tempfile",
  "tokio",
 ]
 
