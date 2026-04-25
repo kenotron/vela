@@ -1,3 +1,5 @@
+use amplifier_module_session_store::file::FileSessionStore;
+use amplifier_module_tool_delegate::{DelegateTool, DelegateToolConfig, NopRunner};
 use anyhow::{Context, Result};
 use std::sync::Arc;
 
@@ -47,6 +49,18 @@ async fn main() -> Result<()> {
         routing.matrix_name(),
         registry.read().await.list().len(),
     );
+
+    // Build a shared FileSessionStore rooted at ~/.amplifier/sessions and
+    // wire it into the DelegateTool so the sandbox writes/reads transcripts.
+    let session_store: Arc<dyn amplifier_module_session_store::SessionStore> =
+        Arc::new(FileSessionStore::new()?);
+    let _delegate = DelegateTool::new_with_store(
+        Arc::new(NopRunner),
+        registry.clone(),
+        DelegateToolConfig::default(),
+        session_store,
+    );
+    println!("amplifier-android-sandbox: FileSessionStore wired into DelegateTool");
 
     Ok(())
 }
@@ -156,6 +170,37 @@ mod tests {
         assert!(
             props_obj.contains_key("context_depth"),
             "properties should include 'context_depth'"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test 2c: file_session_store_wires_into_sandbox_delegate_tool
+    // -----------------------------------------------------------------------
+
+    /// Verifies that FileSessionStore can be constructed and wired into
+    /// DelegateTool::new_with_store from within the sandbox crate.
+    /// RED: fails until amplifier-module-session-store is in Cargo.toml.
+    #[test]
+    fn file_session_store_wires_into_sandbox_delegate_tool() {
+        use amplifier_module_session_store::file::FileSessionStore;
+        use amplifier_module_tool_delegate::{DelegateTool, DelegateToolConfig, NopRunner};
+
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let store: Arc<dyn amplifier_module_session_store::SessionStore> =
+            Arc::new(FileSessionStore::new_with_root(tmp.path().to_path_buf()));
+
+        let registry = Arc::new(tokio::sync::RwLock::new(AgentRegistry::new()));
+
+        let tool = DelegateTool::new_with_store(
+            Arc::new(NopRunner),
+            registry,
+            DelegateToolConfig::default(),
+            store,
+        );
+        assert_eq!(
+            tool.name(),
+            "delegate",
+            "wired DelegateTool should report name 'delegate'"
         );
     }
 

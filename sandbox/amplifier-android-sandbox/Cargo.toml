@@ -8,6 +8,7 @@ amplifier-agent-foundation = { path = "../../amplifier-agent-foundation" }
 amplifier-module-agent-runtime = { path = "../../crates/amplifier-module-agent-runtime" }
 amplifier-module-tool-delegate = { path = "../../crates/amplifier-module-tool-delegate" }
 amplifier-module-hooks-routing = { path = "../../crates/amplifier-module-hooks-routing" }
+amplifier-module-session-store = { path = "../../crates/amplifier-module-session-store" }
 anyhow = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 
