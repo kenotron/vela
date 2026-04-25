@@ -110,6 +110,39 @@ class ConversationViewModel @Inject constructor(
     private val _sessionActiveVaultIds = MutableStateFlow<Set<String>>(emptySet())
     val sessionActiveVaultIds: StateFlow<Set<String>> = _sessionActiveVaultIds.asStateFlow()
 
+    // ── Agent picker state ──
+    private val _availableAgents = MutableStateFlow<List<com.vela.app.ai.AgentRef>>(emptyList())
+    val availableAgents: StateFlow<List<com.vela.app.ai.AgentRef>> = _availableAgents.asStateFlow()
+
+    private val _activeAgentName = MutableStateFlow<String?>(null)
+    val activeAgentName: StateFlow<String?> = _activeAgentName.asStateFlow()
+
+    /** Toggle: tapping the active agent clears it; tapping a different one selects it. */
+    fun setActiveAgent(name: String?) {
+        _activeAgentName.value = if (_activeAgentName.value == name) null else name
+    }
+
+    /**
+     * Refresh the agent registry from the current active vault.
+     * Called on session start and after the user installs a new agent file.
+     */
+    fun refreshAgents() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val path = activeVaultPath() ?: run {
+                _availableAgents.value = emptyList()
+                return@launch
+            }
+            val json = com.vela.app.ai.AmplifierBridge.nativeListAgents(path)
+            _availableAgents.value = com.vela.app.ai.AgentRef.parseJsonArray(json)
+        }
+    }
+
+    /** Active vault filesystem root, or null if no vault is selected for the session. */
+    fun activeVaultPath(): String? {
+        val activeId = _sessionActiveVaultIds.value.firstOrNull() ?: return null
+        return allVaults.value.firstOrNull { it.id == activeId }?.localPath
+    }
+
     init {
         viewModelScope.launch {
             val savedId = prefs.getString(KEY_ACTIVE_ID, null)
@@ -127,6 +160,7 @@ class ConversationViewModel @Inject constructor(
         viewModelScope.launch {
             _activeConvId.filterNotNull().collect { convId ->
                 _sessionActiveVaultIds.value = loadVaultSelection(convId)
+                refreshAgents()
             }
         }
     }
@@ -174,6 +208,7 @@ class ConversationViewModel @Inject constructor(
         }
         // Persist the new selection so it survives conversation switches
         _activeConvId.value?.let { saveVaultSelection(it, _sessionActiveVaultIds.value) }
+        refreshAgents()
     }
 
     // ── Vault selection persistence ───────────────────────────────────────────
@@ -239,9 +274,10 @@ class ConversationViewModel @Inject constructor(
                 "resolvedBlocks=${resolvedBlocks.size} " +
                 "apiContentJson=${if (apiContentJson != null) "${apiContentJson.length}B" else "null"}")
 
+            val effectiveInput = buildAgentScopedInput(_activeAgentName.value, text)
             val turnId = inferenceEngine.startTurn(
                 conversationId  = convId,
-                userMessage     = text,
+                userMessage     = effectiveInput,
                 userContentJson = refsJson,        // compact refs → stored in DB
                 apiContentJson  = apiContentJson,  // resolved base64 → sent to API
                 activeVaultIds  = _sessionActiveVaultIds.value,

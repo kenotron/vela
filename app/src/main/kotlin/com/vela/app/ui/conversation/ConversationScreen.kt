@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material.icons.Icons
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Menu
@@ -45,6 +46,18 @@ internal fun buildAttachedMessage(
             appendLine("- $name ($uri)")
         }
     }
+
+/**
+ * Pure helper: when an agent chip is active, wrap the user's message into a
+ * directive instructing the assistant to call `delegate` with that agent.
+ *
+ * Returns [input] unchanged when [agentName] is null.
+ */
+internal fun buildAgentScopedInput(agentName: String?, input: String): String =
+    if (agentName == null) input else
+        "Use the `delegate` tool with agent=\"$agentName\" and instruction set to the " +
+        "following user message, then return its result. Do not respond directly first.\n\n" +
+        "User message:\n$input"
 
 @Composable
 fun ConversationRoot(
@@ -180,21 +193,25 @@ fun ConversationScreen(
         if (turnsWithEvents.isNotEmpty()) listState.scrollToItem(turnsWithEvents.size - 1)
     }
 
-    // Star field lives BEHIND the Scaffold so it bleeds edge-to-edge:
-    // top bar area, full content column, and behind the composer strip.
-    Box(modifier = modifier.fillMaxSize()) {
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+
+    // imePadding() MUST be before fillMaxSize() — it reduces the incoming constraints
+    // so the Scaffold inside shrinks when the keyboard appears, which naturally pushes
+    // the bottomBar (ComposerBox) up to sit flush above the keyboard.
+    // Reversed order (fillMaxSize.imePadding) silently fails: fillMaxSize locks the
+    // size first, then imePadding has nothing left to reduce.
+    Box(modifier = Modifier.imePadding().fillMaxSize()) {
         ConversationBackground()
-    }
 
     Scaffold(
-        modifier = modifier,
-        containerColor = Color.Transparent,        // let the star field show through
-        // Disable Scaffold's automatic inset handling — ComposerBox owns its
-        // own navigationBarsPadding + imePadding so the Scaffold must not also
-        // apply them, otherwise the composer jumps up twice when the keyboard opens.
+        modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
+        containerColor = Color.Transparent,
+        // Scaffold handles zero insets — keyboard handled by the outer Box's imePadding,
+        // nav-bar handled inside ComposerBox's Column so the Surface background fills it.
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             CenterAlignedTopAppBar(
+                scrollBehavior = scrollBehavior,
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor          = Color.Transparent,
                     scrolledContainerColor  = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
@@ -292,4 +309,5 @@ fun ConversationScreen(
             }
         }
     }
+    } // closes outer imePadding Box
 }
