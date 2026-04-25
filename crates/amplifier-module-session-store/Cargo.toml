@@ -14,4 +14,10 @@ chrono = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
-tokio = { version = "1", features = ["rt", "macros", "sync"] }
+tokio = { workspace = true, features = ["rt", "macros", "sync"] }
+chrono = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+amplifier-core = { workspace = true }
+amplifier-module-orchestrator-loop-streaming = { workspace = true }
+amplifier-module-tool-task = { workspace = true }
