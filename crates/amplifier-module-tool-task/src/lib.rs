@@ -132,6 +132,16 @@ pub struct SpawnRequest {
 // SubagentRunner
 // ---------------------------------------------------------------------------
 
+/// Result returned by [`SubagentRunner::resume`], carrying the sub-agent's
+/// response and the session ID for subsequent resume calls.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpawnResult {
+    /// The final response string from the sub-agent.
+    pub response: String,
+    /// The session ID that can be used to resume this sub-agent session.
+    pub session_id: String,
+}
+
 /// Interface for executing a sub-agent.
 ///
 /// Implementors are responsible for actually launching the sub-agent and
@@ -148,6 +158,19 @@ pub trait SubagentRunner: Send + Sync {
     /// Returns the final response string on success, or an [`anyhow::Error`]
     /// on failure.
     async fn run(&self, req: SpawnRequest) -> anyhow::Result<String>;
+
+    /// Resume a previous sub-agent session with a new instruction.
+    ///
+    /// The default implementation returns an error indicating that resume is
+    /// not supported. Implementors that support session persistence should
+    /// override this method.
+    async fn resume(
+        &self,
+        _session_id: &str,
+        _instruction: String,
+    ) -> anyhow::Result<SpawnResult> {
+        anyhow::bail!("resume not supported by this runner")
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -520,6 +543,38 @@ mod tests {
             ContextDepth::Recent(5),
             "expected ContextDepth::Recent(5) for 'recent_5' input"
         );
+    }
+
+    // --- Test 9: subagent_runner_resume_default_returns_unsupported ---
+
+    /// The default `resume()` implementation must return an error whose message
+    /// (lowercased) contains "resume not supported".
+    #[tokio::test]
+    async fn subagent_runner_resume_default_returns_unsupported() {
+        let runner = SuccessRunner {
+            response: "ignored".into(),
+        };
+        let result = runner.resume("sid", "do more".to_string()).await;
+        assert!(result.is_err(), "expected Err from default resume()");
+        let msg = result.unwrap_err().to_string().to_lowercase();
+        assert!(
+            msg.contains("resume not supported"),
+            "error message '{}' did not contain 'resume not supported'",
+            msg
+        );
+    }
+
+    // --- Test 10: spawn_result_constructible ---
+
+    /// SpawnResult must be constructible with response and session_id fields.
+    #[test]
+    fn spawn_result_constructible() {
+        let sr = SpawnResult {
+            response: "hi".into(),
+            session_id: "s".into(),
+        };
+        assert_eq!(sr.response, "hi");
+        assert_eq!(sr.session_id, "s");
     }
 
     // --- Test 8: context_aware_tool_trait_is_object_safe ---
