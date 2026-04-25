@@ -96,12 +96,14 @@ class RendererAssemblerTest {
 
         // RendererGenerator — should NOT be called in skill path (no feedback)
         val mockGenerator = Mockito.mock(RendererGenerator::class.java)
+        val mockExtractor = Mockito.mock(ContentExtractor::class.java)
 
         val assembler = RendererAssembler(
             archetypeDetector = mockDetector,
             skillLibrary      = mockSkillLib,
             rendererGenerator = mockGenerator,
             vaultRegistry     = fakeVaultRegistry(root),
+            contentExtractor  = mockExtractor,
         )
 
         val phasesRecorded = mutableListOf<Pair<Int, String>>()
@@ -162,12 +164,14 @@ class RendererAssemblerTest {
         ).thenReturn("<html/>")
 
         val mockGenerator = Mockito.mock(RendererGenerator::class.java)
+        val mockExtractor = Mockito.mock(ContentExtractor::class.java)
 
         val assembler = RendererAssembler(
             archetypeDetector = mockDetector,
             skillLibrary      = mockSkillLib,
             rendererGenerator = mockGenerator,
             vaultRegistry     = emptyVaultRegistry(),
+            contentExtractor  = mockExtractor,
         )
 
         val result = assembler.assemble(
