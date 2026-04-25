@@ -27,11 +27,21 @@ object AmplifierBridge {
         userInput:       String,
         userContentJson: String?,           // null = plain text; non-null = content blocks JSON
         systemPrompt:    String,
+        vaultPath:       String,            // path to active vault root; "" if no vault
         tokenCb:         TokenCallback,
         toolCb:          ToolCallback,
-        hookCallbacks:   Array<HookRegistration>, // hook registry — provider_request, etc.
-        serverToolCb:    ServerToolCallback,       // called when server tool executes
+        hookCallbacks:   Array<HookRegistration>,
+        serverToolCb:    ServerToolCallback,
     ): String
+
+    /**
+     * Returns a JSON array of the agents currently visible to the agent runtime
+     * for the given vault: foundation built-ins plus anything in `<vaultPath>/.agents/`.
+     *
+     * Wire format: `[{"name":"explorer","description":"...","tools":[...]}, ...]`
+     * Returns `"[]"` if `vaultPath` is empty or the registry build fails.
+     */
+    external fun nativeListAgents(vaultPath: String): String
 
     /** Per-token streaming callback — called from the Rust decode loop. */
     fun interface TokenCallback {
