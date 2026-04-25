@@ -132,8 +132,8 @@ impl SessionStore for FileSessionStore {
         Ok(())
     }
 
-    async fn append_event(&self, _session_id: &str, _event: SessionEvent) -> anyhow::Result<()> {
-        anyhow::bail!("append_event not implemented yet")
+    async fn append_event(&self, session_id: &str, event: SessionEvent) -> anyhow::Result<()> {
+        append_jsonl(&self.events_file(session_id), &event)
     }
 
     async fn finish(&self, _session_id: &str, _status: &str) -> anyhow::Result<()> {
@@ -148,8 +148,8 @@ impl SessionStore for FileSessionStore {
         anyhow::bail!("list not implemented yet")
     }
 
-    fn exists(&self, _session_id: &str) -> bool {
-        false
+    fn exists(&self, session_id: &str) -> bool {
+        self.events_file(session_id).is_file()
     }
 }
 
@@ -197,6 +197,65 @@ mod tests {
     fn index_file_is_root_index_jsonl() {
         let (tmp, store) = make_store();
         assert_eq!(store.index_file(), tmp.path().join("index.jsonl"));
+    }
+
+    #[tokio::test]
+    async fn append_adds_event_line() {
+        let tmp = TempDir::new().expect("tempdir");
+        let store = FileSessionStore::new_with_root(tmp.path().to_path_buf());
+
+        let meta = SessionMetadata {
+            session_id: "s1".to_string(),
+            agent_name: "test-agent".to_string(),
+            parent_id: None,
+            created: "2026-04-24T00:00:00Z".to_string(),
+            status: "active".to_string(),
+        };
+        SessionStore::begin(&store, "s1", meta).await.expect("begin");
+
+        let event = crate::format::SessionEvent::Turn {
+            role: "user".to_string(),
+            content: "hi".to_string(),
+            timestamp: "t1".to_string(),
+        };
+        SessionStore::append_event(&store, "s1", event)
+            .await
+            .expect("append_event");
+
+        let events_path = tmp.path().join("s1").join("events.jsonl");
+        let content = std::fs::read_to_string(&events_path).expect("read events.jsonl");
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 2, "events.jsonl should have exactly 2 lines");
+        assert!(
+            lines[1].contains(r#""type":"turn""#),
+            r#"second line should contain "type":"turn": {}"#,
+            lines[1]
+        );
+    }
+
+    #[tokio::test]
+    async fn exists_true_after_begin_false_otherwise() {
+        let tmp = TempDir::new().expect("tempdir");
+        let store = FileSessionStore::new_with_root(tmp.path().to_path_buf());
+
+        assert!(
+            !SessionStore::exists(&store, "missing"),
+            "exists should return false for unknown session"
+        );
+
+        let meta = SessionMetadata {
+            session_id: "s1".to_string(),
+            agent_name: "test-agent".to_string(),
+            parent_id: None,
+            created: "2026-04-24T00:00:00Z".to_string(),
+            status: "active".to_string(),
+        };
+        SessionStore::begin(&store, "s1", meta).await.expect("begin");
+
+        assert!(
+            SessionStore::exists(&store, "s1"),
+            "exists should return true after begin"
+        );
     }
 
     #[tokio::test]
