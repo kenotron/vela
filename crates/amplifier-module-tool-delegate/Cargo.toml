@@ -10,3 +10,5 @@ amplifier-module-agent-runtime = { path = "../amplifier-module-agent-runtime" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
+async-trait = "0.1"
+proptest = "1"
