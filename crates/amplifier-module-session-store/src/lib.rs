@@ -33,4 +33,8 @@ pub trait SessionStore: Send + Sync {
 
     /// Returns `true` if the session directory already exists on disk.
     fn exists(&self, session_id: &str) -> bool;
+
+    /// Reads and returns all events from the session's JSONL transcript, in
+    /// original on-disk order.
+    async fn load(&self, session_id: &str) -> anyhow::Result<Vec<SessionEvent>>;
 }

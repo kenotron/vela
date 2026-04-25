@@ -81,29 +81,6 @@ impl FileSessionStore {
         self.root.join("index.jsonl")
     }
 
-    /// Reads and parses all events from the session's JSONL transcript, in
-    /// original on-disk order.
-    ///
-    /// Returns an error if the file cannot be read or any non-empty line is not
-    /// valid JSONL; the error message identifies the file and the 1-based line
-    /// number of the first bad line.
-    pub async fn load(&self, session_id: &str) -> anyhow::Result<Vec<SessionEvent>> {
-        let path = self.events_file(session_id);
-        let body = std::fs::read_to_string(&path)
-            .map_err(|e| anyhow::anyhow!("could not read {}: {}", path.display(), e))?;
-
-        let mut events = Vec::new();
-        for (i, line) in body.lines().enumerate() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            let event: SessionEvent = serde_json::from_str(line).map_err(|e| {
-                anyhow::anyhow!("malformed JSONL at {} line {}: {}", path.display(), i + 1, e)
-            })?;
-            events.push(event);
-        }
-        Ok(events)
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -228,6 +205,24 @@ impl SessionStore for FileSessionStore {
 
     fn exists(&self, session_id: &str) -> bool {
         self.events_file(session_id).is_file()
+    }
+
+    async fn load(&self, session_id: &str) -> anyhow::Result<Vec<SessionEvent>> {
+        let path = self.events_file(session_id);
+        let body = std::fs::read_to_string(&path)
+            .map_err(|e| anyhow::anyhow!("could not read {}: {}", path.display(), e))?;
+
+        let mut events = Vec::new();
+        for (i, line) in body.lines().enumerate() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let event: SessionEvent = serde_json::from_str(line).map_err(|e| {
+                anyhow::anyhow!("malformed JSONL at {} line {}: {}", path.display(), i + 1, e)
+            })?;
+            events.push(event);
+        }
+        Ok(events)
     }
 }
 

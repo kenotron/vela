@@ -12,7 +12,7 @@ use tokio::sync::RwLock;
 
 use amplifier_module_session_store::format::SessionEvent;
 use amplifier_module_session_store::SessionStore;
-use amplifier_module_tool_task::{ContextAwareTool, Tool};
+use amplifier_module_tool_task::{ContextAwareTool, SpawnRequest, SpawnResult, SubagentRunner, Tool};
 
 // ---------------------------------------------------------------------------
 // ContentBlock
@@ -507,6 +507,137 @@ impl LoopOrchestrator {
         // max_steps exhausted without an end-turn response.
         Ok(String::new())
     }
+
+    // -----------------------------------------------------------------------
+    // Session resume (task-10)
+    // -----------------------------------------------------------------------
+
+    /// Resume a previously-finished session by replaying its prior [`Turn`]
+    /// events into a fresh [`SimpleContext`] and running one more agentic loop
+    /// step with `instruction`.
+    ///
+    /// # Errors
+    ///
+    /// - Returns `"resume requires an attached SessionStore"` if no store was
+    ///   attached via [`attach_store`](Self::attach_store).
+    /// - Returns `"session not found: {session_id}"` if the store reports the
+    ///   session does not exist.
+    /// - Propagates any error from [`execute`](Self::execute).
+    pub async fn resume(
+        &self,
+        session_id: &str,
+        instruction: String,
+    ) -> anyhow::Result<SpawnResult> {
+        // (1) Read the attached session store.
+        let store = {
+            let guard = self.session_store.read().await;
+            guard.as_ref().cloned()
+        };
+        let store =
+            store.ok_or_else(|| anyhow::anyhow!("resume requires an attached SessionStore"))?;
+
+        // (2) Verify the session exists.
+        if !store.exists(session_id) {
+            anyhow::bail!("session not found: {session_id}");
+        }
+
+        // (3) Load all prior events.
+        let prior = store.load(session_id).await?;
+
+        // (4) Re-attach the session ID so execute() persists to the right slot.
+        {
+            let mut guard = self.session_id.write().await;
+            *guard = Some(session_id.to_string());
+        }
+
+        // (5) Build a Vec<Value> history from every prior Turn event.
+        let history: Vec<Value> = prior
+            .iter()
+            .filter_map(|event| {
+                if let SessionEvent::Turn { role, content, .. } = event {
+                    Some(serde_json::json!({ "role": role, "content": content }))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // (6) Construct a SimpleContext seeded with the history and a fresh
+        //     HookRegistry.
+        let mut ctx = SimpleContext::new(history);
+        let hooks = HookRegistry::new();
+
+        // (7) Execute one more loop step — execute() will persist the new turns.
+        let response = self
+            .execute(instruction, &mut ctx, &hooks, |_| {})
+            .await?;
+
+        // (8) Return the result with the session ID.
+        Ok(SpawnResult {
+            response,
+            session_id: session_id.to_string(),
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SubagentRunner impl for LoopOrchestrator
+// ---------------------------------------------------------------------------
+
+#[async_trait]
+impl SubagentRunner for LoopOrchestrator {
+    /// Spawn a new sub-agent session.
+    ///
+    /// Not yet fully implemented for `LoopOrchestrator`; this stub returns an
+    /// error.  Override as needed.
+    async fn run(&self, _req: SpawnRequest) -> anyhow::Result<String> {
+        anyhow::bail!("LoopOrchestrator::SubagentRunner::run is not implemented")
+    }
+
+    /// Resume a prior sub-agent session by delegating to the inherent
+    /// [`LoopOrchestrator::resume`] method.
+    async fn resume(
+        &self,
+        session_id: &str,
+        instruction: String,
+    ) -> anyhow::Result<SpawnResult> {
+        LoopOrchestrator::resume(self, session_id, instruction).await
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SimpleContext — minimal Vec<Value>-backed Context implementation
+// ---------------------------------------------------------------------------
+
+/// A simple [`Context`] implementation backed by a `Vec<Value>` message list.
+///
+/// Suitable for building a replay context from a prior session's Turn events
+/// or for use in tests.
+pub struct SimpleContext {
+    messages: Vec<Value>,
+}
+
+impl SimpleContext {
+    /// Create a new `SimpleContext` pre-seeded with `messages`.
+    pub fn new(messages: Vec<Value>) -> Self {
+        Self { messages }
+    }
+}
+
+#[async_trait]
+impl Context for SimpleContext {
+    async fn get_messages_for_request(
+        &self,
+        _depth: Option<usize>,
+        _scope: Option<usize>,
+    ) -> anyhow::Result<Vec<Value>> {
+        Ok(self.messages.clone())
+    }
+
+    async fn add_message(&mut self, message: Value) -> anyhow::Result<()> {
+        self.messages.push(message);
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -974,6 +1105,142 @@ mod tests {
             matches!(last, SessionEvent::SessionEnd { .. }),
             "last event should be SessionEnd, got: {:?}",
             last
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Task-10 test: resume replays prior transcript into a new context
+    // -----------------------------------------------------------------------
+
+    /// Verifies that `SubagentRunner::resume` on `LoopOrchestrator`:
+    ///   1. Loads prior session events from the attached store.
+    ///   2. Builds a SimpleContext replay from Turn events.
+    ///   3. Appends the new user Turn and executes one more loop step.
+    ///   4. Returns a SpawnResult with the correct session_id.
+    ///   5. The store now contains BOTH the original and the new user Turn.
+    #[tokio::test]
+    async fn resume_replays_prior_turns_into_context() {
+        use amplifier_module_tool_task::SubagentRunner;
+
+        // -------------------------------------------------------------------
+        // MockProvider: always returns a single Text block (no tool calls)
+        // -------------------------------------------------------------------
+        struct MockProvider;
+
+        #[async_trait::async_trait]
+        impl Provider for MockProvider {
+            async fn complete(
+                &self,
+                _messages: Vec<Value>,
+                _tools: Vec<Value>,
+                _system_prompt: Option<String>,
+            ) -> anyhow::Result<Vec<ContentBlock>> {
+                Ok(vec![ContentBlock::Text {
+                    text: "3 files counted".to_string(),
+                }])
+            }
+
+            fn parse_tool_calls(&self, _response: &[ContentBlock]) -> Vec<ToolCall> {
+                vec![]
+            }
+        }
+
+        // -------------------------------------------------------------------
+        // Setup: TempDir + FileSessionStore wrapped in Arc
+        // -------------------------------------------------------------------
+        let tmp = TempDir::new().expect("tempdir");
+        let store: Arc<FileSessionStore> =
+            Arc::new(FileSessionStore::new_with_root(tmp.path().to_path_buf()));
+
+        let sid = "resume-1".to_string();
+
+        // Seed a finished session with a begin, two turns, and a finish.
+        let meta = SessionMetadata {
+            session_id: sid.clone(),
+            agent_name: "explorer".to_string(),
+            parent_id: None,
+            created: chrono::Utc::now().to_rfc3339(),
+            status: "active".to_string(),
+        };
+        store.begin(&sid, meta).await.expect("begin");
+        store
+            .append_event(
+                &sid,
+                SessionEvent::Turn {
+                    role: "user".to_string(),
+                    content: "list rust files".to_string(),
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                },
+            )
+            .await
+            .expect("append user turn");
+        store
+            .append_event(
+                &sid,
+                SessionEvent::Turn {
+                    role: "assistant".to_string(),
+                    content: "found: a.rs, b.rs, c.rs".to_string(),
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                },
+            )
+            .await
+            .expect("append assistant turn");
+        store
+            .finish(&sid, "success", 1)
+            .await
+            .expect("finish");
+
+        // -------------------------------------------------------------------
+        // Build a fresh LoopOrchestrator and attach the same store + session
+        // -------------------------------------------------------------------
+        let orch = LoopOrchestrator::new(LoopConfig::default());
+        orch.attach_store(
+            store.clone() as Arc<dyn SessionStore>,
+            sid.clone(),
+            "explorer".to_string(),
+            None,
+        );
+        orch.register_provider("anthropic", Arc::new(MockProvider))
+            .await;
+
+        // -------------------------------------------------------------------
+        // Call SubagentRunner::resume — expect FAIL before implementation
+        // -------------------------------------------------------------------
+        let result = SubagentRunner::resume(&orch, &sid, "now count them".to_string())
+            .await
+            .unwrap();
+
+        // The returned SpawnResult must carry the correct session_id.
+        assert_eq!(result.session_id, sid);
+
+        // -------------------------------------------------------------------
+        // Load and assert both user turns are present in the store.
+        // -------------------------------------------------------------------
+        let events = store.load(&sid).await.expect("load");
+        let user_turn_contents: Vec<&str> = events
+            .iter()
+            .filter_map(|e| {
+                if let SessionEvent::Turn { role, content, .. } = e {
+                    if role == "user" {
+                        Some(content.as_str())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        assert!(
+            user_turn_contents.iter().any(|&t| t == "list rust files"),
+            "store should contain prior user turn 'list rust files'; turns: {:?}",
+            user_turn_contents
+        );
+        assert!(
+            user_turn_contents.iter().any(|&t| t == "now count them"),
+            "store should contain new user turn 'now count them'; turns: {:?}",
+            user_turn_contents
         );
     }
 }
