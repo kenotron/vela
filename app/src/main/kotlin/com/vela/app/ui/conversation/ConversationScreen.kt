@@ -99,6 +99,10 @@ fun ConversationScreen(
     val sessionActiveVaultIds by viewModel.sessionActiveVaultIds.collectAsState()
     var showVaultMenu         by remember { mutableStateOf(false) }
 
+    val availableAgents    by viewModel.availableAgents.collectAsState()
+    val activeAgentName    by viewModel.activeAgentName.collectAsState()
+    var showAgentInstaller by remember { mutableStateOf(false) }
+
     var textInput by remember { mutableStateOf("") }
     LaunchedEffect(pendingInput) {
         val text = pendingInput
@@ -269,20 +273,31 @@ fun ConversationScreen(
             )
         },
         bottomBar = {
-            ComposerBox(
-                value              = textInput,
-                onValueChange      = { textInput = it },
-                onSend             = { handleSend() },
-                onRecord           = onRecord,
-                speechTranscriber  = speechTranscriber,
-                isListening        = isListening,
-                onMicClick         = { handleMic() },
-                attachments        = attachments,
-                onRemoveAttachment = { id -> attachments.removeIf { it.id == id } },
-                onPickPhoto        = { photoLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                onPickFile         = { fileLauncher.launch(arrayOf("*/*")) },
-                onCamera           = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) },
-            )
+            androidx.compose.foundation.layout.Column {
+                // Agent chip row — only renders when vault is active and agents loaded.
+                if (sessionActiveVaultIds.isNotEmpty()) {
+                    AgentChipRow(
+                        agents         = availableAgents,
+                        activeAgent    = activeAgentName,
+                        onAgentClick   = { viewModel.setActiveAgent(it) },
+                        onInstallClick = { showAgentInstaller = true },
+                    )
+                }
+                ComposerBox(
+                    value              = textInput,
+                    onValueChange      = { textInput = it },
+                    onSend             = { handleSend() },
+                    onRecord           = onRecord,
+                    speechTranscriber  = speechTranscriber,
+                    isListening        = isListening,
+                    onMicClick         = { handleMic() },
+                    attachments        = attachments,
+                    onRemoveAttachment = { id -> attachments.removeIf { it.id == id } },
+                    onPickPhoto        = { photoLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                    onPickFile         = { fileLauncher.launch(arrayOf("*/*")) },
+                    onCamera           = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) },
+                )
+            }
         },
     ) { pad ->
         Box(Modifier.fillMaxSize().padding(pad)) {
@@ -308,6 +323,16 @@ fun ConversationScreen(
                 }
             }
         }
+    }
+    if (showAgentInstaller) {
+        AgentInstallerDialog(
+            vaultPath   = viewModel.activeVaultPath() ?: "",
+            onDismiss   = { showAgentInstaller = false },
+            onInstalled = {
+                viewModel.refreshAgents()
+                showAgentInstaller = false
+            },
+        )
     }
     } // closes outer imePadding Box
 }
