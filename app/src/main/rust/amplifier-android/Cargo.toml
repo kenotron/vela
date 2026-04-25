@@ -1,62 +1,57 @@
 [package]
-name = "amplifier-android"
-version = "0.1.0"
-edition = "2021"
+    name = "amplifier-android"
+    version = "0.1.0"
+    edition = "2021"
 
-[lib]
-crate-type = ["cdylib"]
+    [lib]
+    crate-type = ["cdylib"]
 
-[dependencies]
-# amplifier-rust workspace crates (path deps)
-amplifier-module-orchestrator-loop-streaming = { git = "https://github.com/kenotron-ms/amplifier-rust", branch = "main" }
-amplifier-module-provider-anthropic           = { git = "https://github.com/kenotron-ms/amplifier-rust", branch = "main" }
-amplifier-module-context-simple               = { git = "https://github.com/kenotron-ms/amplifier-rust", branch = "main" }
-amplifier-module-tool-task                    = { git = "https://github.com/kenotron-ms/amplifier-rust", branch = "main" }
-amplifier-module-tool-skills                  = { git = "https://github.com/kenotron-ms/amplifier-rust", branch = "main" }
-amplifier-module-tool-todo                    = { path = "../../../../../../amplifier-rust/crates/amplifier-module-tool-todo" }
-amplifier-module-tool-web                     = { path = "../../../../../../amplifier-rust/crates/amplifier-module-tool-web" }
-amplifier-module-tool-delegate                = { path = "../../../../../../amplifier-rust/crates/amplifier-module-tool-delegate" }
-amplifier-module-agent-runtime                = { path = "../../../../../../amplifier-rust/crates/amplifier-module-agent-runtime" }
-amplifier-agent-foundation                    = { path = "../../../../../../amplifier-rust/amplifier-agent-foundation" }
+    [dependencies]
+    # amplifier-rust workspace crates (path deps)
+    amplifier-module-orchestrator-loop-streaming = { path = "../../../../../../amplifier-rust/crates/amplifier-module-orchestrator-loop-streaming" }
+    amplifier-module-provider-anthropic           = { path = "../../../../../../amplifier-rust/crates/amplifier-module-provider-anthropic" }
+    amplifier-module-context-simple               = { path = "../../../../../../amplifier-rust/crates/amplifier-module-context-simple" }
+    amplifier-module-tool-task                    = { path = "../../../../../../amplifier-rust/crates/amplifier-module-tool-task" }
+    amplifier-module-tool-skills                  = { path = "../../../../../../amplifier-rust/crates/amplifier-module-tool-skills" }
+    amplifier-module-tool-todo                    = { path = "../../../../../../amplifier-rust/crates/amplifier-module-tool-todo" }
+    amplifier-module-tool-web                     = { path = "../../../../../../amplifier-rust/crates/amplifier-module-tool-web" }
+    amplifier-module-tool-delegate                = { path = "../../../../../../amplifier-rust/crates/amplifier-module-tool-delegate" }
+    amplifier-module-agent-runtime                = { path = "../../../../../../amplifier-rust/crates/amplifier-module-agent-runtime" }
 
-# amplifier-core — still needed for JNI wiring types (Provider/Tool/Orchestrator traits + Session lifecycle)
-amplifier-core = { git = "https://github.com/microsoft/amplifier-core", branch = "main" }
+    # amplifier-core — still needed for JNI wiring types (Provider/Tool/Orchestrator traits + Session lifecycle)
+    amplifier-core = { git = "https://github.com/microsoft/amplifier-core", branch = "main" }
 
-# JNI bridge
-jni = "0.21"
+    # JNI bridge
+    jni = "0.21"
 
-# Async runtime (tokio already pulled in by amplifier-core, re-declared for block_on)
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+    # Async runtime (tokio already pulled in by amplifier-core, re-declared for block_on)
+    tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
-# Serialisation
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+    # Serialisation
+    serde = { version = "1", features = ["derive"] }
+    serde_json = "1"
 
-# Static runtime initialisation
-once_cell = "1"
+    # Static runtime initialisation
+    once_cell = "1"
 
-# Android logging
-android_logger = "0.14"
-log = "0.4"
+    # Android logging
+    android_logger = "0.14"
+    log = "0.4"
 
-# Async trait support (needed to implement Hook)
-async-trait = "0.1"
+    # Async trait support (needed to implement Hook)
+    async-trait = "0.1"
 
-# Error handling (LoopOrchestrator::execute returns anyhow::Result)
-anyhow = "1"
+    # Error handling (LoopOrchestrator::execute returns anyhow::Result)
+    anyhow = "1"
 
-[profile.release]
-opt-level = "z"      # minimise binary size
-strip = true
-lto = true
+    # Force vendored OpenSSL for Android cross-compilation (native-tls pulls in openssl-sys)
+    openssl = { version = "0.10", features = ["vendored"] }
 
-# Patch git versions of amplifier-rust crates with local path versions so that
-# amplifier-module-tool-delegate (local) and amplifier-module-orchestrator-loop-streaming
-# (git) both resolve to the same amplifier-module-tool-task instance, enabling the
-# Arc<dyn SubagentRunner> coercion to work without type identity mismatch.
-[patch."https://github.com/kenotron-ms/amplifier-rust"]
-amplifier-module-tool-task   = { path = "../../../../../../amplifier-rust/crates/amplifier-module-tool-task" }
-amplifier-module-tool-skills = { path = "../../../../../../amplifier-rust/crates/amplifier-module-tool-skills" }
+    [profile.release]
+    opt-level = "z"      # minimise binary size
+    strip = true
+    lto = true
 
-[dev-dependencies]
-tempfile = "3"
+    [dev-dependencies]
+    tempfile = "3"
+    

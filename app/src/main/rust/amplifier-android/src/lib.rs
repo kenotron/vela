@@ -257,7 +257,7 @@ fn build_hook_registrations(
                         .filter_map(|j| {
                             env.get_object_array_element(&ev_arr, j).ok().and_then(|s| {
                                 let jstr = JString::from(s);
-                                env.get_string(&jstr).ok().map(|gs| String::from(gs))
+                                env.get_string(&jstr).ok().map(String::from)
                             })
                         })
                         .collect()
@@ -298,6 +298,7 @@ fn build_hook_registrations(
 
 // ─────────────────────────────── Agent loop ──────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 async fn run_agent_loop(
     api_key: String,
     model: String,
@@ -334,7 +335,7 @@ async fn run_agent_loop(
     let tool_map = build_tool_map(&tools_json, Arc::clone(&jvm), Arc::clone(&tool_cb));
 
     // Build and configure the orchestrator.
-    let config = LoopConfig { max_steps: 10, system_prompt };
+    let config = LoopConfig { max_steps: Some(10), system_prompt };
     let orch = Arc::new(LoopOrchestrator::new(config));
     orch.register_provider("anthropic".to_string(), provider).await;
     for tool in tool_map.into_values() {
@@ -573,7 +574,7 @@ mod tests {
     #[test]
     fn delegate_tool_wired_with_orchestrator_as_runner() {
         use amplifier_module_orchestrator_loop_streaming::{LoopConfig, LoopOrchestrator};
-        let config = LoopConfig { max_steps: 1, system_prompt: String::new() };
+        let config = LoopConfig { max_steps: Some(1), system_prompt: String::new() };
         let orch: Arc<LoopOrchestrator> = Arc::new(LoopOrchestrator::new(config));
         let registry: Arc<AgentRegistry> =
             crate::agents::build_agent_registry(std::path::Path::new("/tmp"));
