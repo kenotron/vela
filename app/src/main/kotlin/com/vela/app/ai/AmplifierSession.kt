@@ -42,6 +42,7 @@ class AmplifierSession @Inject constructor(
         userInput:         String,
         userContentJson:   String?,
         systemPrompt:      String,
+        vaultPath:         String,
         onToolStart:       (suspend (name: String, argsJson: String) -> String),
         onToolEnd:         (suspend (stableId: String, result: String) -> Unit),
         onToken:           (suspend (token: String) -> Unit),
@@ -61,6 +62,7 @@ class AmplifierSession @Inject constructor(
             userInput         = userInput,
             userContentJson   = userContentJson,
             systemPrompt      = systemPrompt,
+            vaultPath         = vaultPath,
             tokenCb           = { token ->
                 tokenWasEmitted = true
                 runBlocking { onToken(token) }

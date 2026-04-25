@@ -190,11 +190,14 @@ package com.vela.app.engine
             )
             hookRegistry.fire(HookEvent.TURN_START, turnCtx)
 
+            val vaultPath = vaultsForSession.firstOrNull()?.localPath ?: ""
+
             try { session.runTurn(
                 historyJson     = historyJson,
                 userInput       = effectiveUserInput,
                 userContentJson = apiContentJson,
                 systemPrompt    = systemPrompt,
+                vaultPath       = vaultPath,
 
                 onToken = { token ->
                     textBuffer.append(token)

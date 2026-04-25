@@ -47,6 +47,7 @@ class InferenceEngineSystemPromptTest {
      */
     private class FakeSession : InferenceSession {
         val prompts = Channel<String>(Channel.UNLIMITED)
+        val vaultPaths = Channel<String>(Channel.UNLIMITED)
 
         override fun isConfigured() = true
 
@@ -55,6 +56,7 @@ class InferenceEngineSystemPromptTest {
             userInput: String,
             userContentJson: String?,
             systemPrompt: String,
+            vaultPath: String,
             onToolStart: suspend (String, String) -> String,
             onToolEnd: suspend (String, String) -> Unit,
             onToken: suspend (String) -> Unit,
@@ -62,6 +64,7 @@ class InferenceEngineSystemPromptTest {
             onServerTool: suspend (String, String) -> Unit,
         ) {
             prompts.send(systemPrompt)
+            vaultPaths.send(vaultPath)
             onToken("ok")
         }
     }
@@ -254,5 +257,38 @@ class InferenceEngineSystemPromptTest {
         val secondPrompt = session.prompts.receive()
         // SessionHarness always builds date + lifeos-config + system.md, even on second turn.
         assertThat(secondPrompt).isNotEmpty()
+    }
+
+    /**
+     * RED: Fails until InferenceEngine.processTurn derives vaultPath from the active vault
+     * and forwards it to session.runTurn.
+     *
+     * When activeVaultIds resolves to a vault with a known localPath, the session must
+     * receive that path as vaultPath — not the empty-string default.
+     */
+    @Test
+    fun `processTurn forwards active vault localPath as vaultPath to runTurn`() = runBlocking {
+        val vaultDir = tmp.newFolder("vault-fwd")
+        val entity = VaultEntity(id = "vault-fwd", name = "Fwd", localPath = vaultDir.absolutePath, isEnabled = true)
+
+        val session = FakeSession()
+        val engine = InferenceEngine(
+            context         = fakeContext(),
+            session         = session,
+            toolRegistry    = ToolRegistry(emptyList()),
+            hookRegistry    = HookRegistry(emptyList()),
+            turnDao         = fakeTurnDao(),
+            turnEventDao    = fakeTurnEventDao(),
+            conversationDao = fakeConversationDao("vault"),
+            vaultRegistry   = fakeVaultRegistryWithVaults(listOf(entity)),
+            vaultManager    = VaultManager(tmp.newFolder("vmFwd"), MutableStateFlow(emptySet())),
+            harness         = fakeHarness(),
+        )
+
+        engine.startTurn("conv-vault-fwd", "hello", activeVaultIds = setOf("vault-fwd"))
+
+        session.prompts.receive()  // consume systemPrompt (not under test here)
+        val receivedVaultPath = session.vaultPaths.receive()
+        assertThat(receivedVaultPath).isEqualTo(vaultDir.absolutePath)
     }
 }
