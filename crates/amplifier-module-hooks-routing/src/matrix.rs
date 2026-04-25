@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -83,6 +84,55 @@ pub fn validate_matrix(roles: &RolesMap, is_override: bool) -> anyhow::Result<()
     }
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Loader
+// ---------------------------------------------------------------------------
+
+/// Load a `MatrixConfig` by searching for `<name>.yaml` in each of `dirs` in order.
+///
+/// The first matching file wins.  Returns an error if no file is found in any of
+/// the provided directories, or if the file fails to parse.
+pub fn load_matrix_from_dirs(name: &str, dirs: &[&Path]) -> anyhow::Result<MatrixConfig> {
+    for dir in dirs {
+        let candidate = dir.join(format!("{name}.yaml"));
+        if candidate.is_file() {
+            let content = std::fs::read_to_string(&candidate)
+                .map_err(|e| anyhow::anyhow!("failed to read {}: {}", candidate.display(), e))?;
+            let config: MatrixConfig = serde_yaml::from_str(&content)
+                .map_err(|e| anyhow::anyhow!("failed to parse {}: {}", candidate.display(), e))?;
+            return Ok(config);
+        }
+    }
+    anyhow::bail!("matrix '{}' not found in any search directory", name)
+}
+
+/// Return the default 3-level search path for matrix YAML files:
+///
+/// 1. `<cwd>/.amplifier/routing`
+/// 2. `~/.amplifier/routing` (if the `HOME` environment variable is set)
+/// 3. `<crate>/routing` (bundled, always included)
+///
+/// Non-existent directories are included; they simply yield no match in
+/// [`load_matrix_from_dirs`].
+pub fn default_search_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+
+    // Level 1: cwd/.amplifier/routing
+    if let Ok(cwd) = std::env::current_dir() {
+        dirs.push(cwd.join(".amplifier").join("routing"));
+    }
+
+    // Level 2: ~/.amplifier/routing
+    if let Ok(home) = std::env::var("HOME") {
+        dirs.push(PathBuf::from(home).join(".amplifier").join("routing"));
+    }
+
+    // Level 3: bundled crate/routing (always present in the binary)
+    dirs.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("routing"));
+
+    dirs
 }
 
 // ---------------------------------------------------------------------------
@@ -222,5 +272,81 @@ mod tests {
         let c = result.unwrap();
         assert_eq!(c.provider, "anthropic");
         assert_eq!(c.model, "claude-3-5-sonnet-20241022");
+    }
+
+    // 8. loader_finds_bundled_matrix — loads balanced.yaml from bundled routing/ dir.
+    //    This test will fail until Task 7 writes balanced.yaml — that is intentional.
+    #[test]
+    fn loader_finds_bundled_matrix() {
+        use std::path::PathBuf;
+        let bundled_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("routing");
+        let cfg = load_matrix_from_dirs("balanced", &[bundled_dir.as_path()])
+            .expect("balanced.yaml should exist in bundled routing/ dir");
+        assert_eq!(cfg.name, "balanced");
+        assert!(validate_matrix(&cfg.roles, false).is_ok());
+    }
+
+    // 9. loader_returns_err_when_not_found — error message contains the matrix name.
+    #[test]
+    fn loader_returns_err_when_not_found() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dirs = [tmp.path()];
+        let err = load_matrix_from_dirs("does-not-exist", &dirs)
+            .expect_err("should error when matrix file not found");
+        assert!(
+            err.to_string().contains("does-not-exist"),
+            "expected 'does-not-exist' in error: {err}"
+        );
+    }
+
+    // 10. loader_first_match_wins — first dir's content wins over second dir.
+    #[test]
+    fn loader_first_match_wins() {
+        use std::io::Write;
+
+        let tmp1 = tempfile::tempdir().expect("tempdir 1");
+        let tmp2 = tempfile::tempdir().expect("tempdir 2");
+
+        let yaml_first = r#"
+name: first
+description: From first dir
+roles:
+  general:
+    description: General role
+    candidates:
+      - provider: openai
+        model: gpt-4o
+  fast:
+    description: Fast role
+    candidates:
+      - provider: openai
+        model: gpt-4o-mini
+"#;
+
+        let yaml_second = r#"
+name: second
+description: From second dir
+roles:
+  general:
+    description: General role
+    candidates:
+      - provider: anthropic
+        model: claude-3-5-haiku-20241022
+  fast:
+    description: Fast role
+    candidates:
+      - provider: anthropic
+        model: claude-3-5-haiku-20241022
+"#;
+
+        let mut f1 = std::fs::File::create(tmp1.path().join("test.yaml")).expect("create f1");
+        f1.write_all(yaml_first.as_bytes()).expect("write f1");
+
+        let mut f2 = std::fs::File::create(tmp2.path().join("test.yaml")).expect("create f2");
+        f2.write_all(yaml_second.as_bytes()).expect("write f2");
+
+        let dirs = [tmp1.path(), tmp2.path()];
+        let cfg = load_matrix_from_dirs("test", &dirs).expect("should find test.yaml");
+        assert_eq!(cfg.name, "first", "first dir should win");
     }
 }
