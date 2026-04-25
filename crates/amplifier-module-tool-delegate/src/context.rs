@@ -738,4 +738,64 @@ mod tests {
         assert!(result.contains("plain question"), "plain user text must be present");
         assert!(result.contains("plain answer"), "plain assistant text must be present");
     }
+
+    // -----------------------------------------------------------------------
+    // 16. scope_agents_keeps_only_delegate_tool_results
+    //     Mixed delegate + bash calls: Agents scope must keep delegate results
+    //     and plain conversational turns, but drop bash tool_results.
+    // -----------------------------------------------------------------------
+    #[test]
+    fn scope_agents_keeps_only_delegate_tool_results() {
+        let messages = vec![
+            user_msg("u1"),
+            asst_msg("a1"),
+            // delegate tool_use + matching tool_result
+            asst_tool_use_msg("delegate_id", "delegate"),
+            tool_result_msg("delegate_id", "from_agent"),
+            // bash tool_use + matching tool_result
+            asst_tool_use_msg("bash_id", "bash"),
+            tool_result_msg("bash_id", "from_bash"),
+        ];
+        let result =
+            build_inherited_context(&messages, ContextDepth::All, 5, ContextScope::Agents)
+                .expect("should produce output");
+
+        // Plain conversational turns must be present.
+        assert!(result.contains("u1"), "user text 'u1' must be present");
+        assert!(result.contains("a1"), "assistant text 'a1' must be present");
+
+        // Delegate (agent) result must be kept.
+        assert!(
+            result.contains("from_agent"),
+            "delegate tool_result 'from_agent' must be present in Agents scope"
+        );
+
+        // Non-agent (bash) result must be dropped.
+        assert!(
+            !result.contains("from_bash"),
+            "bash tool_result 'from_bash' must be excluded in Agents scope"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // 17. scope_full_keeps_everything
+    //     Full scope must pass through all message types including bash results.
+    // -----------------------------------------------------------------------
+    #[test]
+    fn scope_full_keeps_everything() {
+        let messages = vec![
+            user_msg("u1"),
+            asst_tool_use_msg("bash_id", "bash"),
+            tool_result_msg("bash_id", "bash_out"),
+        ];
+        let result =
+            build_inherited_context(&messages, ContextDepth::All, 5, ContextScope::Full)
+                .expect("should produce output");
+
+        assert!(result.contains("u1"), "user text 'u1' must be present in Full scope");
+        assert!(
+            result.contains("bash_out"),
+            "bash tool_result 'bash_out' must be present in Full scope"
+        );
+    }
 }
