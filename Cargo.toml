@@ -1,0 +1,36 @@
+[workspace]
+members = [
+    "crates/amplifier-module-tool-task",
+    "crates/amplifier-module-agent-runtime",
+    "crates/amplifier-module-tool-delegate",
+    "crates/amplifier-module-orchestrator-loop-streaming",
+    "crates/amplifier-module-hooks-routing",
+]
+exclude = [
+    "amplifier-agent-foundation",
+    "sandbox",
+    "app",
+]
+resolver = "2"
+
+[workspace.dependencies]
+# Core (external git dependency)
+amplifier-core = { git = "https://github.com/microsoft/amplifier-core", branch = "main" }
+
+# Local workspace crates
+amplifier-module-tool-task = { path = "crates/amplifier-module-tool-task" }
+amplifier-module-agent-runtime = { path = "crates/amplifier-module-agent-runtime" }
+amplifier-module-tool-delegate = { path = "crates/amplifier-module-tool-delegate" }
+amplifier-module-orchestrator-loop-streaming = { path = "crates/amplifier-module-orchestrator-loop-streaming" }
+amplifier-module-hooks-routing = { path = "crates/amplifier-module-hooks-routing" }
+
+# External crates
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+anyhow = "1"
+tokio = { version = "1", features = ["sync"] }
+tempfile = "3"
+globset = "0.4"
+regex = "1"
