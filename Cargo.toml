@@ -5,6 +5,7 @@ members = [
     "crates/amplifier-module-tool-delegate",
     "crates/amplifier-module-orchestrator-loop-streaming",
     "crates/amplifier-module-hooks-routing",
+    "crates/amplifier-module-session-store",
 ]
 exclude = [
     "amplifier-agent-foundation",
@@ -23,6 +24,7 @@ amplifier-module-agent-runtime = { path = "crates/amplifier-module-agent-runtime
 amplifier-module-tool-delegate = { path = "crates/amplifier-module-tool-delegate" }
 amplifier-module-orchestrator-loop-streaming = { path = "crates/amplifier-module-orchestrator-loop-streaming" }
 amplifier-module-hooks-routing = { path = "crates/amplifier-module-hooks-routing" }
+amplifier-module-session-store = { path = "crates/amplifier-module-session-store" }
 
 # External crates
 async-trait = "0.1"
