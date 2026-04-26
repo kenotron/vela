@@ -15,8 +15,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.RadioButtonChecked
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -93,6 +96,7 @@ fun ConversationScreen(
     val activeTurnId     by viewModel.activeTurnId.collectAsState()
     val streamingTextMap by viewModel.streamingText.collectAsState()
     val pendingInput     by viewModel.pendingInput.collectAsState()
+    val todos            by viewModel.currentTodos.collectAsState()
 
     // Vault state
     val allVaults             by viewModel.allVaults.collectAsState()
@@ -102,6 +106,7 @@ fun ConversationScreen(
     val availableAgents    by viewModel.availableAgents.collectAsState()
     var showAgentInstaller by remember { mutableStateOf(false) }
     var showAgentsSheet    by remember { mutableStateOf(false) }
+    var showTasksSheet     by remember { mutableStateOf(false) }
 
     var textInput by remember { mutableStateOf("") }
     LaunchedEffect(pendingInput) {
@@ -261,7 +266,27 @@ fun ConversationScreen(
                     Text(activeTitle, maxLines = 1, overflow = TextOverflow.Ellipsis,
                          style = MaterialTheme.typography.titleMedium)
                 },
-                actions = {},
+                actions = {
+                    if (todos.isNotEmpty()) {
+                        val activeCount = todos.count { it.status != "completed" }
+                        Box {
+                            IconButton(onClick = { showTasksSheet = true }) {
+                                Icon(
+                                    imageVector        = Icons.Default.CheckCircle,
+                                    contentDescription = "Tasks",
+                                    tint               = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (activeCount > 0) {
+                                Badge(
+                                    modifier = Modifier.align(Alignment.TopEnd).offset(x = (-4).dp, y = 4.dp)
+                                ) {
+                                    Text(activeCount.toString(), style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                    }
+                },
             )
         },
         bottomBar = {
@@ -339,6 +364,12 @@ fun ConversationScreen(
             }
         }
     }
+    if (showTasksSheet) {
+        TasksBottomSheet(
+            todos     = todos,
+            onDismiss = { showTasksSheet = false },
+        )
+    }
     if (showAgentInstaller) {
         AgentInstallerDialog(
             vaultPath   = viewModel.activeVaultPath() ?: "",
@@ -360,4 +391,64 @@ fun ConversationScreen(
         )
     }
     } // closes outer imePadding Box
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TasksBottomSheet(
+    todos: List<TodoItem>,
+    onDismiss: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 36.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text     = "Tasks",
+                style    = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            todos.forEach { item ->
+                Row(
+                    modifier              = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    verticalAlignment     = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    val (icon, tint) = when (item.status) {
+                        "completed"   -> Icons.Default.CheckCircle         to cs.primary
+                        "in_progress" -> Icons.Default.RadioButtonChecked  to cs.tertiary
+                        else          -> Icons.Default.RadioButtonUnchecked to cs.outlineVariant
+                    }
+                    Icon(
+                        imageVector        = icon,
+                        contentDescription = item.status,
+                        tint               = tint,
+                        modifier           = Modifier.size(18.dp).padding(top = 2.dp),
+                    )
+                    Column {
+                        Text(
+                            text  = item.content,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (item.status == "completed")
+                                cs.onSurface.copy(alpha = 0.4f) else cs.onSurface,
+                        )
+                        if (item.status == "in_progress" && item.activeForm.isNotBlank()) {
+                            Text(
+                                text  = item.activeForm,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = cs.tertiary.copy(alpha = 0.8f),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

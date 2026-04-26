@@ -27,9 +27,16 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
 
-@OptIn(ExperimentalCoroutinesApi::class)
-@HiltViewModel
-class ConversationViewModel @Inject constructor(
+data class TodoItem(
+    val id: String,
+    val content: String,
+    val activeForm: String,
+    val status: String,   // "pending" | "in_progress" | "completed"
+)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @HiltViewModel
+    class ConversationViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val inferenceEngine: InferenceEngine,
     private val conversationDao: ConversationDao,
@@ -88,6 +95,31 @@ class ConversationViewModel @Inject constructor(
         .filterNotNull()
         .flatMapLatest { convId -> turnDao.getTurnsWithEvents(convId) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val currentTodos: StateFlow<List<TodoItem>> = turnsWithEvents
+        .map { turns ->
+            val latestTodo = turns
+                .flatMap { it.events }
+                .filter { ev -> ev.toolName == "todo" && ev.toolStatus == "done" && !ev.toolResult.isNullOrBlank() }
+                .maxByOrNull { it.seq }
+
+            latestTodo?.let { ev ->
+                runCatching {
+                    val json = org.json.JSONObject(ev.toolResult!!)
+                    val arr  = json.optJSONArray("todos") ?: return@runCatching emptyList()
+                    (0 until arr.length()).map { i ->
+                        val o = arr.getJSONObject(i)
+                        TodoItem(
+                            id         = o.optString("id"),
+                            content    = o.optString("content"),
+                            activeForm = o.optString("activeForm"),
+                            status     = o.optString("status"),
+                        )
+                    }
+                }.getOrElse { emptyList() }
+            } ?: emptyList()
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
      * In-flight text not yet committed to a TurnEvent row.
