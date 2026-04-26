@@ -193,8 +193,17 @@ fun ConversationScreen(
     }
 
     val listState = rememberLazyListState()
-    LaunchedEffect(turnsWithEvents.size, streamingTextMap.size) {
-        if (turnsWithEvents.isNotEmpty()) listState.scrollToItem(turnsWithEvents.size - 1)
+    val coroutineScope = rememberCoroutineScope()
+    // Auto-scroll to bottom when new turns arrive, but only if already near the bottom.
+    val turnCount = turnsWithEvents.size
+    LaunchedEffect(turnCount) {
+        val info = listState.layoutInfo
+        val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+        val total       = info.totalItemsCount
+        val isNearBottom = total == 0 || lastVisible >= total - 2
+        if (isNearBottom && total > 0) {
+            listState.animateScrollToItem(total - 1)
+        }
     }
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()

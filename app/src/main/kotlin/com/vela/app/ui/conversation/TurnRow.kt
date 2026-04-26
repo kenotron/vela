@@ -22,6 +22,7 @@ package com.vela.app.ui.conversation
     import androidx.compose.ui.draw.clip
     import androidx.compose.ui.draw.rotate
     import androidx.compose.ui.platform.LocalConfiguration
+    import androidx.compose.ui.text.font.FontWeight
     import androidx.compose.ui.unit.Dp
     import androidx.compose.ui.unit.dp
     import com.vela.app.data.db.TurnEventEntity
@@ -322,36 +323,53 @@ package com.vela.app.ui.conversation
     }
 
     /**
-     * An indented assistant-style bubble showing a sub-agent's response.
+     * Agent response bubble — "attached pill" style.
      *
-     * Always indented exactly 20.dp — max one level deep regardless of how many
-     * times delegation was chained inside the sub-agent's own session.
+     * The agent name sits in a small tab fused to the top-left of the bubble,
+     * like a label attached to a card. Always 20.dp indented. Max one level.
      */
     @Composable
     private fun IndentedAgentBubble(agentName: String, text: String, maxW: Dp) {
         val cs = MaterialTheme.colorScheme
         Column(
-            modifier              = Modifier.padding(start = 20.dp),
-            verticalArrangement   = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.padding(start = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
-            // Agent label pill
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment     = Alignment.CenterVertically,
+            // ── Pill tab fused to bubble top-left ──
+            Box(
+                modifier = Modifier
+                    .background(
+                        cs.primary.copy(alpha = 0.15f),
+                        RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp),
+                    )
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
             ) {
-                Text("🤖", style = MaterialTheme.typography.labelSmall)
-                Text(
-                    text  = agentName,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = cs.primary,
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("🤖", style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        text  = agentName,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = cs.primary,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
             }
-            // Bubble — surfaceContainer (slightly dimmer than main surfaceContainerHigh)
-            // to visually distinguish from the root assistant response
+            // ── Bubble — top-left corner squared to connect with pill ──
             Box(
                 Modifier
                     .widthIn(max = maxW - 20.dp)
-                    .background(cs.surfaceContainer, AssistantShape)
+                    .background(
+                        cs.surfaceContainer,
+                        RoundedCornerShape(
+                            topStart    = 0.dp,   // connects flush with pill
+                            topEnd      = 12.dp,
+                            bottomEnd   = 12.dp,
+                            bottomStart = 12.dp,
+                        )
+                    )
                     .padding(horizontal = 14.dp, vertical = 10.dp),
             ) {
                 MarkdownText(text = text, color = cs.onSurface)
