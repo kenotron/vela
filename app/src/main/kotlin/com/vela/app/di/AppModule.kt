@@ -230,15 +230,7 @@ object AppModule {
     @Provides @Singleton
     fun provideSessionHarness(
         hookRegistry: HookRegistry,
-        @ApplicationContext ctx: Context,
-    ): SessionHarness {
-        val fallback = try {
-            ctx.assets.open("lifeos/SYSTEM.md").bufferedReader().readText()
-        } catch (_: Exception) {
-            SessionHarness.DEFAULT_FALLBACK
-        }
-        return SessionHarness(hookRegistry, fallback)
-    }
+    ): SessionHarness = SessionHarness(hookRegistry)
 
     @Provides @Singleton
     fun provideInferenceEngine(

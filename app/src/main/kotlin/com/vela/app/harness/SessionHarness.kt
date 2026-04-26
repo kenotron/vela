@@ -10,14 +10,22 @@ import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Assembles the composite system prompt for vault-mode conversations.
+ * Assembles the system prompt for vault-mode conversations.
  *
- * [fallbackPrompt] is the content of assets/lifeos/SYSTEM.md, loaded by
- * AppModule at construction time — no Android Context needed here.
+ * Deliberately thin — all generic context (date, env, git, delegation
+ * instructions) is now handled by Rust hooks injected as SystemPromptAddenda:
+ *
+ *   - amplifier-module-hooks-status-context  → <env> block + git snapshot
+ *   - amplifier-context-foundation           → delegation philosophy + agent list
+ *   - amplifier-module-tool-delegate spec    → dynamic agent catalogue
+ *
+ * This file only handles Vela-specific content:
+ *   1. <lifeos-config> — which vaults are active this turn
+ *   2. SYSTEM.md       — user's own vault instructions (re-read every turn)
+ *   3. SESSION_START Kotlin hooks — one-time side-effects (git pull, index)
  */
 class SessionHarness(
     private val hookRegistry: HookRegistry,
-    private val fallbackPrompt: String = DEFAULT_FALLBACK,
 ) {
     private val initialized = ConcurrentHashMap.newKeySet<String>()
 
@@ -27,27 +35,26 @@ class SessionHarness(
         conversationId: String,
         activeVaults: List<VaultEntity>,
     ): String = withContext(Dispatchers.IO) {
-        // Hooks (sync, index, personalization) fire ONCE per conversation on the first
-        // turn — they have side-effects (git pull, indexing) that must not repeat.
-        // SYSTEM.md is re-read every turn so vault toggling takes effect immediately
-        // without the user having to start a new conversation.
+        // SESSION_START hooks fire ONCE per conversation (git pull, index, etc.)
         val hookAddenda = if (!isInitialized(conversationId)) {
             val hookCtx = HookContext(conversationId, activeVaults, HookEvent.SESSION_START)
             hookRegistry.collectAddenda(HookEvent.SESSION_START, hookCtx)
                 .also { initialized.add(conversationId) }
         } else ""
 
-            buildString {
-                // NOTE: date, working dir, git status, platform are now injected by
-                // amplifier-module-hooks-status-context on every ProviderRequest.
-                // Do NOT add Today's date here — it would duplicate what the Rust hook produces.
-
-                // A fresh <lifeos-config> block is prepended every turn so the model
-            // always reads the current vault state from this turn's system prompt,
-            // overriding any stale config it may have seen in conversation history.
+        buildString {
+            // 1. Vault configuration — always fresh so vault toggling takes effect immediately.
             append(buildLifeosConfig(activeVaults))
-            append("\n\n")
-            append(loadSystemMd(activeVaults))
+
+            // 2. User's SYSTEM.md — their own instructions for this vault.
+            //    Empty string if none exists; Rust hooks fill the gap.
+            val systemMd = loadSystemMd(activeVaults)
+            if (systemMd.isNotBlank()) {
+                append("\n\n")
+                append(systemMd)
+            }
+
+            // 3. Any one-time Kotlin hook addenda (git pull notice, index summary, etc.)
             if (hookAddenda.isNotBlank()) {
                 append("\n\n")
                 append(hookAddenda)
@@ -75,51 +82,15 @@ class SessionHarness(
     }
 
     /**
-     * Loads the SYSTEM.md from the first active vault that has one, stripping
-     * any existing <lifeos-config> block so the dynamically-generated one above
-     * is always the authoritative source.
+     * Loads SYSTEM.md from the first active vault that has one.
+     * Returns blank if none found — Rust hooks cover the gap.
+     * Strips any stale <lifeos-config> block so the fresh one above is authoritative.
      */
     private fun loadSystemMd(activeVaults: List<VaultEntity>): String {
         val raw = activeVaults.mapNotNull { vault ->
             File(vault.localPath, "SYSTEM.md").takeIf { it.exists() }?.readText()
-        }.firstOrNull() ?: fallbackPrompt
+        }.firstOrNull() ?: return ""
 
-        // Remove any <lifeos-config>...</lifeos-config> block already in the file
-        // so we don't end up with two conflicting config blocks.
         return raw.replace(Regex("<lifeos-config>[\\s\\S]*?</lifeos-config>\\n?"), "").trim()
-    }
-
-    companion object {
-        val DEFAULT_FALLBACK = """
-                You are an AI assistant. Use the vault configuration above to determine what files and vaults are available.
-
-                ## Specialist agents — use the delegate tool
-
-                You have access to specialist sub-agents via the `delegate` tool. **For anything beyond a trivial single-step answer, delegate first.**
-
-                | Agent | Use for |
-                |-------|---------|
-                | explorer | File exploration, codebase surveys, reading multiple files |
-                | zen-architect | Architecture decisions, design review, code quality |
-                | bug-hunter | Debugging errors, finding root causes |
-                | git-ops | Git commits, branches, pull requests |
-                | modular-builder | Implementing features from a spec |
-                | security-guardian | Security review, vulnerability analysis |
-
-                Call delegate like this: `delegate(agent="explorer", instruction="what you want it to do")`
-
-                ## Task tracking
-                For any request that involves more than two steps, use the todo tool:
-                - Create todos at the start with all planned steps
-                - Mark each todo in_progress when you begin it
-                - Mark it completed immediately when done — never batch completions
-                - Always write a clear summary response after completing tool work
-
-                ## Research workflow
-                When asked to research a topic:
-                1. Use search_web to find relevant sources
-                2. Use fetch_url to read the full content of promising pages
-                3. Synthesize findings into a clear, structured response
-            """.trimIndent()
     }
 }
