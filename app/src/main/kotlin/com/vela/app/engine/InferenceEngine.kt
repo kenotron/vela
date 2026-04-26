@@ -272,9 +272,20 @@ package com.vela.app.engine
                         val eventId = parts[0]
                         turnEventDao.updateEvent(id = eventId, status = "denied", result = parts.getOrNull(1)?.take(500))
                     } else {
-                        // Normal tool completion
-                        turnEventDao.updateEvent(id = stableId, status = "done", result = result.take(500))
-                        Log.d(TAG, "Tool done: $stableId")
+                        // For the delegate tool the Rust side now returns a rich JSON object
+                        // {"response":"...","agent":"...","status":"success",...}.
+                        // Extract just the response text so the indented bubble shows readable prose,
+                        // not raw JSON. All other tools store their result as-is.
+                        val toolNameForResult = toolNameByEventId[stableId] ?: ""
+                        val storedResult = if (toolNameForResult == "delegate") {
+                            runCatching {
+                                JSONObject(result).optString("response").takeIf { it.isNotEmpty() }
+                            }.getOrNull() ?: result
+                        } else {
+                            result
+                        }.take(3000) // agent responses can be long
+                        turnEventDao.updateEvent(id = stableId, status = "done", result = storedResult)
+                        Log.d(TAG, "Tool done: $stableId tool=$toolNameForResult result_len=${result.length} stored_len=${storedResult.length}")
 
                         // ── TOOL_POST hook ─────────────────────────────────────────
                         val toolName = toolNameByEventId.remove(stableId) ?: ""
