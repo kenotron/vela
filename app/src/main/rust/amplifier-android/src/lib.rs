@@ -394,10 +394,24 @@ async fn run_agent_loop(
     // Todo (session-scoped)
     orch.register_tool(Arc::new(TodoTool::default())).await;
 
-    // Skills engine
+    // Skills engine — bundled superpowers skills are always available even when
+    // ~/.amplifier/skills/ doesn't exist on the Android device.
+    const BUNDLED_SKILLS: &[(&str, &str)] = &[
+        ("using-superpowers",              include_str!("../skills/using-superpowers/SKILL.md")),
+        ("brainstorming",                  include_str!("../skills/brainstorming/SKILL.md")),
+        ("systematic-debugging",           include_str!("../skills/systematic-debugging/SKILL.md")),
+        ("test-driven-development",        include_str!("../skills/test-driven-development/SKILL.md")),
+        ("writing-plans",                  include_str!("../skills/writing-plans/SKILL.md")),
+        ("verification-before-completion", include_str!("../skills/verification-before-completion/SKILL.md")),
+        ("dispatching-parallel-agents",    include_str!("../skills/dispatching-parallel-agents/SKILL.md")),
+        ("subagent-driven-development",    include_str!("../skills/subagent-driven-development/SKILL.md")),
+        ("executing-plans",                include_str!("../skills/executing-plans/SKILL.md")),
+    ];
     let skills_dir = vault_path_buf.join("skills");
     std::fs::create_dir_all(&skills_dir).ok();
-    orch.register_tool(Arc::new(SkillEngine::new(vault_path_buf.clone()))).await;
+    orch.register_tool(Arc::new(
+        SkillEngine::new(vault_path_buf.clone()).with_bundled(BUNDLED_SKILLS)
+    )).await;
 
     log::info!(
         "[amplifier-android] Rust-native tools registered: read_file, write_file, edit_file, \
