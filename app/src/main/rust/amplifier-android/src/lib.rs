@@ -54,7 +54,7 @@ use amplifier_module_tool_filesystem::{
     EditFileTool, FilesystemConfig, GlobTool, GrepTool, ReadFileTool, WriteFileTool,
 };
 use amplifier_module_tool_bash::{BashConfig, BashTool, SafetyProfile};
-use amplifier_module_tool_search::{GrepCodebaseTool, SearchConfig};
+use amplifier_module_tool_search::{GrepTool as SearchGrepTool, SearchConfig};
 use amplifier_module_tool_todo::TodoTool;
 use amplifier_module_tool_web::fetch::FetchUrlTool;
 use amplifier_module_tool_skills::SkillEngine;
@@ -373,7 +373,7 @@ async fn run_agent_loop(
     orch.register_tool(Arc::new(FetchUrlTool::new())).await;
 
     // Codebase search
-    orch.register_tool(Arc::new(GrepCodebaseTool::new(SearchConfig::new(vault_path_buf.clone())))).await;
+    orch.register_tool(Arc::new(SearchGrepTool::new(SearchConfig::new(vault_path_buf.clone())))).await;
 
     // Todo (session-scoped)
     orch.register_tool(Arc::new(TodoTool::default())).await;
