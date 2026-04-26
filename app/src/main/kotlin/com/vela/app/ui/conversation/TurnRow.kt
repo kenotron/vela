@@ -7,6 +7,7 @@ package com.vela.app.ui.conversation
     import androidx.compose.animation.core.rememberInfiniteTransition
     import androidx.compose.animation.core.tween
     import androidx.compose.foundation.background
+    import androidx.compose.foundation.clickable
     import androidx.compose.foundation.layout.*
     import androidx.compose.foundation.shape.CircleShape
     import androidx.compose.foundation.shape.RoundedCornerShape
@@ -400,6 +401,7 @@ package com.vela.app.ui.conversation
         maxW: Dp,
     ) {
         val cs = MaterialTheme.colorScheme
+        var expanded by remember { mutableStateOf(false) }
         Column(
             modifier = Modifier.padding(start = 20.dp),
             verticalArrangement = Arrangement.spacedBy(0.dp),
@@ -439,9 +441,21 @@ package com.vela.app.ui.conversation
                             bottomStart = 12.dp,
                         )
                     )
+                    .clickable { expanded = !expanded }
                     .padding(horizontal = 14.dp, vertical = 10.dp),
             ) {
-                MarkdownText(text = text, color = cs.onSurface)
+                Column {
+                    if (expanded) {
+                        MarkdownText(text = text, color = cs.onSurface)
+                        Spacer(Modifier.height(4.dp))
+                    }
+                    Text(
+                        text     = if (expanded) "Hide ▴" else "Show response ▾",
+                        style    = MaterialTheme.typography.labelSmall,
+                        color    = cs.primary.copy(alpha = 0.8f),
+                        modifier = Modifier.align(Alignment.End),
+                    )
+                }
             }
         }
     }
