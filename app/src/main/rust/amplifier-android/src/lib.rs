@@ -567,11 +567,14 @@ impl Hook for KotlinToolNotifyHook {
                     .and_then(|map| map.get(&call_id).cloned())
                     .unwrap_or_default();
 
-                // Serialize output to a JSON string for Kotlin.
-                let result_json = ctx.data
-                    .get("output")
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "null".to_string());
+                // Unwrap the output value for Kotlin.
+                // Value::String(s).to_string() produces "\"s\"" (double-quoted) —
+                // use as_str() to get the bare string when the value is already a string.
+                let result_json = match ctx.data.get("output") {
+                    Some(serde_json::Value::String(s)) => s.clone(),
+                    Some(other) => other.to_string(),
+                    None => String::new(),
+                };
 
                 self.call_on_rust_native_end(&stable_id, &result_json);
                 HookResult::Continue
