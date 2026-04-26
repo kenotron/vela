@@ -39,7 +39,12 @@ package com.vela.app.ui.conversation
     internal sealed class TurnItem {
         data class Tools(val group: ToolGroup) : TurnItem()
         data class Text(val evt: TextEvt) : TurnItem()
-        data class AgentResponse(val id: String, val agentName: String, val text: String) : TurnItem()
+        data class AgentResponse(
+            val id: String,
+            val agentName: String,
+            val text: String,
+            val toolsCalled: List<String> = emptyList(),
+        ) : TurnItem()
     }
 
     /**
@@ -63,10 +68,17 @@ package com.vela.app.ui.conversation
                     val agent = runCatching {
                         JSONObject(ev.toolArgs ?: "{}").optString("agent").takeIf { s -> s.isNotEmpty() }
                     }.getOrNull() ?: "agent"
+                    val fullJson = runCatching { JSONObject(ev.toolResult!!) }.getOrNull()
+                    val responseText = fullJson?.optString("response")?.takeIf { it.isNotBlank() }
+                        ?: ev.toolResult ?: ""
+                    val toolsCalled = fullJson?.optJSONArray("tools_called")?.let { arr ->
+                        (0 until arr.length()).map { arr.getString(it) }
+                    } ?: emptyList()
                     add(TurnItem.AgentResponse(
-                        id        = "${ev.id}_resp",
-                        agentName = agent,
-                        text      = ev.toolResult ?: "",
+                        id          = "${ev.id}_resp",
+                        agentName   = agent,
+                        text        = responseText,
+                        toolsCalled = toolsCalled,
                     ))
                 }
             pending.clear()
@@ -191,9 +203,10 @@ package com.vela.app.ui.conversation
                             agentName = item.evt.event.agentName,
                         )
                         is TurnItem.AgentResponse -> IndentedAgentBubble(
-                            agentName = item.agentName,
-                            text      = item.text,
-                            maxW      = maxW,
+                            agentName   = item.agentName,
+                            text        = item.text,
+                            toolsCalled = item.toolsCalled,
+                            maxW        = maxW,
                         )
                     }
                 }
@@ -329,7 +342,12 @@ package com.vela.app.ui.conversation
      * like a label attached to a card. Always 20.dp indented. Max one level.
      */
     @Composable
-    private fun IndentedAgentBubble(agentName: String, text: String, maxW: Dp) {
+    private fun IndentedAgentBubble(
+        agentName: String,
+        text: String,
+        toolsCalled: List<String> = emptyList(),
+        maxW: Dp,
+    ) {
         val cs = MaterialTheme.colorScheme
         Column(
             modifier = Modifier.padding(start = 20.dp),
@@ -372,7 +390,39 @@ package com.vela.app.ui.conversation
                     )
                     .padding(horizontal = 14.dp, vertical = 10.dp),
             ) {
-                MarkdownText(text = text, color = cs.onSurface)
+                Column {
+                    // Tool chips — show what tools the sub-agent called
+                    if (toolsCalled.isNotEmpty()) {
+                        val toolIconMap = mapOf(
+                            "read_file"  to "📄", "write_file" to "✏️", "edit_file"  to "✏️",
+                            "glob"       to "🔍", "grep"       to "🔍", "bash"       to "💻",
+                            "web_fetch"  to "🌐", "search_web" to "🌐",
+                            "delegate"   to "🤖", "todo"       to "✅", "load_skill" to "⚡",
+                        )
+                        FlowRow(
+                            modifier              = Modifier.padding(bottom = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement   = Arrangement.spacedBy(4.dp),
+                        ) {
+                            toolsCalled.forEach { toolName ->
+                                val icon = toolIconMap[toolName] ?: "🔧"
+                                Surface(
+                                    shape    = MaterialTheme.shapes.small,
+                                    color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                                    modifier = Modifier.height(22.dp),
+                                ) {
+                                    Text(
+                                        text     = "$icon $toolName",
+                                        style    = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                        color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    MarkdownText(text = text, color = cs.onSurface)
+                }
             }
         }
     }

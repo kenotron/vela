@@ -278,12 +278,12 @@ package com.vela.app.engine
                         // not raw JSON. All other tools store their result as-is.
                         val toolNameForResult = toolNameByEventId[stableId] ?: ""
                         val storedResult = if (toolNameForResult == "delegate") {
-                            runCatching {
-                                JSONObject(result).optString("response").takeIf { it.isNotEmpty() }
-                            }.getOrNull() ?: result
+                            // Store full JSON — UI needs both response text AND tools_called list.
+                            // Validate it's parseable JSON; fall back to raw string if not.
+                            runCatching { JSONObject(result); result }.getOrElse { result }
                         } else {
                             result
-                        }.take(3000) // agent responses can be long
+                        }.take(5000) // agent results can be large
                         turnEventDao.updateEvent(id = stableId, status = "done", result = storedResult)
                         Log.d(TAG, "Tool done: $stableId tool=$toolNameForResult result_len=${result.length} stored_len=${storedResult.length}")
 
