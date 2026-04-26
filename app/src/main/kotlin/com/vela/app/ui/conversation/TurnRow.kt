@@ -29,6 +29,7 @@ package com.vela.app.ui.conversation
     import com.vela.app.engine.ContentBlockRef
     import com.vela.app.engine.parseContentBlockRefs
     import com.vela.app.ui.components.MarkdownText
+    import org.json.JSONObject
 
     // ---- Turn item model --------------------------------------------------------
 
@@ -37,6 +38,51 @@ package com.vela.app.ui.conversation
     internal sealed class TurnItem {
         data class Tools(val group: ToolGroup) : TurnItem()
         data class Text(val evt: TextEvt) : TurnItem()
+        data class AgentResponse(val id: String, val agentName: String, val text: String) : TurnItem()
+    }
+
+    /**
+     * Pure Kotlin helper — builds the ordered list of [TurnItem]s from a turn's events.
+     *
+     * Consecutive tool events are grouped into [TurnItem.Tools]. A text event breaks
+     * the current group, flushing it first. Completed `delegate` tool calls in a
+     * flushed group additionally emit a [TurnItem.AgentResponse] bubble right after
+     * the [TurnItem.Tools] item.
+     */
+    internal fun buildTurnItems(events: List<TurnEventEntity>): List<TurnItem> = buildList {
+        val pending = mutableListOf<TurnEventEntity>()
+
+        fun flushPending() {
+            if (pending.isEmpty()) return
+            add(TurnItem.Tools(ToolGroup(pending.toList())))
+            // Completed delegate calls → indented agent-response bubbles
+            pending
+                .filter { it.toolName == "delegate" && it.toolStatus == "done" && !it.toolResult.isNullOrBlank() }
+                .forEach { ev ->
+                    val agent = runCatching {
+                        JSONObject(ev.toolArgs ?: "{}").optString("agent").takeIf { s -> s.isNotEmpty() }
+                    }.getOrNull() ?: "agent"
+                    add(TurnItem.AgentResponse(
+                        id        = "${ev.id}_resp",
+                        agentName = agent,
+                        text      = ev.toolResult ?: "",
+                    ))
+                }
+            pending.clear()
+        }
+
+        events.forEach { event ->
+            when (event.type) {
+                "tool" -> pending.add(event)
+                else   -> {
+                    flushPending()
+                    if (!event.text.isNullOrBlank()) {
+                        add(TurnItem.Text(TextEvt(event)))
+                    }
+                }
+            }
+        }
+        flushPending()
     }
 
     // ---- Turn row ---------------------------------------------------------------
@@ -124,37 +170,29 @@ package com.vela.app.ui.conversation
             }
 
             // Group consecutive tool events; text events break groups.
-            val items: List<TurnItem> = buildList {
-                val pending = mutableListOf<TurnEventEntity>()
-                twe.sortedEvents.forEach { event ->
-                    when (event.type) {
-                        "tool" -> pending.add(event)
-                        else   -> {
-                            if (pending.isNotEmpty()) {
-                                add(TurnItem.Tools(ToolGroup(pending.toList())))
-                                pending.clear()
-                            }
-                            if (!event.text.isNullOrBlank()) {
-                                add(TurnItem.Text(TextEvt(event)))
-                            }
-                        }
-                    }
-                }
-                if (pending.isNotEmpty()) add(TurnItem.Tools(ToolGroup(pending.toList())))
+            // Completed delegate calls also emit indented AgentResponse bubbles.
+            val items: List<TurnItem> = remember(twe.sortedEvents) {
+                buildTurnItems(twe.sortedEvents)
             }
 
             items.forEach { item ->
                 key(when (item) {
-                    is TurnItem.Tools -> item.group.events.first().id
-                    is TurnItem.Text  -> item.evt.event.id
+                    is TurnItem.Tools         -> item.group.events.first().id
+                    is TurnItem.Text          -> item.evt.event.id
+                    is TurnItem.AgentResponse -> item.id
                 }) {
                     when (item) {
-                        is TurnItem.Tools -> ToolGroupRow(item.group.events)
-                        is TurnItem.Text  -> TextEventRow(
+                        is TurnItem.Tools         -> ToolGroupRow(item.group.events)
+                        is TurnItem.Text          -> TextEventRow(
                             text      = item.evt.event.text ?: "",
                             streaming = false,
                             maxW      = maxW,
                             agentName = item.evt.event.agentName,
+                        )
+                        is TurnItem.AgentResponse -> IndentedAgentBubble(
+                            agentName = item.agentName,
+                            text      = item.text,
+                            maxW      = maxW,
                         )
                     }
                 }
@@ -279,6 +317,44 @@ package com.vela.app.ui.conversation
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * An indented assistant-style bubble showing a sub-agent's response.
+     *
+     * Always indented exactly 20.dp — max one level deep regardless of how many
+     * times delegation was chained inside the sub-agent's own session.
+     */
+    @Composable
+    private fun IndentedAgentBubble(agentName: String, text: String, maxW: Dp) {
+        val cs = MaterialTheme.colorScheme
+        Column(
+            modifier              = Modifier.padding(start = 20.dp),
+            verticalArrangement   = Arrangement.spacedBy(4.dp),
+        ) {
+            // Agent label pill
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment     = Alignment.CenterVertically,
+            ) {
+                Text("🤖", style = MaterialTheme.typography.labelSmall)
+                Text(
+                    text  = agentName,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = cs.primary,
+                )
+            }
+            // Bubble — surfaceContainer (slightly dimmer than main surfaceContainerHigh)
+            // to visually distinguish from the root assistant response
+            Box(
+                Modifier
+                    .widthIn(max = maxW - 20.dp)
+                    .background(cs.surfaceContainer, AssistantShape)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+            ) {
+                MarkdownText(text = text, color = cs.onSurface)
             }
         }
     }
