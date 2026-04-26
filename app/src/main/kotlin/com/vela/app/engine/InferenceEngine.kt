@@ -238,11 +238,15 @@ package com.vela.app.engine
 
                     toolNameByEventId[eventId] = name   // track for TOOL_POST hook
 
-                    // For the delegate tool, show which agent is running instead of
-                    // the generic "delegate" label — makes delegation visible in the chat.
+                    // For the delegate tool, store the raw agent name + instruction preview
+                    // so DelegateChip can render the Claude Desktop-style progressive disclosure.
                     val (displayName, displayIcon, displaySummary) = if (name == "delegate") {
                         val agent = lastDelegatingAgent ?: "agent"
-                        Triple("→ $agent", "🤖", "Running $agent…")
+                        val instr = runCatching {
+                            JSONObject(argsJson).optString("instruction").take(42)
+                                .let { if (it.length == 42) "$it…" else it }
+                        }.getOrElse { "" }
+                        Triple(agent, "", instr)   // displayName=agentName, icon=empty, summary=preview
                     } else {
                         Triple(tool?.displayName ?: name, tool?.icon ?: "🔧", summary)
                     }

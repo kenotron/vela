@@ -17,6 +17,15 @@ import com.vela.app.data.db.TurnEventEntity
 internal fun ToolGroupRow(events: List<TurnEventEntity>) {
     if (events.isEmpty()) return
 
+    // Special rendering for delegate tool — each call becomes a DelegateChip
+    val isDelegateGroup = events.all { it.toolName == "delegate" }
+    if (isDelegateGroup) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            events.forEach { ev -> DelegateChip(ev) }
+        }
+        return
+    }
+
     // Special rendering for todo tool — show a checklist card instead of generic tool row
     val isTodoGroup = events.all { it.toolName == "todo" }
     if (isTodoGroup) {
@@ -86,26 +95,31 @@ internal fun ToolGroupRow(events: List<TurnEventEntity>) {
         if (expanded && events.size > 1) {
             Spacer(Modifier.height(2.dp))
             events.forEach { event ->
-                Row(
-                    modifier = Modifier.padding(start = 10.dp, top = 1.dp, bottom = 1.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .width(1.dp)
-                            .height(IntrinsicSize.Min)
-                            .defaultMinSize(minHeight = 16.dp)
-                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    val doneAlpha = if (event.toolStatus == "done") 0.6f else 1f
-                    Text(
-                        text     = (event.toolIcon ?: "\uD83D\uDD27") + "  " + smartLabel(event),
-                        style    = MaterialTheme.typography.labelSmall,
-                        color    = textColor.copy(alpha = doneAlpha),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                if (event.toolName == "delegate") {
+                    // Delegate calls get their own progressive-disclosure chip even in expanded view
+                    DelegateChip(event)
+                } else {
+                    Row(
+                        modifier = Modifier.padding(start = 10.dp, top = 1.dp, bottom = 1.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height(IntrinsicSize.Min)
+                                .defaultMinSize(minHeight = 16.dp)
+                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        val doneAlpha = if (event.toolStatus == "done") 0.6f else 1f
+                        Text(
+                            text     = (event.toolIcon ?: "\uD83D\uDD27") + "  " + smartLabel(event),
+                            style    = MaterialTheme.typography.labelSmall,
+                            color    = textColor.copy(alpha = doneAlpha),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }

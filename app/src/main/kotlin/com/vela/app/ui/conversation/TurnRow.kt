@@ -23,7 +23,9 @@ package com.vela.app.ui.conversation
     import androidx.compose.ui.draw.clip
     import androidx.compose.ui.draw.rotate
     import androidx.compose.ui.platform.LocalConfiguration
+    import androidx.compose.ui.text.font.FontFamily
     import androidx.compose.ui.text.font.FontWeight
+    import androidx.compose.ui.text.style.TextOverflow
     import androidx.compose.ui.unit.Dp
     import androidx.compose.ui.unit.dp
     import com.vela.app.data.db.TurnEventEntity
@@ -40,25 +42,14 @@ package com.vela.app.ui.conversation
     internal sealed class TurnItem {
         data class Tools(val group: ToolGroup) : TurnItem()
         data class Text(val evt: TextEvt) : TurnItem()
-        data class AgentResponse(
-            val id: String,
-            val agentName: String,
-            val text: String,
-        ) : TurnItem()
-        /** One tool call made by a sub-agent — rendered as its own indented bubble. */
-        data class SubAgentTool(
-            val id: String,
-            val toolName: String,
-        ) : TurnItem()
     }
 
     /**
      * Pure Kotlin helper — builds the ordered list of [TurnItem]s from a turn's events.
      *
      * Consecutive tool events are grouped into [TurnItem.Tools]. A text event breaks
-     * the current group, flushing it first. Completed `delegate` tool calls in a
-     * flushed group additionally emit a [TurnItem.AgentResponse] bubble right after
-     * the [TurnItem.Tools] item.
+     * the current group, flushing it first. Delegate tool calls are rendered by
+     * [DelegateChip] inside [ToolGroupRow] — no separate items are emitted here.
      */
     internal fun buildTurnItems(events: List<TurnEventEntity>): List<TurnItem> = buildList {
         val pending = mutableListOf<TurnEventEntity>()
@@ -66,32 +57,6 @@ package com.vela.app.ui.conversation
         fun flushPending() {
             if (pending.isEmpty()) return
             add(TurnItem.Tools(ToolGroup(pending.toList())))
-            // Completed delegate calls → indented agent-response bubbles
-            pending
-                .filter { it.toolName == "delegate" && it.toolStatus == "done" && !it.toolResult.isNullOrBlank() }
-                .forEach { ev ->
-                    val agent = runCatching {
-                        JSONObject(ev.toolArgs ?: "{}").optString("agent").takeIf { s -> s.isNotEmpty() }
-                    }.getOrNull() ?: "agent"
-                    val fullJson = runCatching { JSONObject(ev.toolResult!!) }.getOrNull()
-                    val responseText = fullJson?.optString("response")?.takeIf { it.isNotBlank() }
-                        ?: ev.toolResult ?: ""
-                    // Each sub-agent tool call gets its own bubble BEFORE the response.
-                    val toolsCalled = fullJson?.optJSONArray("tools_called")?.let { arr ->
-                        (0 until arr.length()).map { arr.getString(it) }
-                    } ?: emptyList()
-                    toolsCalled.forEachIndexed { idx, toolName ->
-                        add(TurnItem.SubAgentTool(
-                            id       = "${ev.id}_tool_$idx",
-                            toolName = toolName,
-                        ))
-                    }
-                    add(TurnItem.AgentResponse(
-                        id        = "${ev.id}_resp",
-                        agentName = agent,
-                        text      = responseText,
-                    ))
-                }
             pending.clear()
         }
 
@@ -194,33 +159,23 @@ package com.vela.app.ui.conversation
             }
 
             // Group consecutive tool events; text events break groups.
-            // Completed delegate calls also emit indented AgentResponse bubbles.
+            // Delegate tool calls are rendered by DelegateChip inside ToolGroupRow.
             val items: List<TurnItem> = remember(twe.sortedEvents) {
                 buildTurnItems(twe.sortedEvents)
             }
 
             items.forEach { item ->
                 key(when (item) {
-                    is TurnItem.Tools         -> item.group.events.first().id
-                    is TurnItem.Text          -> item.evt.event.id
-                    is TurnItem.AgentResponse -> item.id
-                    is TurnItem.SubAgentTool  -> item.id
+                    is TurnItem.Tools -> item.group.events.first().id
+                    is TurnItem.Text  -> item.evt.event.id
                 }) {
                     when (item) {
-                        is TurnItem.Tools         -> ToolGroupRow(item.group.events)
-                        is TurnItem.Text          -> TextEventRow(
+                        is TurnItem.Tools -> ToolGroupRow(item.group.events)
+                        is TurnItem.Text  -> TextEventRow(
                             text      = item.evt.event.text ?: "",
                             streaming = false,
                             maxW      = maxW,
                             agentName = item.evt.event.agentName,
-                        )
-                        is TurnItem.AgentResponse -> IndentedAgentBubble(
-                            agentName = item.agentName,
-                            text      = item.text,
-                            maxW      = maxW,
-                        )
-                        is TurnItem.SubAgentTool  -> SubAgentToolRow(
-                            toolName = item.toolName,
                         )
                     }
                 }
@@ -350,111 +305,174 @@ package com.vela.app.ui.conversation
     }
 
     /**
-     * Agent response bubble — "attached pill" style.
+     * Claude Desktop-style progressive-disclosure chip for agent delegation.
      *
-     * The agent name sits in a small tab fused to the top-left of the bubble,
-     * like a label attached to a card. Always 20.dp indented. Max one level.
+     * Collapsed:  "Running zen-architect · Analyse the module structure…  ›"
+     * Done:       "Ran zen-architect · Analyse the module structure…"
+     * Tap → ModalBottomSheet with full instruction, tools called, and response.
      */
-    /**
-     * One tool called by a sub-agent — rendered as its own indented row above the
-     * agent response bubble so each call is visually distinct.
-     */
+    @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
     @Composable
-    private fun SubAgentToolRow(toolName: String) {
+    internal fun DelegateChip(ev: TurnEventEntity) {
         val cs = MaterialTheme.colorScheme
-        val toolIconMap = mapOf(
-            "read_file"  to "📄", "write_file" to "✏️", "edit_file"  to "✏️",
-            "glob"       to "🔍", "grep"       to "🔍", "bash"       to "💻",
-            "web_fetch"  to "🌐", "search_web" to "🌐", "web_search" to "🌐",
-            "delegate"   to "🤖", "todo"       to "✅", "load_skill" to "⚡",
-        )
-        val icon = toolIconMap[toolName] ?: "🔧"
-        Row(
-            modifier              = Modifier.padding(start = 36.dp, top = 2.dp, bottom = 2.dp),
-            verticalAlignment     = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        var showSheet by remember { mutableStateOf(false) }
+
+        val agentName = ev.toolDisplayName?.takeIf { it.isNotBlank() } ?: "agent"
+        val preview   = ev.toolSummary ?: ""
+        val isDone    = ev.toolStatus == "done"
+        val verb      = if (isDone) "Ran" else "Running"
+
+        val resultJson   = runCatching { org.json.JSONObject(ev.toolResult ?: "{}") }.getOrNull()
+        val toolsCalled  = resultJson?.optJSONArray("tools_called")?.let { arr ->
+            (0 until arr.length()).map { arr.getString(it) }
+        } ?: emptyList()
+        val responseText = resultJson?.optString("response") ?: ""
+        val fullInstr    = runCatching {
+            org.json.JSONObject(ev.toolArgs ?: "{}").optString("instruction")
+        }.getOrElse { "" }
+
+        // ── Chip ──────────────────────────────────────────────────────────────
+        Surface(
+            shape    = RoundedCornerShape(6.dp),
+            color    = cs.surfaceContainerHigh,
+            modifier = Modifier.clickable { showSheet = true },
         ) {
-            Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = cs.surfaceContainerHigh,
+            Row(
+                modifier              = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment     = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Row(
-                    modifier              = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                    verticalAlignment     = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                ) {
-                    Text(icon, style = MaterialTheme.typography.labelSmall)
+                Text(
+                    text  = "$verb ",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = cs.onSurfaceVariant,
+                )
+                Text(
+                    text       = agentName,
+                    style      = MaterialTheme.typography.labelMedium,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.SemiBold,
+                    color      = cs.onSurface,
+                )
+                if (preview.isNotBlank()) {
                     Text(
-                        text  = toolName,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = cs.onSurface.copy(alpha = 0.7f),
+                        text     = " · $preview",
+                        style    = MaterialTheme.typography.labelMedium,
+                        color    = cs.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
+                }
+                if (!isDone) {
+                    Spacer(Modifier.width(4.dp))
+                    Text("›", style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant)
                 }
             }
         }
-    }
 
-    @Composable
-    private fun IndentedAgentBubble(
-        agentName: String,
-        text: String,
-        maxW: Dp,
-    ) {
-        val cs = MaterialTheme.colorScheme
-        var expanded by remember { mutableStateOf(false) }
-        Column(
-            modifier = Modifier.padding(start = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(0.dp),
-        ) {
-            // ── Pill tab fused to bubble top-left ──
-            Box(
-                modifier = Modifier
-                    .background(
-                        cs.primary.copy(alpha = 0.15f),
-                        RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp),
-                    )
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+        // ── Bottom sheet ──────────────────────────────────────────────────────
+        if (showSheet) {
+            ModalBottomSheet(onDismissRequest = { showSheet = false }) {
+                Column(
+                    modifier            = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp)
+                        .padding(bottom = 36.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    Text("🤖", style = MaterialTheme.typography.labelSmall)
-                    Text(
-                        text  = agentName,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = cs.primary,
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
-            }
-            // ── Bubble — top-left corner squared to connect with pill ──
-            Box(
-                Modifier
-                    .widthIn(max = maxW - 20.dp)
-                    .background(
-                        cs.surfaceContainer,
-                        RoundedCornerShape(
-                            topStart    = 0.dp,   // connects flush with pill
-                            topEnd      = 12.dp,
-                            bottomEnd   = 12.dp,
-                            bottomStart = 12.dp,
+                    // Header
+                    Row(
+                        verticalAlignment     = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text       = agentName,
+                            style      = MaterialTheme.typography.titleMedium,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.SemiBold,
+                            color      = cs.onSurface,
                         )
-                    )
-                    .clickable { expanded = !expanded }
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-            ) {
-                Column {
-                    if (expanded) {
-                        MarkdownText(text = text, color = cs.onSurface)
-                        Spacer(Modifier.height(4.dp))
+                        if (!isDone) {
+                            Text(
+                                text  = "running…",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = cs.primary.copy(alpha = 0.7f),
+                            )
+                        }
                     }
-                    Text(
-                        text     = if (expanded) "Hide ▴" else "Show response ▾",
-                        style    = MaterialTheme.typography.labelSmall,
-                        color    = cs.primary.copy(alpha = 0.8f),
-                        modifier = Modifier.align(Alignment.End),
-                    )
+                    // Full instruction
+                    if (fullInstr.isNotBlank()) {
+                        Text(
+                            text  = fullInstr,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = cs.onSurfaceVariant,
+                        )
+                    }
+                    // Tools called
+                    if (toolsCalled.isNotEmpty()) {
+                        HorizontalDivider(color = cs.outlineVariant)
+                        Text(
+                            "Tools called",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = cs.onSurfaceVariant,
+                        )
+                        val toolIconMap = mapOf(
+                            "read_file" to "📄", "write_file" to "✏️", "edit_file"  to "✏️",
+                            "glob"      to "🔍", "grep"       to "🔍", "bash"       to "💻",
+                            "web_fetch" to "🌐", "search_web" to "🌐",
+                            "delegate"  to "🤖", "todo"       to "✅", "load_skill" to "⚡",
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            toolsCalled.forEach { toolName ->
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment     = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        toolIconMap[toolName] ?: "🔧",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                    Text(
+                                        toolName,
+                                        style      = MaterialTheme.typography.bodySmall,
+                                        fontFamily = FontFamily.Monospace,
+                                        color      = cs.onSurface,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    // Response (collapsible)
+                    if (responseText.isNotBlank()) {
+                        HorizontalDivider(color = cs.outlineVariant)
+                        var responseExpanded by remember { mutableStateOf(false) }
+                        Row(
+                            modifier              = Modifier
+                                .fillMaxWidth()
+                                .clickable { responseExpanded = !responseExpanded },
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment     = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "Response",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = cs.onSurfaceVariant,
+                            )
+                            Text(
+                                if (responseExpanded) "▴" else "▾",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = cs.onSurfaceVariant,
+                            )
+                        }
+                        if (responseExpanded) {
+                            Text(
+                                responseText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = cs.onSurface,
+                            )
+                        }
+                    }
                 }
             }
         }
