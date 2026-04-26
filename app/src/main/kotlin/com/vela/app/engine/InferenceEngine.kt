@@ -238,15 +238,24 @@ package com.vela.app.engine
 
                     toolNameByEventId[eventId] = name   // track for TOOL_POST hook
 
+                    // For the delegate tool, show which agent is running instead of
+                    // the generic "delegate" label — makes delegation visible in the chat.
+                    val (displayName, displayIcon, displaySummary) = if (name == "delegate") {
+                        val agent = lastDelegatingAgent ?: "agent"
+                        Triple("→ $agent", "🤖", "Running $agent…")
+                    } else {
+                        Triple(tool?.displayName ?: name, tool?.icon ?: "🔧", summary)
+                    }
+
                     turnEventDao.insert(TurnEventEntity(
                         id              = eventId,
                         turnId          = turnId,
                         seq             = seq.getAndIncrement(),
                         type            = "tool",
                         toolName        = name,
-                        toolDisplayName = tool?.displayName ?: name,
-                        toolIcon        = tool?.icon ?: "🔧",
-                        toolSummary     = summary,
+                        toolDisplayName = displayName,
+                        toolIcon        = displayIcon,
+                        toolSummary     = displaySummary,
                         toolArgs        = argsJson,
                         toolStatus      = if (denyReason != null) "denied" else "running",
                     ))
