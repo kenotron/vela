@@ -50,6 +50,7 @@ use amplifier_module_orchestrator_loop_streaming::{
 use amplifier_module_provider_anthropic::{AnthropicConfig, AnthropicProvider};
 use amplifier_module_tool_delegate::{DelegateConfig, DelegateTool, SubagentRunner};
 use amplifier_context_foundation::FoundationContextHook;
+use amplifier_module_hooks_status_context::StatusContextHook;
 use amplifier_module_tool_filesystem::{
     EditFileTool, FilesystemConfig, GlobTool, GrepTool, ReadFileTool, WriteFileTool,
 };
@@ -413,6 +414,10 @@ async fn run_agent_loop(
     // multi-agent-patterns.md (exact ports from Python amplifier-foundation)
     // before every LLM call so the model knows to delegate autonomously.
     hooks.register(Box::new(FoundationContextHook::new()) as Box<dyn Hook>);
+
+    // Status-context hook: injects <env> block (working dir, session ID, platform, date)
+    // + git status snapshot before every LLM call. Mirrors Python hooks-status-context.
+    hooks.register(Box::new(StatusContextHook::new(vault_path_buf.clone())) as Box<dyn Hook>);
 
     for (cb_global, event_names) in hook_registrations {
         let events = crate::jni_hooks::parse_hook_events(&event_names);

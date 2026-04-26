@@ -21,6 +21,7 @@
     amplifier-module-tool-delegate                = { path = "../../../../../../amplifier-rust/crates/amplifier-module-tool-delegate" }
     amplifier-module-agent-runtime                = { path = "../../../../../../amplifier-rust/crates/amplifier-module-agent-runtime" }
     amplifier-context-foundation                  = { path = "../../../../../../amplifier-rust/crates/amplifier-context-foundation" }
+    amplifier-module-hooks-status-context         = { path = "../../../../../../amplifier-rust/crates/amplifier-module-hooks-status-context" }
 
     # amplifier-core — still needed for JNI wiring types (Provider/Tool/Orchestrator traits + Session lifecycle)
     amplifier-core = { git = "https://github.com/microsoft/amplifier-core", branch = "main" }

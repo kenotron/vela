@@ -15,12 +15,17 @@ dependencies = [
 name = "amplifier-android"
 version = "0.1.0"
 dependencies = [
+ "amplifier-context-foundation",
  "amplifier-core",
  "amplifier-module-agent-runtime",
  "amplifier-module-context-simple",
+ "amplifier-module-hooks-status-context",
  "amplifier-module-orchestrator-loop-streaming",
  "amplifier-module-provider-anthropic",
+ "amplifier-module-tool-bash",
  "amplifier-module-tool-delegate",
+ "amplifier-module-tool-filesystem",
+ "amplifier-module-tool-search",
  "amplifier-module-tool-skills",
  "amplifier-module-tool-task",
  "amplifier-module-tool-todo",
@@ -36,6 +41,15 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "amplifier-context-foundation"
+version = "0.1.0"
+dependencies = [
+ "amplifier-core",
+ "amplifier-module-orchestrator-loop-streaming",
+ "async-trait",
 ]
 
 [[package]]
@@ -79,6 +93,16 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
  "tiktoken-rs",
+]
+
+[[package]]
+name = "amplifier-module-hooks-status-context"
+version = "0.1.0"
+dependencies = [
+ "amplifier-module-orchestrator-loop-streaming",
+ "async-trait",
+ "chrono",
+ "uuid",
 ]
 
 [[package]]
@@ -128,6 +152,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "amplifier-module-tool-bash"
+version = "0.1.0"
+dependencies = [
+ "amplifier-core",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "amplifier-module-tool-delegate"
 version = "0.1.0"
 dependencies = [
@@ -141,6 +174,31 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "amplifier-module-tool-filesystem"
+version = "0.1.0"
+dependencies = [
+ "amplifier-core",
+ "glob",
+ "regex",
+ "serde_json",
+ "tokio",
+ "walkdir",
+]
+
+[[package]]
+name = "amplifier-module-tool-search"
+version = "0.1.0"
+dependencies = [
+ "amplifier-core",
+ "glob",
+ "regex",
+ "serde_json",
+ "tokio",
+ "walkdir",
 ]
 
 [[package]]
@@ -193,6 +251,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "url",
  "urlencoding",
 ]
 
@@ -718,6 +777,12 @@ dependencies = [
  "wasip2",
  "wasip3",
 ]
+
+[[package]]
+name = "glob"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "h2"

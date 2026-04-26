@@ -37,14 +37,11 @@ class SessionHarness(
                 .also { initialized.add(conversationId) }
         } else ""
 
-        val todayDate = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-                .format(java.util.Date())
-
             buildString {
-                // Today's date — authoritative, always fresh, prevents the model from
-                // inferring stale dates from file names or conversation history.
-                appendLine("Today's date: $todayDate")
-                appendLine()
+                // NOTE: date, working dir, git status, platform are now injected by
+                // amplifier-module-hooks-status-context on every ProviderRequest.
+                // Do NOT add Today's date here — it would duplicate what the Rust hook produces.
+
                 // A fresh <lifeos-config> block is prepended every turn so the model
             // always reads the current vault state from this turn's system prompt,
             // overriding any stale config it may have seen in conversation history.

@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vela — Agent Message Mockup</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #0a0a14;
+    color: #e8e8f0;
+    font-family: -apple-system, 'Roboto', sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  /* ── Layout ── */
+  .layout {
+    display: flex;
+    height: 100vh;
+  }
+
+  .sidebar {
+    width: 220px;
+    background: #111120;
+    border-right: 1px solid #1e1e30;
+    padding: 20px 12px;
+    flex-shrink: 0;
+  }
+
+  .sidebar h3 {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #6060a0;
+    margin-bottom: 12px;
+    padding: 0 8px;
+  }
+
+  .variant-btn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: none;
+    background: transparent;
+    color: #8888b0;
+    cursor: pointer;
+    font-size: 13px;
+    margin-bottom: 4px;
+    transition: all 0.15s;
+  }
+  .variant-btn:hover { background: #1e1e30; color: #c8c8e8; }
+  .variant-btn.active { background: #1a1a3a; color: #a0a0ff; }
+
+  .chat-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .topbar {
+    height: 56px;
+    border-bottom: 1px solid #1e1e30;
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 10px;
+    background: rgba(10,10,20,0.85);
+    backdrop-filter: blur(8px);
+  }
+  .topbar-title { font-size: 15px; font-weight: 500; color: #c0c0e0; }
+
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  /* Stars bg */
+  .messages::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      radial-gradient(1px 1px at 20% 30%, #fff4 0%, transparent 100%),
+      radial-gradient(1px 1px at 60% 15%, #fff3 0%, transparent 100%),
+      radial-gradient(1px 1px at 80% 50%, #fff2 0%, transparent 100%),
+      radial-gradient(1px 1px at 40% 70%, #fff3 0%, transparent 100%),
+      radial-gradient(1.5px 1.5px at 10% 80%, #fff2 0%, transparent 100%),
+      radial-gradient(1px 1px at 90% 25%, #fff4 0%, transparent 100%),
+      radial-gradient(1px 1px at 55% 85%, #fff2 0%, transparent 100%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .messages > * { position: relative; z-index: 1; }
+
+  /* ── Bubbles ── */
+  .user-row {
+    display: flex;
+    justify-content: flex-end;
+  }
+  .user-bubble {
+    max-width: 72%;
+    background: #1e1e38;
+    border-radius: 18px 18px 4px 18px;
+    padding: 10px 16px;
+    color: #d8d8f0;
+    font-size: 15px;
+  }
+
+  .assistant-bubble {
+    max-width: 80%;
+    background: #161628;
+    border-radius: 4px 18px 18px 18px;
+    padding: 12px 16px;
+    color: #d8d8f0;
+    font-size: 15px;
+  }
+
+  /* ── Tool chip ── */
+  .tool-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+  }
+  .tool-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #12121f;
+    border: 1px solid #2a2a45;
+    border-radius: 20px;
+    padding: 5px 12px;
+    font-size: 12px;
+    color: #7070b0;
+  }
+  .tool-chip .spinner {
+    width: 12px; height: 12px;
+    border: 1.5px solid #4040a0;
+    border-top-color: #8080ff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+  }
+  .tool-chip .done-dot {
+    width: 8px; height: 8px;
+    background: #40c080;
+    border-radius: 50%;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Thinking dots ── */
+  .thinking-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #5050a0;
+    font-size: 13px;
+  }
+  .dots { display: flex; gap: 4px; }
+  .dot {
+    width: 6px; height: 6px;
+    background: #4040a0;
+    border-radius: 50%;
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  .dot:nth-child(2) { animation-delay: 0.2s; }
+  .dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes pulse { 0%,100% { opacity: 0.3 } 50% { opacity: 1 } }
+
+  /* ══════════════════════════════════════════
+     VARIANT A — Indented card (current)
+     ══════════════════════════════════════════ */
+  .agent-row-a {
+    padding-left: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-width: 80%;
+  }
+  .agent-label-a {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: #6060c0;
+    padding-left: 2px;
+  }
+  .agent-bubble-a {
+    background: #111122;
+    border-radius: 4px 14px 14px 14px;
+    padding: 10px 14px;
+    color: #c0c0d8;
+    font-size: 14px;
+  }
+
+  /* ══════════════════════════════════════════
+     VARIANT B — Left border accent
+     ══════════════════════════════════════════ */
+  .agent-row-b {
+    padding-left: 20px;
+    max-width: 80%;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .agent-header-b {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+    font-size: 11px;
+    color: #5050a0;
+    padding-left: 10px;
+  }
+  .agent-bubble-b {
+    border-left: 2px solid #3030a0;
+    padding: 10px 14px;
+    color: #c0c0d8;
+    font-size: 14px;
+    background: #0e0e1e;
+    border-radius: 0 12px 12px 0;
+  }
+
+  /* ══════════════════════════════════════════
+     VARIANT C — Compact inline pill
+     ══════════════════════════════════════════ */
+  .agent-row-c {
+    padding-left: 16px;
+    max-width: 82%;
+  }
+  .agent-pill-c {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: #15152a;
+    border: 1px solid #2a2a50;
+    border-radius: 6px 6px 0 0;
+    padding: 4px 10px;
+    font-size: 11px;
+    color: #6868b0;
+    border-bottom: none;
+  }
+  .agent-bubble-c {
+    background: #111120;
+    border: 1px solid #2a2a50;
+    border-radius: 0 6px 6px 6px;
+    padding: 10px 14px;
+    color: #c0c0d8;
+    font-size: 14px;
+  }
+
+  /* ══════════════════════════════════════════
+     VARIANT D — Expandable collapsed card
+     ══════════════════════════════════════════ */
+  .agent-row-d {
+    padding-left: 20px;
+    max-width: 80%;
+  }
+  .agent-card-d {
+    background: #0e0e1e;
+    border: 1px solid #22223a;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .agent-card-header-d {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #1a1a2e;
+  }
+  .agent-card-header-d:hover { background: #13132a; }
+  .agent-card-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #6868b0;
+  }
+  .agent-card-toggle {
+    font-size: 11px;
+    color: #4040a0;
+    transition: transform 0.15s;
+  }
+  .agent-card-body-d {
+    padding: 10px 14px;
+    color: #c0c0d8;
+    font-size: 14px;
+    border-top: none;
+  }
+
+  /* ══════════════════════════════════════════
+     VARIANT E — Thread / reply style
+     ══════════════════════════════════════════ */
+  .agent-thread-e {
+    padding-left: 20px;
+    position: relative;
+    max-width: 80%;
+  }
+  .agent-thread-e::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: linear-gradient(to bottom, #3030a0, transparent);
+  }
+  .agent-header-e {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+    font-size: 11px;
+    color: #5050b0;
+  }
+  .agent-avatar-e {
+    width: 20px; height: 20px;
+    background: #1a1a40;
+    border: 1px solid #3030a0;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    flex-shrink: 0;
+  }
+  .agent-bubble-e {
+    background: #101020;
+    border-radius: 4px 14px 14px 14px;
+    padding: 10px 14px;
+    color: #c0c0d8;
+    font-size: 14px;
+    border: 1px solid #1e1e38;
+  }
+
+  /* ── Composer ── */
+  .composer {
+    padding: 8px 16px 16px;
+    background: rgba(10,10,20,0.9);
+  }
+  .composer-inner {
+    background: #161628;
+    border-radius: 24px;
+    padding: 8px 8px 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .composer-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #c0c0e0;
+    font-size: 15px;
+  }
+  .composer-btn {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    border: none;
+    background: #2020a0;
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+  }
+
+  /* ── Variant labels ── */
+  .variant-badge {
+    display: inline-block;
+    background: #1a1a3a;
+    color: #6060c0;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+  }
+
+  /* ── Synthesis bubble ── */
+  .synthesis-label {
+    font-size: 11px;
+    color: #4040a0;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  em { color: #8080c0; font-style: normal; }
+  code {
+    background: #1a1a30;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-family: 'SF Mono', monospace;
+    font-size: 13px;
+    color: #a0a0ff;
+  }
+
+  .section-divider {
+    border: none;
+    border-top: 1px dashed #1a1a30;
+    margin: 0;
+  }
+
+</style>
+</head>
+<body>
+
+<div class="layout">
+
+  <!-- Sidebar: pick variant -->
+  <div class="sidebar">
+    <h3>Variant</h3>
+    <button class="variant-btn active" onclick="show('a')">A — Indented card</button>
+    <button class="variant-btn" onclick="show('b')">B — Left border</button>
+    <button class="variant-btn" onclick="show('c')">C — Attached pill</button>
+    <button class="variant-btn" onclick="show('d')">D — Expandable</button>
+    <button class="variant-btn" onclick="show('e')">E — Thread / avatar</button>
+    <button class="variant-btn" onclick="show('all')">All side-by-side</button>
+
+    <h3 style="margin-top:24px">State</h3>
+    <button class="variant-btn active" onclick="setState('done')">Done</button>
+    <button class="variant-btn" onclick="setState('running')">Running…</button>
+  </div>
+
+  <!-- Chat -->
+  <div class="chat-wrap">
+    <div class="topbar">
+      <div class="topbar-title">Vela — agent message mockup</div>
+    </div>
+
+    <div class="messages" id="messages">
+      <!-- rendered by JS -->
+    </div>
+
+    <div class="composer">
+      <div class="composer-inner">
+        <input class="composer-input" placeholder="Type a message…" />
+        <button class="composer-btn">↑</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+let currentVariant = 'a';
+let currentState   = 'done';
+
+function show(v)        { currentVariant = v; render(); document.querySelectorAll('.variant-btn').forEach(b => b.classList.remove('active')); event.target.classList.add('active'); }
+function setState(s)    { currentState = s;   render(); document.querySelectorAll('.variant-btn').forEach((b,i) => { if(i>=5) b.classList.remove('active'); }); event.target.classList.add('active'); }
+
+// ── Render helpers ──────────────────────────────────────────
+
+function userMsg(text) {
+  return `<div class="user-row"><div class="user-bubble">${text}</div></div>`;
+}
+
+function thinkingRow(agentName, isRunning) {
+  if (isRunning) {
+    return `
+      <div class="tool-row">
+        <div class="tool-chip">
+          <div class="spinner"></div>
+          <span>🤖 ${agentName}…</span>
+        </div>
+      </div>`;
+  }
+  return `
+    <div class="tool-row">
+      <div class="tool-chip">
+        <div class="done-dot"></div>
+        <span>🤖 ${agentName}</span>
+      </div>
+    </div>`;
+}
+
+function agentBubble_A(agentName, text) {
+  return `
+  <div class="agent-row-a">
+    <div class="agent-label-a">🤖 ${agentName}</div>
+    <div class="agent-bubble-a">${text}</div>
+  </div>`;
+}
+function agentBubble_B(agentName, text) {
+  return `
+  <div class="agent-row-b">
+    <div class="agent-header-b">🤖 ${agentName}</div>
+    <div class="agent-bubble-b">${text}</div>
+  </div>`;
+}
+function agentBubble_C(agentName, text) {
+  return `
+  <div class="agent-row-c">
+    <div class="agent-pill-c">🤖 <strong>${agentName}</strong></div>
+    <div class="agent-bubble-c">${text}</div>
+  </div>`;
+}
+function agentBubble_D(agentName, text) {
+  return `
+  <div class="agent-row-d">
+    <div class="agent-card-d">
+      <div class="agent-card-header-d" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">
+        <div class="agent-card-left">🤖 <strong>${agentName}</strong> · <em style="font-style:italic;color:#4040a0">agent response</em></div>
+        <div class="agent-card-toggle">▾</div>
+      </div>
+      <div class="agent-card-body-d">${text}</div>
+    </div>
+  </div>`;
+}
+function agentBubble_E(agentName, text) {
+  const initial = agentName.slice(0,2).toUpperCase();
+  return `
+  <div class="agent-thread-e">
+    <div class="agent-header-e">
+      <div class="agent-avatar-e">${initial}</div>
+      <span>${agentName}</span>
+    </div>
+    <div class="agent-bubble-e">${text}</div>
+  </div>`;
+}
+
+function synthesisBubble(text) {
+  return `<div class="assistant-bubble">${text}</div>`;
+}
+
+// ── Sample conversation ─────────────────────────────────────
+
+const agentText = `Found <strong>6 Rust crates</strong> in <code>/workspace/amplifier-rust/crates/</code>:<br><br>
+• <code>amplifier-module-orchestrator-loop-streaming</code> — the main LLM loop<br>
+• <code>amplifier-module-provider-anthropic</code> — Anthropic HTTP provider<br>
+• <code>amplifier-module-tool-delegate</code> — agent delegation<br>
+• <code>amplifier-module-context-simple</code> — conversation history<br>
+• <code>amplifier-context-foundation</code> — delegation instructions (new)<br>
+• <code>amplifier-module-agent-runtime</code> — agent registry + .md loading`;
+
+const synthesisText = `Based on explorer's survey: the workspace has a clean 6-crate structure. <em>amplifier-context-foundation</em> is the newest addition — it's what teaches the LLM to delegate autonomously.`;
+
+function renderVariant(v, showLabel) {
+  const running = (currentState === 'running');
+  const agentBubbleFns = { a: agentBubble_A, b: agentBubble_B, c: agentBubble_C, d: agentBubble_D, e: agentBubble_E };
+  const names = { a: 'A — Indented card', b: 'B — Left border', c: 'C — Attached pill', d: 'D — Expandable card', e: 'E — Thread / avatar' };
+
+  const agentFn = agentBubbleFns[v];
+  const label = showLabel ? `<div class="variant-badge">${names[v]}</div>` : '';
+
+  if (running) {
+    return `
+      ${label}
+      ${userMsg('Look at all the Rust crates in the workspace and summarise what each one does')}
+      ${thinkingRow('explorer', true)}
+    `;
+  }
+
+  return `
+    ${label}
+    ${userMsg('Look at all the Rust crates in the workspace and summarise what each one does')}
+    ${thinkingRow('explorer', false)}
+    ${agentFn('explorer', agentText)}
+    ${synthesisBubble(synthesisText)}
+  `;
+}
+
+function render() {
+  const el = document.getElementById('messages');
+  if (currentVariant === 'all') {
+    el.innerHTML = ['a','b','c','d','e'].map((v,i) =>
+      `<div>${renderVariant(v, true)}</div>${i<4?'<hr class="section-divider">':''}`
+    ).join('');
+  } else {
+    el.innerHTML = renderVariant(currentVariant, false);
+  }
+}
+
+render();
+</script>
+
+</body>
+</html>
