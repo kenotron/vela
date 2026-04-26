@@ -30,7 +30,7 @@ import com.vela.app.ui.components.ConversationBackground
 import com.vela.app.voice.SpeechTranscriber
 import com.vela.app.voice.TranscriptState
 import com.vela.app.voice.VoiceCapture
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.*
 
 /** Pure helper — testable without Android deps by accepting plain strings. */
 internal fun buildAttachedMessage(
@@ -193,17 +193,40 @@ fun ConversationScreen(
     }
 
     val listState = rememberLazyListState()
-    val coroutineScope = rememberCoroutineScope()
-    // Auto-scroll to bottom when new turns arrive, but only if already near the bottom.
+
+    // ── 1. Instant jump to bottom when the chat first loads ──────────────────
+    // Wait until the LazyColumn has measured at least one item, then snap there.
+    LaunchedEffect(Unit) {
+        snapshotFlow { listState.layoutInfo.totalItemsCount }
+            .first { it > 0 }
+        listState.scrollToItem(listState.layoutInfo.totalItemsCount - 1)
+    }
+
+    // ── 2. Animate to bottom when a brand-new turn appears ───────────────────
     val turnCount = turnsWithEvents.size
     LaunchedEffect(turnCount) {
-        val info = listState.layoutInfo
+        if (turnCount == 0) return@LaunchedEffect
+        val info        = listState.layoutInfo
         val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
         val total       = info.totalItemsCount
-        val isNearBottom = total == 0 || lastVisible >= total - 2
-        if (isNearBottom && total > 0) {
+        if (total > 0 && lastVisible >= total - 3) {
             listState.animateScrollToItem(total - 1)
         }
+    }
+
+    // ── 3. Keep scrolling while tokens stream in — only if already at bottom ─
+    LaunchedEffect(activeTurnId) {
+        if (activeTurnId == null) return@LaunchedEffect
+        snapshotFlow { streamingTextMap[activeTurnId] }
+            .filterNotNull()
+            .collect {
+                val info        = listState.layoutInfo
+                val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+                val total       = info.totalItemsCount
+                if (total > 0 && lastVisible >= total - 2) {
+                    listState.animateScrollToItem(total - 1)
+                }
+            }
     }
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
