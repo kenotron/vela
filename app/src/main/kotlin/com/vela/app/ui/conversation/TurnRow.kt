@@ -1,11 +1,14 @@
 package com.vela.app.ui.conversation
 
     import androidx.compose.animation.core.FastOutSlowInEasing
+    import androidx.compose.animation.core.LinearEasing
     import androidx.compose.animation.core.RepeatMode
     import androidx.compose.animation.core.animateFloat
     import androidx.compose.animation.core.infiniteRepeatable
     import androidx.compose.animation.core.rememberInfiniteTransition
+    import androidx.compose.animation.core.snap
     import androidx.compose.animation.core.tween
+    import androidx.compose.foundation.BorderStroke
     import androidx.compose.foundation.background
     import androidx.compose.foundation.clickable
     import androidx.compose.foundation.layout.*
@@ -332,41 +335,68 @@ package com.vela.app.ui.conversation
         }.getOrElse { "" }
 
         // ── Chip ──────────────────────────────────────────────────────────────
+        // Pulse animation: dot breathes while agent is running (always created, only shown when !isDone)
+        val inf = rememberInfiniteTransition(label = "agent_pill")
+        val pulseAlpha by inf.animateFloat(
+            initialValue  = 0.35f,
+            targetValue   = 1f,
+            animationSpec = infiniteRepeatable(tween(700, easing = LinearEasing), RepeatMode.Reverse),
+            label         = "dot_pulse",
+        )
+
         Surface(
-            shape    = RoundedCornerShape(6.dp),
-            color    = cs.surfaceContainerHigh,
-            modifier = Modifier.clickable { showSheet = true },
+            shape    = RoundedCornerShape(20.dp),            // pill
+            color    = if (isDone) cs.surfaceContainerHigh
+                       else cs.primary.copy(alpha = 0.10f), // tinted while live
+            border   = BorderStroke(
+                1.dp,
+                if (isDone) cs.outlineVariant
+                else cs.primary.copy(alpha = 0.50f),
+            ),
+            modifier = Modifier
+                .wrapContentWidth()
+                .clickable { showSheet = true },
         ) {
             Row(
-                modifier              = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                modifier              = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
                 verticalAlignment     = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
             ) {
+                // Live indicator dot
+                if (!isDone) {
+                    Box(
+                        Modifier
+                            .size(6.dp)
+                            .alpha(pulseAlpha)
+                            .background(cs.primary, CircleShape)
+                    )
+                }
                 Text(
                     text  = "$verb ",
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelSmall,
                     color = cs.onSurfaceVariant,
                 )
                 Text(
                     text       = agentName,
-                    style      = MaterialTheme.typography.labelMedium,
+                    style      = MaterialTheme.typography.labelSmall,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.SemiBold,
                     color      = cs.onSurface,
                 )
                 if (preview.isNotBlank()) {
                     Text(
-                        text     = " · $preview",
-                        style    = MaterialTheme.typography.labelMedium,
+                        text     = "· $preview",
+                        style    = MaterialTheme.typography.labelSmall,
                         color    = cs.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
+                        modifier = Modifier.widthIn(max = 180.dp),
                     )
                 }
                 if (!isDone) {
-                    Spacer(Modifier.width(4.dp))
-                    Text("›", style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant)
+                    Text("›",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = cs.primary.copy(alpha = 0.7f))
                 }
             }
         }
