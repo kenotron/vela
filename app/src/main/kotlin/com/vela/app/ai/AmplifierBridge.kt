@@ -51,12 +51,33 @@ object AmplifierBridge {
     /**
      * Tool execution callback.
      *
-     * @param name     Tool name (e.g. "search_web")
-     * @param argsJson JSON object of arguments
-     * @return         Tool result string passed back to the model
+     * Three entry points allow Kotlin to observe every tool invocation regardless of
+     * whether the tool is implemented in Kotlin or Rust:
+     *
+     * - [executeTool]         — called by Rust for Kotlin-side tools; returns the result string.
+     * - [onRustNativeStart]   — called by Rust when a Rust-native tool begins; returns a stableId.
+     * - [onRustNativeEnd]     — called by Rust when a Rust-native tool finishes.
      */
-    fun interface ToolCallback {
+    interface ToolCallback {
+        /** Called by Rust for Kotlin-side tools. Returns the tool result string. */
         fun executeTool(name: String, argsJson: String): String
+
+        /**
+         * Called by Rust just before a Rust-native tool executes.
+         *
+         * @param name     Tool name (e.g. "delegate", "read_file")
+         * @param argsJson JSON object of arguments
+         * @return         An opaque stableId that will be passed to [onRustNativeEnd]
+         */
+        fun onRustNativeStart(name: String, argsJson: String): String
+
+        /**
+         * Called by Rust after a Rust-native tool finishes.
+         *
+         * @param stableId The stableId returned by the matching [onRustNativeStart] call
+         * @param result   JSON-serialised tool output
+         */
+        fun onRustNativeEnd(stableId: String, result: String)
     }
 
     /**

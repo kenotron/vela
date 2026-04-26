@@ -45,7 +45,7 @@ use std::sync::Arc;
 use amplifier_module_agent_runtime::AgentRegistry;
 use amplifier_module_context_simple::SimpleContext;
 use amplifier_module_orchestrator_loop_streaming::{
-    Hook, HookRegistry, LoopConfig, LoopOrchestrator,
+    Hook, HookContext, HookEvent, HookRegistry, HookResult, LoopConfig, LoopOrchestrator,
 };
 use amplifier_module_provider_anthropic::{AnthropicConfig, AnthropicProvider};
 use amplifier_module_tool_delegate::{DelegateConfig, DelegateTool, SubagentRunner};
@@ -64,6 +64,7 @@ use jni::objects::{GlobalRef, JClass, JObject, JObjectArray, JString, JValue};
 use jni::sys::jstring;
 use jni::JavaVM;
 use jni::JNIEnv;
+use async_trait::async_trait;
 use log::{error, LevelFilter};
 use once_cell::sync::Lazy;
 use serde_json::{json, Value};
@@ -344,6 +345,20 @@ async fn run_agent_loop(
     // Build Kotlin tool bridges (each tool delegates execution to Kotlin via JNI).
     let tool_map = build_tool_map(&tools_json, Arc::clone(&jvm), Arc::clone(&tool_cb));
 
+    // Parse Kotlin tool names — used by KotlinToolNotifyHook to skip tools that already
+    // call back to Kotlin via executeTool (so we don't double-fire onToolStart/onToolEnd).
+    let kotlin_tool_names: std::collections::HashSet<String> =
+        serde_json::from_str::<Vec<Value>>(&tools_json)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|v| {
+                v.get("function")
+                    .and_then(|f| f.get("name"))
+                    .and_then(|n| n.as_str())
+            })
+            .map(String::from)
+            .collect();
+
     // Build and configure the orchestrator.
     let config = LoopConfig { max_steps: Some(10), system_prompt };
     let orch = Arc::new(LoopOrchestrator::new(config));
@@ -431,6 +446,17 @@ async fn run_agent_loop(
         }
     }
 
+    // Register KotlinToolNotifyHook — fires onRustNativeStart/onRustNativeEnd on the Kotlin
+    // ToolCallback for every Rust-native tool (delegate, read_file, bash, …), allowing
+    // Kotlin to create DB records and show agent bubbles in the UI.
+    hooks.register(Box::new(KotlinToolNotifyHook {
+        jvm: Arc::clone(&jvm),
+        tool_cb: Arc::clone(&tool_cb),
+        kotlin_tool_names,
+        stable_id_map: std::sync::Mutex::new(std::collections::HashMap::new()),
+        events: vec![HookEvent::ToolPre, HookEvent::ToolPost],
+    }) as Box<dyn Hook>);
+
     // Build the on_token closure — forwards text segments to Kotlin UI.
     let on_token = {
         let jvm       = Arc::clone(&jvm);
@@ -471,6 +497,182 @@ fn emit_token_to_kotlin(jvm: &Arc<JavaVM>, callback: &Arc<GlobalRef>, text: &str
 }
 
 // ─────────────────────────────── History conversion ──────────────────────────────────────
+
+// ───────────────────────────────── KotlinToolNotifyHook ─────────────────────────────────────
+
+/// Bridges Rust-native tool lifecycle events to Kotlin's `ToolCallback.onRustNativeStart` /
+/// `onRustNativeEnd` JNI methods.
+///
+/// Kotlin-bridged tools (those in `kotlin_tool_names`) already invoke `executeTool` on the
+/// Kotlin side, so this hook skips them. All other tools (delegate, read_file, bash, …) are
+/// forwarded so that Kotlin can record DB events and show an agent bubble in the UI.
+struct KotlinToolNotifyHook {
+    /// Shared JVM handle — used to attach worker threads for JNI calls.
+    jvm: Arc<JavaVM>,
+    /// Global reference to the Kotlin `ToolCallback` object.
+    tool_cb: Arc<GlobalRef>,
+    /// Tool names that already call Kotlin via `executeTool` — skip these.
+    kotlin_tool_names: std::collections::HashSet<String>,
+    /// Maps tool call ID → stableId returned by `onRustNativeStart`.
+    stable_id_map: std::sync::Mutex<std::collections::HashMap<String, String>>,
+    /// The hook events this bridge subscribes to.
+    events: Vec<HookEvent>,
+}
+
+#[async_trait]
+impl Hook for KotlinToolNotifyHook {
+    fn events(&self) -> &[HookEvent] {
+        &self.events
+    }
+
+    async fn handle(&self, ctx: &HookContext) -> HookResult {
+        // Extract tool name — bail if missing.
+        let name = match ctx.data.get("name").and_then(|v| v.as_str()) {
+            Some(n) => n.to_string(),
+            None => return HookResult::Continue,
+        };
+
+        // Skip Kotlin-bridged tools — they already invoke executeTool on the Kotlin side.
+        if self.kotlin_tool_names.contains(&name) {
+            return HookResult::Continue;
+        }
+
+        // Extract call id (used as key in the stable_id_map across ToolPre / ToolPost).
+        let call_id = ctx.data
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        match &ctx.event {
+            HookEvent::ToolPre => {
+                // Serialize args to a JSON string for Kotlin.
+                let args_json = ctx.data
+                    .get("args")
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "{}".to_string());
+
+                if let Some(stable_id) = self.call_on_rust_native_start(&name, &args_json) {
+                    if let Ok(mut map) = self.stable_id_map.lock() {
+                        map.insert(call_id, stable_id);
+                    }
+                }
+                HookResult::Continue
+            }
+            HookEvent::ToolPost => {
+                // Look up the stableId that was stored during ToolPre.
+                let stable_id = self.stable_id_map
+                    .lock()
+                    .ok()
+                    .and_then(|map| map.get(&call_id).cloned())
+                    .unwrap_or_default();
+
+                // Serialize output to a JSON string for Kotlin.
+                let result_json = ctx.data
+                    .get("output")
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "null".to_string());
+
+                self.call_on_rust_native_end(&stable_id, &result_json);
+                HookResult::Continue
+            }
+            _ => HookResult::Continue,
+        }
+    }
+}
+
+impl KotlinToolNotifyHook {
+    /// Call `ToolCallback.onRustNativeStart(name, argsJson)` on the Kotlin side.
+    ///
+    /// Returns the `stableId` string from Kotlin, or `None` on any JNI failure.
+    fn call_on_rust_native_start(&self, name: &str, args_json: &str) -> Option<String> {
+        let mut env = match self.jvm.attach_current_thread() {
+            Ok(e) => e,
+            Err(e) => {
+                log::warn!("KotlinToolNotifyHook: failed to attach JVM thread: {e:?}");
+                return None;
+            }
+        };
+        let j_name = match env.new_string(name) {
+            Ok(s) => s,
+            Err(e) => {
+                log::warn!("KotlinToolNotifyHook: new_string(name) failed: {e:?}");
+                return None;
+            }
+        };
+        let j_args = match env.new_string(args_json) {
+            Ok(s) => s,
+            Err(e) => {
+                log::warn!("KotlinToolNotifyHook: new_string(args_json) failed: {e:?}");
+                return None;
+            }
+        };
+
+        let call_result = env.call_method(
+            self.tool_cb.as_ref(),
+            "onRustNativeStart",
+            "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+            &[JValue::Object(&j_name), JValue::Object(&j_args)],
+        );
+
+        match call_result {
+            Ok(v) => match v.l() {
+                Ok(obj) if !obj.is_null() => {
+                    let jstr = JString::from(obj);
+                    let result = env.get_string(&jstr).ok().map(String::from);
+                    if result.is_none() {
+                        log::warn!("KotlinToolNotifyHook: get_string(stableId) failed");
+                    }
+                    result
+                }
+                _ => {
+                    let _ = env.exception_clear();
+                    None
+                }
+            },
+            Err(e) => {
+                log::warn!("KotlinToolNotifyHook: onRustNativeStart threw: {e:?}");
+                let _ = env.exception_clear();
+                None
+            }
+        }
+    }
+
+    /// Call `ToolCallback.onRustNativeEnd(stableId, result)` on the Kotlin side.
+    fn call_on_rust_native_end(&self, stable_id: &str, result: &str) {
+        let mut env = match self.jvm.attach_current_thread() {
+            Ok(e) => e,
+            Err(e) => {
+                log::warn!("KotlinToolNotifyHook: failed to attach JVM thread: {e:?}");
+                return;
+            }
+        };
+        let j_stable_id = match env.new_string(stable_id) {
+            Ok(s) => s,
+            Err(e) => {
+                log::warn!("KotlinToolNotifyHook: new_string(stableId) failed: {e:?}");
+                return;
+            }
+        };
+        let j_result = match env.new_string(result) {
+            Ok(s) => s,
+            Err(e) => {
+                log::warn!("KotlinToolNotifyHook: new_string(result) failed: {e:?}");
+                return;
+            }
+        };
+
+        if let Err(e) = env.call_method(
+            self.tool_cb.as_ref(),
+            "onRustNativeEnd",
+            "(Ljava/lang/String;Ljava/lang/String;)V",
+            &[JValue::Object(&j_stable_id), JValue::Object(&j_result)],
+        ) {
+            log::warn!("KotlinToolNotifyHook: onRustNativeEnd threw: {e:?}");
+            let _ = env.exception_clear();
+        }
+    }
+}
 
 /// Convert a list of Anthropic-wire-format messages to amplifier-core format.
 ///

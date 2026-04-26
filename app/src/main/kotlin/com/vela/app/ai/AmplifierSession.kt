@@ -63,6 +63,10 @@ class AmplifierSession @Inject constructor(
 
         var tokenWasEmitted = false
 
+        // Capture before nativeRun so the toolCb object below can call it
+        // without a @label qualifier (which only works on lambdas, not suspend funs).
+        val execTool: suspend (String, String) -> String = { n, a -> executeTool(n, a) }
+
         val finalText = AmplifierBridge.nativeRun(
             apiKey            = getApiKey(),
             model             = getModel(),
@@ -76,13 +80,22 @@ class AmplifierSession @Inject constructor(
                 tokenWasEmitted = true
                 runBlocking { onToken(token) }
             },
-            toolCb            = { name, argsJson ->
-                runBlocking {
+            toolCb            = object : AmplifierBridge.ToolCallback {
+                // Kotlin-side tool: record start, execute locally, record end.
+                override fun executeTool(name: String, argsJson: String): String = runBlocking {
                     val stableId = onToolStart(name, argsJson)
-                    val result   = executeTool(name, argsJson)
+                    val result   = execTool(name, argsJson)
                     onToolEnd(stableId, result)
                     result
                 }
+
+                // Rust-native tool started — let Kotlin record the DB event.
+                override fun onRustNativeStart(name: String, argsJson: String): String =
+                    runBlocking { onToolStart(name, argsJson) }
+
+                // Rust-native tool finished — close the DB record.
+                override fun onRustNativeEnd(stableId: String, result: String) =
+                    runBlocking { onToolEnd(stableId, result) }
             },
             // provider_request hook — injects ephemeral context before each LLM call.
             // Additional hooks (VaultSyncHook, etc.) may be added here later.
