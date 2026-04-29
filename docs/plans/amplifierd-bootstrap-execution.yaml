@@ -271,7 +271,7 @@ stages:
         as: "current_task"
         parallel: false   # sequential within a phase to respect intra-phase task dependencies
         type: "recipe"
-        recipe: "superpowers:recipes/single-task-pipeline.yaml"
+        recipe: "@superpowers:recipes/single-task-pipeline.yaml"
         context:
           current_task: "{{current_task}}"
           project_brief: |
@@ -341,7 +341,7 @@ stages:
         as: "current_task"
         parallel: false
         type: "recipe"
-        recipe: "superpowers:recipes/single-task-pipeline.yaml"
+        recipe: "@superpowers:recipes/single-task-pipeline.yaml"
         context:
           current_task: "{{current_task}}"
           project_brief: |
@@ -451,7 +451,7 @@ stages:
         as: "current_task"
         parallel: false
         type: "recipe"
-        recipe: "superpowers:recipes/single-task-pipeline.yaml"
+        recipe: "@superpowers:recipes/single-task-pipeline.yaml"
         context:
           current_task: "{{current_task}}"
           project_brief: |
@@ -545,7 +545,7 @@ stages:
         as: "current_task"
         parallel: false
         type: "recipe"
-        recipe: "superpowers:recipes/single-task-pipeline.yaml"
+        recipe: "@superpowers:recipes/single-task-pipeline.yaml"
         context:
           current_task: "{{current_task}}"
           project_brief: |
