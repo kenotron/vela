@@ -39,6 +39,23 @@ open class NodeBootstrapper @Inject constructor(
 
     internal fun detectPlatformForTest(unameOutput: String) = detectPlatform(unameOutput)
 
+    internal fun generateSettingsJson(bundle: BundleChoice, token: String): String {
+        val bundles = org.json.JSONArray()
+        if (bundle.bundleName.isNotEmpty()) bundles.put(bundle.bundleName)
+        val vela = org.json.JSONObject().put("auth_token", token)
+        return org.json.JSONObject()
+            .put("host", "0.0.0.0")
+            .put("port", 8410)
+            .put("log_level", "info")
+            .put("bundles", bundles)
+            .put("disabled_plugins", org.json.JSONArray())
+            .put("vela", vela)
+            .toString(2)
+    }
+
+    internal fun generateSettingsJsonForTest(bundle: BundleChoice, token: String) =
+        generateSettingsJson(bundle, token)
+
     companion object {
         /** Build an instance for unit-testing pure helpers (no Hilt graph needed). */
         internal fun testInstance(): NodeBootstrapper = NodeBootstrapper(

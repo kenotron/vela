@@ -99,4 +99,44 @@ class NodeBootstrapperTest {
         val sut = NodeBootstrapper.testInstance()
         assertThat(sut.detectPlatformForTest("FreeBSD amd64")).isNull()
     }
+
+    // ── generateSettingsJson ──────────────────────────────────────────────────
+
+    @Test
+    fun generateSettingsJson_superpowers_includesAllRequiredFields() {
+        val sut = NodeBootstrapper.testInstance()
+
+        val json = sut.generateSettingsJsonForTest(BundleChoice.SUPERPOWERS, token = "TOKEN_ABC")
+        val parsed = org.json.JSONObject(json)
+
+        assertThat(parsed.getString("host")).isEqualTo("0.0.0.0")
+        assertThat(parsed.getInt("port")).isEqualTo(8410)
+        assertThat(parsed.getString("log_level")).isEqualTo("info")
+        val bundles = parsed.getJSONArray("bundles")
+        assertThat(bundles.length()).isEqualTo(1)
+        assertThat(bundles.getString(0)).isEqualTo("superpowers")
+        assertThat(parsed.getJSONArray("disabled_plugins").length()).isEqualTo(0)
+        assertThat(parsed.getJSONObject("vela").getString("auth_token")).isEqualTo("TOKEN_ABC")
+    }
+
+    @Test
+    fun generateSettingsJson_toolsOnly_hasEmptyBundles() {
+        val sut = NodeBootstrapper.testInstance()
+
+        val json = sut.generateSettingsJsonForTest(BundleChoice.TOOLS_ONLY, token = "T")
+        val parsed = org.json.JSONObject(json)
+
+        assertThat(parsed.getJSONArray("bundles").length()).isEqualTo(0)
+    }
+
+    @Test
+    fun generateSettingsJson_lifeos_hasLifeosBundle() {
+        val sut = NodeBootstrapper.testInstance()
+
+        val json = sut.generateSettingsJsonForTest(BundleChoice.LIFEOS, token = "T")
+        val parsed = org.json.JSONObject(json)
+        val bundles = parsed.getJSONArray("bundles")
+
+        assertThat(bundles.getString(0)).isEqualTo("lifeos")
+    }
 }
