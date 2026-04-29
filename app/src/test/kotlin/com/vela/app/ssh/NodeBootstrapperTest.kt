@@ -243,4 +243,40 @@ class NodeBootstrapperTest {
 
         assertThat(cmd).contains("--with amplifierd-bundle-lifeos")
     }
+
+    // ── RemoteShell fake ──────────────────────────────────────────────────────
+
+    /**
+     * Hand-rolled fake for the internal [RemoteShell] interface.
+     * Records every command and returns scripted (stdout, exitCode) pairs.
+     */
+    private class FakeRemoteShell : RemoteShell {
+        val commands = mutableListOf<String>()
+        val sftpWrites = mutableListOf<Pair<String, String>>()
+        var responses: MutableMap<String, Pair<String, Int>> = mutableMapOf()
+        /** Default response for any command not in [responses]. */
+        var defaultResponse: Pair<String, Int> = "" to 0
+
+        override suspend fun exec(command: String): RemoteShell.Result {
+            commands.add(command)
+            val (out, exit) = responses[command] ?: defaultResponse
+            return RemoteShell.Result(stdout = out, exitCode = exit)
+        }
+        override suspend fun sftpWrite(remotePath: String, contents: String) {
+            sftpWrites.add(remotePath to contents)
+        }
+        override fun close() = Unit
+    }
+
+    @Test
+    fun fakeRemoteShell_recordsCommandsAndReturnsScriptedResponses() = runTest {
+        val shell = FakeRemoteShell()
+        shell.responses["uname -sm"] = "Darwin arm64\n" to 0
+        shell.responses["false"] = "" to 1
+
+        assertThat(shell.exec("uname -sm").stdout.trim()).isEqualTo("Darwin arm64")
+        assertThat(shell.exec("uname -sm").exitCode).isEqualTo(0)
+        assertThat(shell.exec("false").exitCode).isEqualTo(1)
+        assertThat(shell.commands).hasSize(3)
+    }
 }

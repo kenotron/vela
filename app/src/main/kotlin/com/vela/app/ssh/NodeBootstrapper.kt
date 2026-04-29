@@ -2,6 +2,19 @@ package com.vela.app.ssh
 
 import javax.inject.Inject
 
+// ── RemoteShell abstraction ───────────────────────────────────────────────────
+
+/**
+ * Internal seam for executing commands and writing files on a remote host.
+ * Production: backed by a JSch session. Tests: backed by FakeRemoteShell.
+ */
+internal interface RemoteShell {
+    data class Result(val stdout: String, val exitCode: Int)
+    suspend fun exec(command: String): Result
+    suspend fun sftpWrite(remotePath: String, contents: String)
+    fun close()
+}
+
 // ── Supporting enums ─────────────────────────────────────────────────────────
 
 enum class BundleChoice(val packageSuffix: String?, val bundleName: String) {
