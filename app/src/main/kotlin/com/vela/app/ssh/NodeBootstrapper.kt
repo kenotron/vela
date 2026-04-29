@@ -15,6 +15,51 @@ internal interface RemoteShell {
     fun close()
 }
 
+// ── JSch-backed RemoteShell ───────────────────────────────────────────────────
+
+internal class JschRemoteShell(
+    private val session: com.jcraft.jsch.Session,
+) : RemoteShell {
+
+    override suspend fun exec(command: String): RemoteShell.Result =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val channel = session.openChannel("exec") as com.jcraft.jsch.ChannelExec
+            channel.setCommand(command)
+            val stdoutBuf = java.io.ByteArrayOutputStream()
+            val stderrBuf = java.io.ByteArrayOutputStream()
+            channel.outputStream = stdoutBuf
+            channel.setErrStream(stderrBuf)
+            channel.connect()
+            // Wait until channel closes (timeout: 5 minutes for long installs).
+            val deadline = System.currentTimeMillis() + 5 * 60_000L
+            while (!channel.isClosed && System.currentTimeMillis() < deadline) Thread.sleep(50)
+            Thread.sleep(50) // drain final bytes
+            val out = stdoutBuf.toString(Charsets.UTF_8.name())
+            val err = stderrBuf.toString(Charsets.UTF_8.name())
+            val exit = channel.exitStatus
+            channel.disconnect()
+            val combined = if (err.isBlank()) out else "$out\n[stderr] $err"
+            RemoteShell.Result(stdout = combined, exitCode = exit)
+        }
+
+    override suspend fun sftpWrite(remotePath: String, contents: String) =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val channel = session.openChannel("sftp") as com.jcraft.jsch.ChannelSftp
+            channel.connect()
+            try {
+                contents.byteInputStream(Charsets.UTF_8).use { stream ->
+                    channel.put(stream, remotePath)
+                }
+            } finally {
+                channel.disconnect()
+            }
+        }
+
+    override fun close() {
+        if (session.isConnected) session.disconnect()
+    }
+}
+
 // ── Supporting enums ─────────────────────────────────────────────────────────
 
 enum class BundleChoice(val packageSuffix: String?, val bundleName: String) {
@@ -127,6 +172,24 @@ WantedBy=default.target
     }
 
     internal fun buildUvInstallCommandForTest(bundle: BundleChoice) = buildUvInstallCommand(bundle)
+
+    // ── JSch session factory ──────────────────────────────────────────────────
+
+    private fun openJschShell(host: String, port: Int, username: String): RemoteShell {
+        val jsch = com.jcraft.jsch.JSch()
+        jsch.addIdentity(
+            "vela",
+            keyManager.getPrivateKeyPem().toByteArray(Charsets.UTF_8),
+            null,
+            null,
+        )
+        val session = jsch.getSession(username, host, port).apply {
+            setConfig("StrictHostKeyChecking", "no")
+            setConfig("ServerAliveInterval", "10")
+            connect(15_000)
+        }
+        return JschRemoteShell(session)
+    }
 
     companion object {
         /** Build an instance for unit-testing pure helpers (no Hilt graph needed). */
