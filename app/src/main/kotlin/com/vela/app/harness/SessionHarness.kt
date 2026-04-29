@@ -26,6 +26,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class SessionHarness(
     private val hookRegistry: HookRegistry,
+    private val fallback: String = "",
 ) {
     private val initialized = ConcurrentHashMap.newKeySet<String>()
 
@@ -47,8 +48,8 @@ class SessionHarness(
             append(buildLifeosConfig(activeVaults))
 
             // 2. User's SYSTEM.md — their own instructions for this vault.
-            //    Empty string if none exists; Rust hooks fill the gap.
-            val systemMd = loadSystemMd(activeVaults)
+            //    Falls back to the constructor-supplied fallback string if not found.
+            val systemMd = loadSystemMd(activeVaults).ifBlank { fallback }
             if (systemMd.isNotBlank()) {
                 append("\n\n")
                 append(systemMd)
