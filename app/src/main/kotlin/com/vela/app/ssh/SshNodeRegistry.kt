@@ -9,7 +9,7 @@ import javax.inject.Singleton
 
 
 @Singleton
-class SshNodeRegistry @Inject constructor(private val dao: SshNodeDao) {
+open class SshNodeRegistry @Inject constructor(private val dao: SshNodeDao) {
 
     fun allFlow(): Flow<List<SshNode>> =
         dao.getAllNodes().map { it.map { e -> e.toDomain() } }
@@ -30,7 +30,7 @@ class SshNodeRegistry @Inject constructor(private val dao: SshNodeDao) {
     // ── Bootstrap-lifecycle writers ───────────────────────────────────────────
 
     /** Promote an SSH node to an amplifierd node in a single transaction. */
-    suspend fun promoteToAmplifierd(nodeId: String, url: String, token: String) {
+    open suspend fun promoteToAmplifierd(nodeId: String, url: String, token: String) {
         dao.promoteToAmplifierd(nodeId, "amplifierd", url, token, BootstrapStatus.RUNNING.name)
     }
 
@@ -40,7 +40,7 @@ class SshNodeRegistry @Inject constructor(private val dao: SshNodeDao) {
     }
 
     /** Update only the bootstrap lifecycle column. */
-    suspend fun updateBootstrapStatus(nodeId: String, status: BootstrapStatus) {
+    open suspend fun updateBootstrapStatus(nodeId: String, status: BootstrapStatus) {
         dao.updateBootstrapStatus(nodeId, status.name)
     }
 
