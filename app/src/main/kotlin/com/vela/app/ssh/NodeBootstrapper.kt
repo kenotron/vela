@@ -173,6 +173,140 @@ WantedBy=default.target
 
     internal fun buildUvInstallCommandForTest(bundle: BundleChoice) = buildUvInstallCommand(bundle)
 
+    // ── Public bootstrap entry ────────────────────────────────────────────────
+
+    /** Public entry: opens a real JSch session, then delegates to [bootstrapWithShell]. */
+    open suspend fun bootstrap(
+        nodeId: String,
+        host: String,
+        port: Int,
+        username: String,
+        bundle: BundleChoice,
+        anthropicKey: String,
+    ): kotlinx.coroutines.flow.Flow<BootstrapEvent> = kotlinx.coroutines.flow.flow {
+        val shell = openJschShell(host, port, username)
+        try {
+            bootstrapWithShell(shell, nodeId, host, username, bundle, anthropicKey).collect { emit(it) }
+        } finally {
+            shell.close()
+        }
+    }
+
+    /** Test-friendly variant: caller supplies the shell. */
+    internal fun bootstrapWithShell(
+        shell: RemoteShell,
+        nodeId: String,
+        host: String,
+        username: String,
+        bundle: BundleChoice,
+        anthropicKey: String,
+    ): kotlinx.coroutines.flow.Flow<BootstrapEvent> = kotlinx.coroutines.flow.flow {
+        val token = generateToken()
+
+        // Step 1: CONNECT — caller already opened the shell, but emit so UI sees it.
+        emit(BootstrapEvent.StepStart(BootstrapStep.CONNECT))
+        emit(BootstrapEvent.StepComplete(BootstrapStep.CONNECT))
+
+        // Step 2: DETECT
+        emit(BootstrapEvent.StepStart(BootstrapStep.DETECT))
+        val unameResult = shell.exec("uname -sm")
+        val platform = detectPlatform(unameResult.stdout)
+        if (platform == null) {
+            registry.updateBootstrapStatus(nodeId, BootstrapStatus.FAILED)
+            emit(BootstrapEvent.Failed(BootstrapStep.DETECT, "Unsupported platform: ${unameResult.stdout.trim()}"))
+            return@flow
+        }
+        emit(BootstrapEvent.StepComplete(BootstrapStep.DETECT))
+
+        // Step 3: INSTALL_UV
+        emit(BootstrapEvent.StepStart(BootstrapStep.INSTALL_UV))
+        val uvR = shell.exec("which uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh")
+        if (uvR.exitCode != 0) {
+            registry.updateBootstrapStatus(nodeId, BootstrapStatus.FAILED)
+            emit(BootstrapEvent.Failed(BootstrapStep.INSTALL_UV, "exit ${uvR.exitCode}: ${uvR.stdout.trim()}"))
+            return@flow
+        }
+        emit(BootstrapEvent.StepComplete(BootstrapStep.INSTALL_UV))
+
+        // Step 4: INSTALL_AMPLIFIERD
+        emit(BootstrapEvent.StepStart(BootstrapStep.INSTALL_AMPLIFIERD))
+        val ampR = shell.exec(buildUvInstallCommand(bundle))
+        if (ampR.exitCode != 0) {
+            registry.updateBootstrapStatus(nodeId, BootstrapStatus.FAILED)
+            emit(BootstrapEvent.Failed(BootstrapStep.INSTALL_AMPLIFIERD, "exit ${ampR.exitCode}: ${ampR.stdout.trim()}"))
+            return@flow
+        }
+        emit(BootstrapEvent.StepComplete(BootstrapStep.INSTALL_AMPLIFIERD))
+
+        // Step 5: WRITE_CONFIG (atomic via /tmp)
+        emit(BootstrapEvent.StepStart(BootstrapStep.WRITE_CONFIG))
+        val tmpName = "/tmp/amplifierd_settings_${java.util.UUID.randomUUID()}.json"
+        shell.sftpWrite(tmpName, generateSettingsJson(bundle, token))
+        shell.exec("mkdir -p ~/.amplifierd && mv $tmpName ~/.amplifierd/settings.json")
+        emit(BootstrapEvent.StepComplete(BootstrapStep.WRITE_CONFIG))
+
+        // Step 6: INSTALL_SERVICE — branches on platform
+        emit(BootstrapEvent.StepStart(BootstrapStep.INSTALL_SERVICE))
+        when (platform) {
+            RemotePlatform.MACOS_ARM64, RemotePlatform.MACOS_X86 -> {
+                shell.exec("mkdir -p ~/Library/LaunchAgents")
+                shell.sftpWrite(
+                    "/Users/$username/Library/LaunchAgents/com.vela.amplifierd.plist",
+                    generateLaunchdPlist(username, anthropicKey),
+                )
+                shell.exec("launchctl bootout gui/\$UID/com.vela.amplifierd 2>/dev/null || true")
+                shell.exec("launchctl bootstrap gui/\$UID ~/Library/LaunchAgents/com.vela.amplifierd.plist")
+                shell.exec("launchctl kickstart -k gui/\$UID/com.vela.amplifierd")
+            }
+            RemotePlatform.LINUX_AMD64, RemotePlatform.LINUX_ARM64 -> {
+                shell.exec("mkdir -p ~/.config/systemd/user")
+                shell.sftpWrite(
+                    "/home/$username/.config/systemd/user/amplifierd.service",
+                    generateSystemdUnit(anthropicKey),
+                )
+                shell.exec("loginctl enable-linger $username 2>/dev/null || true")
+                shell.exec("systemctl --user daemon-reload")
+                shell.exec("systemctl --user enable --now amplifierd.service")
+            }
+        }
+        emit(BootstrapEvent.StepComplete(BootstrapStep.INSTALL_SERVICE))
+
+        // Step 7: HEALTH_CHECK — polls up to 15 times with 2s delay
+        emit(BootstrapEvent.StepStart(BootstrapStep.HEALTH_CHECK))
+        var healthy = false
+        for (attempt in 1..15) {
+            val r = shell.exec("curl -fsS http://127.0.0.1:8410/health")
+            if (r.exitCode == 0) { healthy = true; break }
+            emit(BootstrapEvent.Output("health check attempt $attempt/15"))
+            kotlinx.coroutines.delay(2_000)
+        }
+        if (!healthy) {
+            val logCmd = when (platform) {
+                RemotePlatform.MACOS_ARM64, RemotePlatform.MACOS_X86 ->
+                    "tail -n 20 ~/.amplifierd/stderr.log 2>/dev/null; tail -n 20 ~/.amplifierd/stdout.log 2>/dev/null"
+                RemotePlatform.LINUX_AMD64, RemotePlatform.LINUX_ARM64 ->
+                    "journalctl --user -n 20 -u amplifierd --no-pager"
+            }
+            val logs = shell.exec(logCmd).stdout
+            registry.updateBootstrapStatus(nodeId, BootstrapStatus.FAILED)
+            emit(BootstrapEvent.Failed(BootstrapStep.HEALTH_CHECK, "Health check timed out after 15 attempts. Logs:\n$logs"))
+            return@flow
+        }
+        emit(BootstrapEvent.StepComplete(BootstrapStep.HEALTH_CHECK))
+
+        // Step 8: PROMOTE
+        emit(BootstrapEvent.StepStart(BootstrapStep.PROMOTE))
+        val tailscale = shell.exec("tailscale ip -4 2>/dev/null")
+        val tsIp = tailscale.stdout.lineSequence().firstOrNull { it.isNotBlank() }?.trim()
+        val url = if (tailscale.exitCode == 0 && !tsIp.isNullOrEmpty())
+            "http://$tsIp:8410" else "http://$host:8410"
+        registry.promoteToAmplifierd(nodeId, url, token)
+        registry.updateBootstrapStatus(nodeId, BootstrapStatus.RUNNING)
+        emit(BootstrapEvent.StepComplete(BootstrapStep.PROMOTE))
+
+        emit(BootstrapEvent.Complete(url, token))
+    }
+
     // ── JSch session factory ──────────────────────────────────────────────────
 
     private fun openJschShell(host: String, port: Int, username: String): RemoteShell {

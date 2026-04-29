@@ -1,6 +1,7 @@
 package com.vela.app.ssh
 
 import com.google.common.truth.Truth.assertThat
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
@@ -278,5 +279,166 @@ class NodeBootstrapperTest {
         assertThat(shell.exec("uname -sm").exitCode).isEqualTo(0)
         assertThat(shell.exec("false").exitCode).isEqualTo(1)
         assertThat(shell.commands).hasSize(3)
+    }
+
+    // ── FakeRegistry ──────────────────────────────────────────────────────────
+
+    /** Hand-rolled fake of the Phase 2 SshNodeRegistry surface used by NodeBootstrapper. */
+    private class FakeRegistry : SshNodeRegistry(dao = throwingDao()) {
+        val promotedTo = mutableListOf<Triple<String, String, String>>() // (id, url, token)
+        val statusUpdates = mutableListOf<Pair<String, String>>()        // (id, status)
+
+        override suspend fun promoteToAmplifierd(nodeId: String, url: String, token: String) {
+            promotedTo.add(Triple(nodeId, url, token))
+        }
+        override suspend fun updateBootstrapStatus(nodeId: String, status: BootstrapStatus) {
+            statusUpdates.add(nodeId to status.name)
+        }
+    }
+
+    // ── bootstrap() orchestration — happy path ────────────────────────────────
+
+    @Test
+    fun bootstrap_happyPath_emitsAllStepEventsAndPromotes() = runTest {
+        val shell = FakeRemoteShell()
+        shell.responses["uname -sm"] = "Linux x86_64\n" to 0
+        shell.responses["curl -fsS http://127.0.0.1:8410/health"] = "ok" to 0
+        shell.responses["tailscale ip -4 2>/dev/null"] = "" to 1
+
+        val registry = FakeRegistry()
+        val sut = NodeBootstrapper(
+            keyManager = SshKeyManager(android.content.ContextWrapper(null)),
+            registry = registry,
+        )
+
+        val events = sut.bootstrapWithShell(
+            shell = shell,
+            nodeId = "node-1",
+            host = "1.2.3.4",
+            username = "alice",
+            bundle = BundleChoice.SUPERPOWERS,
+            anthropicKey = "sk-ant-XYZ",
+        ).toList()
+
+        val starts = events.filterIsInstance<BootstrapEvent.StepStart>().map { it.step }
+        assertThat(starts).containsExactly(
+            BootstrapStep.CONNECT,
+            BootstrapStep.DETECT,
+            BootstrapStep.INSTALL_UV,
+            BootstrapStep.INSTALL_AMPLIFIERD,
+            BootstrapStep.WRITE_CONFIG,
+            BootstrapStep.INSTALL_SERVICE,
+            BootstrapStep.HEALTH_CHECK,
+            BootstrapStep.PROMOTE,
+        ).inOrder()
+
+        val last = events.last()
+        assertThat(last).isInstanceOf(BootstrapEvent.Complete::class.java)
+        val complete = last as BootstrapEvent.Complete
+        assertThat(complete.url).isEqualTo("http://1.2.3.4:8410")
+        assertThat(complete.token).isNotEmpty()
+
+        assertThat(registry.promotedTo).hasSize(1)
+        assertThat(registry.promotedTo[0].first).isEqualTo("node-1")
+        assertThat(registry.promotedTo[0].second).isEqualTo("http://1.2.3.4:8410")
+    }
+
+    @Test
+    fun bootstrap_writesSettingsConfigToTempThenAtomicallyMoves() = runTest {
+        val shell = FakeRemoteShell()
+        shell.responses["uname -sm"] = "Linux x86_64\n" to 0
+        shell.responses["curl -fsS http://127.0.0.1:8410/health"] = "ok" to 0
+        shell.responses["tailscale ip -4 2>/dev/null"] = "" to 1
+
+        val sut = NodeBootstrapper(
+            keyManager = SshKeyManager(android.content.ContextWrapper(null)),
+            registry = FakeRegistry(),
+        )
+        sut.bootstrapWithShell(
+            shell = shell,
+            nodeId = "n",
+            host = "h",
+            username = "u",
+            bundle = BundleChoice.SUPERPOWERS,
+            anthropicKey = "k",
+        ).toList()
+
+        val sftpPaths = shell.sftpWrites.map { it.first }
+        assertThat(sftpPaths).contains(sftpPaths.first { it.startsWith("/tmp/amplifierd_settings_") })
+        val settingsContents = shell.sftpWrites.first { it.first.contains("amplifierd_settings_") }.second
+        assertThat(settingsContents).contains("\"superpowers\"")
+
+        assertThat(shell.commands.any {
+            it.contains("mkdir -p ~/.amplifierd") && it.contains("mv /tmp/amplifierd_settings_") && it.contains("~/.amplifierd/settings.json")
+        }).isTrue()
+    }
+
+    @Test
+    fun bootstrap_linux_writesSystemdUnitAndRunsSystemctl() = runTest {
+        val shell = FakeRemoteShell()
+        shell.responses["uname -sm"] = "Linux x86_64\n" to 0
+        shell.responses["curl -fsS http://127.0.0.1:8410/health"] = "ok" to 0
+        shell.responses["tailscale ip -4 2>/dev/null"] = "" to 1
+
+        val sut = NodeBootstrapper(
+            keyManager = SshKeyManager(android.content.ContextWrapper(null)),
+            registry = FakeRegistry(),
+        )
+        sut.bootstrapWithShell(
+            shell = shell, nodeId = "n", host = "h", username = "alice",
+            bundle = BundleChoice.TOOLS_ONLY, anthropicKey = "k",
+        ).toList()
+
+        val unitWrite = shell.sftpWrites.firstOrNull { it.first.endsWith("amplifierd.service") }
+        assertThat(unitWrite).isNotNull()
+        assertThat(unitWrite!!.first).isEqualTo("/home/alice/.config/systemd/user/amplifierd.service")
+        assertThat(unitWrite.second).contains("[Service]")
+
+        assertThat(shell.commands.any { it.contains("systemctl --user daemon-reload") }).isTrue()
+        assertThat(shell.commands.any { it.contains("systemctl --user enable --now amplifierd.service") }).isTrue()
+    }
+
+    @Test
+    fun bootstrap_macos_writesPlistAndRunsLaunchctl() = runTest {
+        val shell = FakeRemoteShell()
+        shell.responses["uname -sm"] = "Darwin arm64\n" to 0
+        shell.responses["curl -fsS http://127.0.0.1:8410/health"] = "ok" to 0
+        shell.responses["tailscale ip -4 2>/dev/null"] = "" to 1
+
+        val sut = NodeBootstrapper(
+            keyManager = SshKeyManager(android.content.ContextWrapper(null)),
+            registry = FakeRegistry(),
+        )
+        sut.bootstrapWithShell(
+            shell = shell, nodeId = "n", host = "h", username = "bob",
+            bundle = BundleChoice.TOOLS_ONLY, anthropicKey = "k",
+        ).toList()
+
+        val plistWrite = shell.sftpWrites.firstOrNull { it.first.endsWith("com.vela.amplifierd.plist") }
+        assertThat(plistWrite).isNotNull()
+        assertThat(plistWrite!!.first).isEqualTo("/Users/bob/Library/LaunchAgents/com.vela.amplifierd.plist")
+        assertThat(plistWrite.second).contains("<plist version=\"1.0\">")
+
+        assertThat(shell.commands.any { it.contains("launchctl bootstrap gui/\$UID") }).isTrue()
+        assertThat(shell.commands.any { it.contains("launchctl kickstart -k gui/\$UID/com.vela.amplifierd") }).isTrue()
+    }
+
+    companion object {
+        private fun throwingDao(): com.vela.app.data.db.SshNodeDao =
+            object : com.vela.app.data.db.SshNodeDao {
+                override fun getAllNodes(): kotlinx.coroutines.flow.Flow<List<com.vela.app.data.db.SshNodeEntity>> =
+                    throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
+                override suspend fun insert(node: com.vela.app.data.db.SshNodeEntity) =
+                    throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
+                override suspend fun delete(id: String) =
+                    throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
+                override suspend fun getById(id: String): com.vela.app.data.db.SshNodeEntity? =
+                    throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
+                override suspend fun updateBootstrapStatus(id: String, status: String) =
+                    throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
+                override suspend fun promoteToAmplifierd(
+                    id: String, type: String, url: String, token: String, status: String,
+                ) = throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
+            }
     }
 }
