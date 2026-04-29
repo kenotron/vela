@@ -35,9 +35,11 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.vela.app.ssh.BundleChoice
 import com.vela.app.ssh.NodeType
 import com.vela.app.ssh.SshNode
 import com.vela.app.ui.nodes.NodesViewModel
+import kotlinx.coroutines.launch
 
 // ── Connector catalog model ───────────────────────────────────────────────────
 
@@ -86,9 +88,13 @@ fun ConnectorsScreen(
     viewModel: NodesViewModel = hiltViewModel(),
     modifier: Modifier = Modifier,
 ) {
-    val nodes       by viewModel.nodes.collectAsState()
-    val addError    by viewModel.addError.collectAsState()
-    val context     = LocalContext.current
+    val nodes          by viewModel.nodes.collectAsState()
+    val addError       by viewModel.addError.collectAsState()
+    val bootstrapState by viewModel.bootstrapState.collectAsState()
+    val context        = LocalContext.current
+
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope      = rememberCoroutineScope()
 
     var expanded    by remember { mutableStateOf<ConnectorType?>(null) }
     var showSshForm by remember { mutableStateOf(false) }
@@ -143,6 +149,11 @@ fun ConnectorsScreen(
                             onAddHost    = { id, h -> viewModel.addHostToNode(id, h) },
                             onRemoveHost = { id, h -> viewModel.removeHostFromNode(id, h) },
                             onDelete     = { viewModel.removeNode(it) },
+                            onBootstrap  = { host, port, user, bundle, key ->
+                                val nodeId = connectedNodes.firstOrNull { it.hosts.contains(host) }?.id
+                                    ?: java.util.UUID.randomUUID().toString()
+                                viewModel.bootstrapNode(nodeId, host, port, user, bundle, key)
+                            },
                         )
 
                         ConnectorType.AMPLIFIER -> AmplifierDetail(
@@ -163,6 +174,25 @@ fun ConnectorsScreen(
             }
 
             item { Spacer(Modifier.height(40.dp)) }
+        }
+    }
+
+    // Bootstrap progress sheet
+    if (bootstrapState.isBootstrapping || bootstrapState.isComplete || bootstrapState.errorMessage != null) {
+        ModalBottomSheet(
+            onDismissRequest = {
+                scope.launch { sheetState.hide() }
+                viewModel.clearBootstrapState()
+            },
+            sheetState       = sheetState,
+        ) {
+            NodeBootstrapSheet(
+                state     = bootstrapState,
+                onDismiss = {
+                    scope.launch { sheetState.hide() }
+                    viewModel.clearBootstrapState()
+                },
+            )
         }
     }
 }
@@ -282,6 +312,7 @@ private fun SshDetail(
     onAddHost:    (nodeId: String, host: String) -> Unit,
     onRemoveHost: (nodeId: String, host: String) -> Unit,
     onDelete:     (id: String) -> Unit,
+    onBootstrap:  (host: String, port: Int, username: String, bundle: BundleChoice, anthropicKey: String) -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
 
@@ -317,6 +348,36 @@ private fun SshDetail(
             Spacer(Modifier.width(6.dp))
             Text("Add SSH Server")
         }
+    }
+
+    // ── Bootstrap amplifierd ───────────────────────────────────────────────
+    var showBootstrap by remember { mutableStateOf(false) }
+    Spacer(Modifier.height(8.dp))
+    TextButton(
+        onClick        = { showBootstrap = !showBootstrap },
+        contentPadding = PaddingValues(horizontal = 0.dp),
+    ) {
+        Icon(
+            if (showBootstrap) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+            null,
+            modifier = Modifier.size(14.dp),
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            if (showBootstrap) "Hide bootstrap" else "Bootstrap amplifierd",
+            style = MaterialTheme.typography.labelSmall,
+        )
+    }
+    AnimatedVisibility(
+        visible = showBootstrap,
+        enter   = expandVertically(),
+        exit    = shrinkVertically(),
+    ) {
+        BootstrapForm(
+            publicKey = publicKey,
+            context   = context,
+            onConnect = onBootstrap,
+        )
     }
 
     // Device key (folded away since it's advanced)
@@ -507,6 +568,109 @@ private fun ComingSoonDetail(name: String) {
             style = MaterialTheme.typography.bodySmall,
             color = cs.onSurfaceVariant.copy(alpha = 0.6f),
         )
+    }
+}
+
+// ── Bootstrap amplifierd form ─────────────────────────────────────────────────
+
+@Composable
+private fun BootstrapForm(
+    publicKey: String,
+    context:   Context,
+    onConnect: (host: String, port: Int, username: String, bundle: BundleChoice, anthropicKey: String) -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+
+    var host         by remember { mutableStateOf("") }
+    var port         by remember { mutableStateOf("22") }
+    var username     by remember { mutableStateOf("") }
+    var bundle       by remember { mutableStateOf(BundleChoice.SUPERPOWERS) }
+    var anthropicKey by remember { mutableStateOf("") }
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier            = Modifier.padding(bottom = 12.dp),
+    ) {
+        Text("Bootstrap amplifierd", style = MaterialTheme.typography.titleSmall)
+
+        OutlinedTextField(
+            host, { host = it },
+            label           = { Text("Host / IP address") },
+            singleLine      = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            modifier        = Modifier.fillMaxWidth(),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                port, { port = it },
+                label           = { Text("Port") },
+                singleLine      = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier        = Modifier.width(90.dp),
+            )
+            OutlinedTextField(
+                username, { username = it },
+                label      = { Text("Username") },
+                singleLine = true,
+                modifier   = Modifier.weight(1f),
+            )
+        }
+
+        // Read-only public-key field + copy button
+        OutlinedTextField(
+            value         = publicKey,
+            onValueChange = {},
+            readOnly      = true,
+            label         = { Text("Device public key") },
+            modifier      = Modifier.fillMaxWidth(),
+            maxLines      = 3,
+        )
+        OutlinedButton(
+            onClick  = {
+                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("Vela SSH Key", publicKey))
+                Toast.makeText(context, "Key copied", Toast.LENGTH_SHORT).show()
+            },
+            modifier = Modifier.align(Alignment.End),
+        ) {
+            Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("Copy key")
+        }
+
+        // Bundle chips
+        Text("Bundle", style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            BundleChoice.entries.forEach { choice ->
+                FilterChip(
+                    selected = bundle == choice,
+                    onClick  = { bundle = choice },
+                    label    = { Text(choice.bundleName) },
+                )
+            }
+        }
+
+        OutlinedTextField(
+            anthropicKey, { anthropicKey = it },
+            label                = { Text("Anthropic API key") },
+            singleLine           = true,
+            visualTransformation = PasswordVisualTransformation(),
+            modifier             = Modifier.fillMaxWidth(),
+        )
+
+        Button(
+            onClick  = {
+                onConnect(
+                    host,
+                    port.toIntOrNull() ?: 22,
+                    username,
+                    bundle,
+                    anthropicKey,
+                )
+            },
+            modifier = Modifier.fillMaxWidth(),
+            enabled  = host.isNotBlank() && username.isNotBlank() && anthropicKey.isNotBlank(),
+        ) { Text("Connect") }
     }
 }
 
