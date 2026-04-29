@@ -629,7 +629,7 @@ Append:
         val cmd = sut.buildUvInstallCommandForTest(BundleChoice.SUPERPOWERS)
 
         assertThat(cmd).startsWith("export PATH=\"\$HOME/.local/bin:\$PATH\" && uv tool install")
-        assertThat(cmd).contains("--with git+https://github.com/payneio/vela#subdirectory=plugins/amplifierd-vela")
+        assertThat(cmd).contains("--with git+https://github.com/kenotron/vela#subdirectory=plugins/amplifierd-vela")
         assertThat(cmd).contains("--with amplifierd-bundle-superpowers")
         assertThat(cmd).contains("git+https://github.com/microsoft/amplifierd")
     }
@@ -640,7 +640,7 @@ Append:
 
         val cmd = sut.buildUvInstallCommandForTest(BundleChoice.TOOLS_ONLY)
 
-        assertThat(cmd).contains("--with git+https://github.com/payneio/vela#subdirectory=plugins/amplifierd-vela")
+        assertThat(cmd).contains("--with git+https://github.com/kenotron/vela#subdirectory=plugins/amplifierd-vela")
         assertThat(cmd).doesNotContain("amplifierd-bundle-")
         assertThat(cmd).contains("git+https://github.com/microsoft/amplifierd")
     }
@@ -667,7 +667,7 @@ Add to `NodeBootstrapper`:
 ```kotlin
     internal fun buildUvInstallCommand(bundle: BundleChoice): String = buildString {
         append("export PATH=\"\$HOME/.local/bin:\$PATH\" && uv tool install")
-        append(" --with git+https://github.com/payneio/vela#subdirectory=plugins/amplifierd-vela")
+        append(" --with git+https://github.com/kenotron/vela#subdirectory=plugins/amplifierd-vela")
         if (bundle.packageSuffix != null) {
             append(" --with ${bundle.packageSuffix}")
         }

@@ -2,7 +2,7 @@
 
 > **Execution:** Use the subagent-driven-development workflow to implement this plan.
 
-**Goal:** Build the `amplifierd-vela` Python plugin that adds token auth, project endpoints, capabilities reporting, and bundle activation to a remote `amplifierd` daemon — installable via `uv tool install --with git+https://github.com/payneio/vela#subdirectory=plugins/amplifierd-vela git+https://github.com/microsoft/amplifierd`.
+**Goal:** Build the `amplifierd-vela` Python plugin that adds token auth, project endpoints, capabilities reporting, and bundle activation to a remote `amplifierd` daemon — installable via `uv tool install --with git+https://github.com/kenotron/vela#subdirectory=plugins/amplifierd-vela git+https://github.com/microsoft/amplifierd`.
 
 **Architecture:** Single Python package at `plugins/amplifierd-vela/`, exposing `vela_plugin:create_router` as the `amplifierd.plugins` entry point. Each concern is one module: `settings.py`, `auth.py`, `projects.py`, `capabilities.py`, `bundles.py`. `create_router(state)` activates bundles, mounts the project + capabilities routers under a token-auth dependency, and returns the resulting `APIRouter` to the host daemon.
 
