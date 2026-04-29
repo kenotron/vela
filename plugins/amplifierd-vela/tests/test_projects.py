@@ -97,3 +97,33 @@ def test_list_project_sessions_handles_session_without_metadata(projects_path):
     r = client.get("/projects/p1/sessions")
     assert r.status_code == 200
     assert r.json() == []
+
+
+def test_delete_project_removes_record(fake_state, projects_path):
+    client = _client(fake_state, projects_path)
+    created = client.post("/projects", json={"name": "A", "description": ""}).json()
+    pid = created["id"]
+    r = client.delete(f"/projects/{pid}")
+    assert r.status_code == 200
+    assert client.get("/projects").json() == []
+
+
+def test_delete_project_unknown_returns_404(fake_state, projects_path):
+    client = _client(fake_state, projects_path)
+    r = client.delete("/projects/does-not-exist")
+    assert r.status_code == 404
+
+
+def test_delete_project_does_not_touch_sessions(projects_path):
+    """Sessions are detached, never deleted, when a project is removed."""
+    sessions = [{"id": "s1", "metadata": {"project_id": "p1"}}]
+    fsm = FakeSessionManager(sessions)
+    state = types.SimpleNamespace(session_manager=fsm)
+    client = _client(state, projects_path)
+
+    # Seed a project and remove it.
+    created = client.post("/projects", json={"name": "P1", "description": ""}).json()
+    client.delete(f"/projects/{created['id']}")
+
+    # Session list is untouched.
+    assert fsm.list_sessions() == sessions
