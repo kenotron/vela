@@ -16,7 +16,7 @@ class SshNodeRegistryBootstrapTest {
 
     // ── Fake DAO ──────────────────────────────────────────────────────────────
 
-    private class FakeSshNodeDao : SshNodeDao {
+    private open class FakeSshNodeDao : SshNodeDao {
         val statusUpdates = mutableListOf<Pair<String, String>>()           // id, status
         val promotions    = mutableListOf<PromoteCall>()
         val inserts       = mutableListOf<SshNodeEntity>()
