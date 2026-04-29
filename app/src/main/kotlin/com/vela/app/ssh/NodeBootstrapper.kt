@@ -56,6 +56,65 @@ open class NodeBootstrapper @Inject constructor(
     internal fun generateSettingsJsonForTest(bundle: BundleChoice, token: String) =
         generateSettingsJson(bundle, token)
 
+    internal fun generateLaunchdPlist(username: String, anthropicKey: String): String = """
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.vela.amplifierd</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/$username/.local/bin/amplifierd</string>
+    <string>serve</string>
+    <string>--host</string><string>0.0.0.0</string>
+    <string>--port</string><string>8410</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/Users/$username/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>ANTHROPIC_API_KEY</key><string>$anthropicKey</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/Users/$username/.amplifierd/stdout.log</string>
+  <key>StandardErrorPath</key><string>/Users/$username/.amplifierd/stderr.log</string>
+</dict>
+</plist>
+    """.trimIndent()
+
+    internal fun generateLaunchdPlistForTest(username: String, anthropicKey: String) =
+        generateLaunchdPlist(username, anthropicKey)
+
+    internal fun generateSystemdUnit(anthropicKey: String): String = """
+[Unit]
+Description=Vela amplifierd daemon
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/amplifierd serve --host 0.0.0.0 --port 8410
+Environment="PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="ANTHROPIC_API_KEY=$anthropicKey"
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+    """.trimIndent()
+
+    internal fun generateSystemdUnitForTest(anthropicKey: String) = generateSystemdUnit(anthropicKey)
+
+    internal fun buildUvInstallCommand(bundle: BundleChoice): String = buildString {
+        append("export PATH=\"\$HOME/.local/bin:\$PATH\" && uv tool install")
+        append(" --with git+https://github.com/kenotron/vela#subdirectory=plugins/amplifierd-vela")
+        if (bundle.packageSuffix != null) {
+            append(" --with ${bundle.packageSuffix}")
+        }
+        append(" git+https://github.com/microsoft/amplifierd")
+    }
+
+    internal fun buildUvInstallCommandForTest(bundle: BundleChoice) = buildUvInstallCommand(bundle)
+
     companion object {
         /** Build an instance for unit-testing pure helpers (no Hilt graph needed). */
         internal fun testInstance(): NodeBootstrapper = NodeBootstrapper(

@@ -139,4 +139,108 @@ class NodeBootstrapperTest {
 
         assertThat(bundles.getString(0)).isEqualTo("lifeos")
     }
+
+    // ── generateLaunchdPlist ──────────────────────────────────────────────────
+
+    @Test
+    fun generateLaunchdPlist_containsLabelAndUsernameAndKey() {
+        val sut = NodeBootstrapper.testInstance()
+
+        val plist = sut.generateLaunchdPlistForTest(username = "alice", anthropicKey = "sk-ant-XYZ")
+
+        assertThat(plist).contains("<key>Label</key><string>com.vela.amplifierd</string>")
+        assertThat(plist).contains("/Users/alice/.local/bin/amplifierd")
+        assertThat(plist).contains("/Users/alice/.local/bin:/usr/local/bin:/usr/bin:/bin")
+        assertThat(plist).contains("<key>ANTHROPIC_API_KEY</key><string>sk-ant-XYZ</string>")
+        assertThat(plist).contains("/Users/alice/.amplifierd/stdout.log")
+        assertThat(plist).contains("/Users/alice/.amplifierd/stderr.log")
+    }
+
+    @Test
+    fun generateLaunchdPlist_containsServeArgs() {
+        val sut = NodeBootstrapper.testInstance()
+
+        val plist = sut.generateLaunchdPlistForTest(username = "u", anthropicKey = "k")
+
+        assertThat(plist).contains("<string>serve</string>")
+        assertThat(plist).contains("<string>--host</string><string>0.0.0.0</string>")
+        assertThat(plist).contains("<string>--port</string><string>8410</string>")
+    }
+
+    @Test
+    fun generateLaunchdPlist_isXmlPlist() {
+        val sut = NodeBootstrapper.testInstance()
+
+        val plist = sut.generateLaunchdPlistForTest(username = "u", anthropicKey = "k")
+
+        assertThat(plist).startsWith("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+        assertThat(plist).contains("<!DOCTYPE plist PUBLIC")
+        assertThat(plist).contains("<plist version=\"1.0\">")
+        assertThat(plist).contains("<key>RunAtLoad</key><true/>")
+        assertThat(plist).contains("<key>KeepAlive</key><true/>")
+    }
+
+    // ── generateSystemdUnit ───────────────────────────────────────────────────
+
+    @Test
+    fun generateSystemdUnit_containsExecStartAndKey() {
+        val sut = NodeBootstrapper.testInstance()
+
+        val unit = sut.generateSystemdUnitForTest(anthropicKey = "sk-ant-XYZ")
+
+        assertThat(unit).contains("ExecStart=%h/.local/bin/amplifierd serve --host 0.0.0.0 --port 8410")
+        assertThat(unit).contains("Environment=\"ANTHROPIC_API_KEY=sk-ant-XYZ\"")
+        assertThat(unit).contains("Environment=\"PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin\"")
+    }
+
+    @Test
+    fun generateSystemdUnit_hasRequiredSections() {
+        val sut = NodeBootstrapper.testInstance()
+
+        val unit = sut.generateSystemdUnitForTest(anthropicKey = "k")
+
+        assertThat(unit).contains("[Unit]")
+        assertThat(unit).contains("[Service]")
+        assertThat(unit).contains("[Install]")
+        assertThat(unit).contains("Description=Vela amplifierd daemon")
+        assertThat(unit).contains("After=network-online.target")
+        assertThat(unit).contains("Type=simple")
+        assertThat(unit).contains("Restart=on-failure")
+        assertThat(unit).contains("RestartSec=3")
+        assertThat(unit).contains("WantedBy=default.target")
+    }
+
+    // ── buildUvInstallCommand ─────────────────────────────────────────────────
+
+    @Test
+    fun buildUvInstallCommand_superpowers_includesBundlePackage() {
+        val sut = NodeBootstrapper.testInstance()
+
+        val cmd = sut.buildUvInstallCommandForTest(BundleChoice.SUPERPOWERS)
+
+        assertThat(cmd).startsWith("export PATH=\"\$HOME/.local/bin:\$PATH\" && uv tool install")
+        assertThat(cmd).contains("--with git+https://github.com/kenotron/vela#subdirectory=plugins/amplifierd-vela")
+        assertThat(cmd).contains("--with amplifierd-bundle-superpowers")
+        assertThat(cmd).contains("git+https://github.com/microsoft/amplifierd")
+    }
+
+    @Test
+    fun buildUvInstallCommand_toolsOnly_omitsBundle() {
+        val sut = NodeBootstrapper.testInstance()
+
+        val cmd = sut.buildUvInstallCommandForTest(BundleChoice.TOOLS_ONLY)
+
+        assertThat(cmd).contains("--with git+https://github.com/kenotron/vela#subdirectory=plugins/amplifierd-vela")
+        assertThat(cmd).doesNotContain("amplifierd-bundle-")
+        assertThat(cmd).contains("git+https://github.com/microsoft/amplifierd")
+    }
+
+    @Test
+    fun buildUvInstallCommand_lifeos_includesLifeosPackage() {
+        val sut = NodeBootstrapper.testInstance()
+
+        val cmd = sut.buildUvInstallCommandForTest(BundleChoice.LIFEOS)
+
+        assertThat(cmd).contains("--with amplifierd-bundle-lifeos")
+    }
 }
