@@ -522,6 +522,53 @@ class NodeBootstrapperTest {
         assertThat(failed[0].error).contains("stdout line")
     }
 
+    // ── Tailscale IP detection ─────────────────────────────────────────────────
+
+    @Test
+    fun bootstrap_promotesUsingTailscaleIp_whenAvailable() = runTest {
+        val shell = FakeRemoteShell()
+        shell.responses["uname -sm"] = "Linux x86_64\n" to 0
+        shell.responses["curl -fsS http://127.0.0.1:8410/health"] = "ok" to 0
+        shell.responses["tailscale ip -4 2>/dev/null"] = "100.64.1.42\n" to 0
+
+        val registry = FakeRegistry()
+        val sut = NodeBootstrapper(
+            keyManager = SshKeyManager(android.content.ContextWrapper(null)),
+            registry = registry,
+        )
+
+        val events = sut.bootstrapWithShell(
+            shell = shell, nodeId = "n", host = "1.2.3.4", username = "u",
+            bundle = BundleChoice.TOOLS_ONLY, anthropicKey = "k",
+        ).toList()
+
+        val complete = events.last() as BootstrapEvent.Complete
+        assertThat(complete.url).isEqualTo("http://100.64.1.42:8410")
+        assertThat(registry.promotedTo[0].second).isEqualTo("http://100.64.1.42:8410")
+    }
+
+    @Test
+    fun bootstrap_fallsBackToHostIp_whenTailscaleEmptyOutputButZeroExit() = runTest {
+        val shell = FakeRemoteShell()
+        shell.responses["uname -sm"] = "Linux x86_64\n" to 0
+        shell.responses["curl -fsS http://127.0.0.1:8410/health"] = "ok" to 0
+        // Edge case: tailscale exits 0 but with empty output.
+        shell.responses["tailscale ip -4 2>/dev/null"] = "\n" to 0
+
+        val registry = FakeRegistry()
+        val sut = NodeBootstrapper(
+            keyManager = SshKeyManager(android.content.ContextWrapper(null)),
+            registry = registry,
+        )
+        val events = sut.bootstrapWithShell(
+            shell = shell, nodeId = "n", host = "1.2.3.4", username = "u",
+            bundle = BundleChoice.TOOLS_ONLY, anthropicKey = "k",
+        ).toList()
+
+        val complete = events.last() as BootstrapEvent.Complete
+        assertThat(complete.url).isEqualTo("http://1.2.3.4:8410")
+    }
+
     companion object {
         private fun throwingDao(): com.vela.app.data.db.SshNodeDao =
             object : com.vela.app.data.db.SshNodeDao {
