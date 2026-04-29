@@ -386,10 +386,10 @@ Motion in Vela is **physical**. Spring physics, never linear tweens. Surfaces fe
 
 ### 7.5 Coordinator Branch Card
 
-**Visual Description**: Used inside a Coordinator session's work-graph view. Each card represents one node's parallel branch of the work. The card has **asymmetric rounding** — fully rounded leading edge, tighter trailing edge — making it read as a "lane" issuing from the conductor. A 2dp connector line draws from the coordinator stem into the leading edge of the card (rendered at view-level, not inside the card). The card's interior shows: node-name (in monospace, since it's a machine identifier here, `type/mono-m`), the branch's current step description (`type/body-m`), and a mini-status pip in the top-right. Coordinator surface tone (cool teal-tinted) replaces the indigo for these cards only — they belong to the coordinator's visual subdomain.
+**Visual Description**: Used inside a Coordinator session's work-graph view. Each card represents one node's parallel branch of the work. The card has standard rounding, unified by the coordinator's teal surface tone rather than shape gimmicks. A 2dp connector line draws from the coordinator stem into the leading edge of the card (rendered at view-level, not inside the card). The card's interior shows: node-name (in monospace, since it's a machine identifier here, `type/mono-m`), the branch's current step description (`type/body-m`), and a mini-status pip in the top-right. Coordinator surface tone (cool teal-tinted) replaces the indigo for these cards only — they belong to the coordinator's visual subdomain.
 
 **Values**:
-- Container: `#13303C` (coordinator surface), `shape/branch` (24dp leading / 8dp trailing), padding 16dp.
+- Container: `#13303C` (coordinator surface), 16dp corner radius, padding 16dp.
 - Inner stroke: 1dp, `#1FE0C2` at 12% alpha.
 - Connector line: 2dp, `#1FE0C2` at 60% alpha, drawn from parent coordinator stem to card's vertical center on leading edge.
 - Node name: `type/mono-m`, `text/primary`.
