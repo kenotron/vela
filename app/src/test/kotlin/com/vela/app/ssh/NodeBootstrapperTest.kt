@@ -423,6 +423,105 @@ class NodeBootstrapperTest {
         assertThat(shell.commands.any { it.contains("launchctl kickstart -k gui/\$UID/com.vela.amplifierd") }).isTrue()
     }
 
+    // ── bootstrap() failure handling ──────────────────────────────────────────
+
+    @Test
+    fun bootstrap_unsupportedPlatform_emitsFailedAndStops() = runTest {
+        val shell = FakeRemoteShell()
+        shell.responses["uname -sm"] = "FreeBSD amd64\n" to 0
+
+        val registry = FakeRegistry()
+        val sut = NodeBootstrapper(
+            keyManager = SshKeyManager(android.content.ContextWrapper(null)),
+            registry = registry,
+        )
+
+        val events = sut.bootstrapWithShell(
+            shell = shell, nodeId = "n", host = "h", username = "u",
+            bundle = BundleChoice.TOOLS_ONLY, anthropicKey = "k",
+        ).toList()
+
+        val failed = events.filterIsInstance<BootstrapEvent.Failed>()
+        assertThat(failed).hasSize(1)
+        assertThat(failed[0].step).isEqualTo(BootstrapStep.DETECT)
+        assertThat(failed[0].error).contains("Unsupported platform")
+        assertThat(failed[0].error).contains("FreeBSD amd64")
+        assertThat(registry.promotedTo).isEmpty()
+        assertThat(registry.statusUpdates).contains("n" to BootstrapStatus.FAILED.name)
+    }
+
+    @Test
+    fun bootstrap_uvInstallNonZeroExit_emitsFailed() = runTest {
+        val shell = FakeRemoteShell()
+        shell.responses["uname -sm"] = "Linux x86_64\n" to 0
+        val sut = NodeBootstrapper(
+            keyManager = SshKeyManager(android.content.ContextWrapper(null)),
+            registry = FakeRegistry(),
+        )
+        val uvCmd = sut.buildUvInstallCommandForTest(BundleChoice.TOOLS_ONLY)
+        shell.responses[uvCmd] = "E: package not found" to 1
+
+        val events = sut.bootstrapWithShell(
+            shell = shell, nodeId = "n", host = "h", username = "u",
+            bundle = BundleChoice.TOOLS_ONLY, anthropicKey = "k",
+        ).toList()
+
+        val failed = events.filterIsInstance<BootstrapEvent.Failed>()
+        assertThat(failed).hasSize(1)
+        assertThat(failed[0].step).isEqualTo(BootstrapStep.INSTALL_AMPLIFIERD)
+        assertThat(failed[0].error).contains("exit 1")
+        assertThat(failed[0].error).contains("package not found")
+    }
+
+    @Test
+    fun bootstrap_healthCheckTimesOutAfter15Attempts_emitsFailedWithLogs() = runTest {
+        val shell = FakeRemoteShell()
+        shell.responses["uname -sm"] = "Linux x86_64\n" to 0
+        shell.responses["curl -fsS http://127.0.0.1:8410/health"] = "" to 7
+        shell.responses["journalctl --user -n 20 -u amplifierd --no-pager"] =
+            "ERROR: amplifierd crashed: missing key" to 0
+
+        val sut = NodeBootstrapper(
+            keyManager = SshKeyManager(android.content.ContextWrapper(null)),
+            registry = FakeRegistry(),
+        )
+
+        val events = sut.bootstrapWithShell(
+            shell = shell, nodeId = "n", host = "h", username = "u",
+            bundle = BundleChoice.TOOLS_ONLY, anthropicKey = "k",
+        ).toList()
+
+        val failed = events.filterIsInstance<BootstrapEvent.Failed>()
+        assertThat(failed).hasSize(1)
+        assertThat(failed[0].step).isEqualTo(BootstrapStep.HEALTH_CHECK)
+        assertThat(failed[0].error).contains("amplifierd crashed: missing key")
+        val healthCount = shell.commands.count { it == "curl -fsS http://127.0.0.1:8410/health" }
+        assertThat(healthCount).isEqualTo(15)
+    }
+
+    @Test
+    fun bootstrap_healthCheckTimeout_macosUsesTailLogCommand() = runTest {
+        val shell = FakeRemoteShell()
+        shell.responses["uname -sm"] = "Darwin arm64\n" to 0
+        shell.responses["curl -fsS http://127.0.0.1:8410/health"] = "" to 7
+        shell.responses["tail -n 20 ~/.amplifierd/stderr.log 2>/dev/null; tail -n 20 ~/.amplifierd/stdout.log 2>/dev/null"] =
+            "stderr line\nstdout line" to 0
+
+        val sut = NodeBootstrapper(
+            keyManager = SshKeyManager(android.content.ContextWrapper(null)),
+            registry = FakeRegistry(),
+        )
+
+        val events = sut.bootstrapWithShell(
+            shell = shell, nodeId = "n", host = "h", username = "u",
+            bundle = BundleChoice.TOOLS_ONLY, anthropicKey = "k",
+        ).toList()
+
+        val failed = events.filterIsInstance<BootstrapEvent.Failed>()
+        assertThat(failed[0].error).contains("stderr line")
+        assertThat(failed[0].error).contains("stdout line")
+    }
+
     companion object {
         private fun throwingDao(): com.vela.app.data.db.SshNodeDao =
             object : com.vela.app.data.db.SshNodeDao {
