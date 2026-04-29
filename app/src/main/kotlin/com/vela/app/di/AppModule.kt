@@ -99,6 +99,14 @@ object AppModule {
     @Provides @Singleton
     fun provideSshNodeRegistry(dao: SshNodeDao): SshNodeRegistry = SshNodeRegistry(dao)
 
+    // NodeBootstrapper carries per-run state — NOT @Singleton.
+    @Provides
+    fun provideNodeBootstrapper(
+        keyManager: SshKeyManager,
+        registry: SshNodeRegistry,
+    ): com.vela.app.ssh.NodeBootstrapper =
+        com.vela.app.ssh.NodeBootstrapper(keyManager, registry)
+
     @Provides @Singleton
     fun provideVaultManager(
         @ApplicationContext ctx: Context,
