@@ -45,21 +45,39 @@ package com.vela.app.ui.conversation
     internal sealed class TurnItem {
         data class Tools(val group: ToolGroup) : TurnItem()
         data class Text(val evt: TextEvt) : TurnItem()
+        /** Rendered bubble for a completed delegate sub-agent response. */
+        data class AgentResponse(
+            val id: String,
+            val agentName: String,
+            val text: String,
+        ) : TurnItem()
     }
 
     /**
      * Pure Kotlin helper — builds the ordered list of [TurnItem]s from a turn's events.
      *
      * Consecutive tool events are grouped into [TurnItem.Tools]. A text event breaks
-     * the current group, flushing it first. Delegate tool calls are rendered by
-     * [DelegateChip] inside [ToolGroupRow] — no separate items are emitted here.
+     * the current group, flushing it first. A completed `delegate` tool event with a
+     * non-blank [TurnEventEntity.toolResult] additionally emits a [TurnItem.AgentResponse]
+     * immediately after its [TurnItem.Tools] group.
      */
     internal fun buildTurnItems(events: List<TurnEventEntity>): List<TurnItem> = buildList {
         val pending = mutableListOf<TurnEventEntity>()
 
         fun flushPending() {
             if (pending.isEmpty()) return
-            add(TurnItem.Tools(ToolGroup(pending.toList())))
+            val group = pending.toList()
+            add(TurnItem.Tools(ToolGroup(group)))
+            // Emit AgentResponse items for completed delegate events in this group.
+            group.forEach { ev ->
+                if (ev.toolName == "delegate" && ev.toolStatus == "done" && !ev.toolResult.isNullOrBlank()) {
+                    val agentName = runCatching {
+                        org.json.JSONObject(ev.toolArgs ?: "{}").optString("agent", "agent")
+                            .takeIf { it.isNotBlank() } ?: "agent"
+                    }.getOrDefault("agent")
+                    add(TurnItem.AgentResponse(id = "${ev.id}_resp", agentName = agentName, text = ev.toolResult))
+                }
+            }
             pending.clear()
         }
 
@@ -169,16 +187,23 @@ package com.vela.app.ui.conversation
 
             items.forEach { item ->
                 key(when (item) {
-                    is TurnItem.Tools -> item.group.events.first().id
-                    is TurnItem.Text  -> item.evt.event.id
+                    is TurnItem.Tools         -> item.group.events.first().id
+                    is TurnItem.Text          -> item.evt.event.id
+                    is TurnItem.AgentResponse -> item.id
                 }) {
                     when (item) {
-                        is TurnItem.Tools -> ToolGroupRow(item.group.events)
-                        is TurnItem.Text  -> TextEventRow(
+                        is TurnItem.Tools         -> ToolGroupRow(item.group.events)
+                        is TurnItem.Text          -> TextEventRow(
                             text      = item.evt.event.text ?: "",
                             streaming = false,
                             maxW      = maxW,
                             agentName = item.evt.event.agentName,
+                        )
+                        is TurnItem.AgentResponse -> TextEventRow(
+                            text      = item.text,
+                            streaming = false,
+                            maxW      = maxW,
+                            agentName = item.agentName,
                         )
                     }
                 }
