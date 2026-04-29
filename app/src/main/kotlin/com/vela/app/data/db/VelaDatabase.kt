@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MiniAppRegistryEntity::class,
         MiniAppDocumentEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = true,
 )
 abstract class VelaDatabase : RoomDatabase() {
@@ -32,6 +32,13 @@ abstract class VelaDatabase : RoomDatabase() {
     abstract fun gitHubIdentityDao(): GitHubIdentityDao
     abstract fun miniAppRegistryDao(): MiniAppRegistryDao
     abstract fun miniAppDocumentDao(): MiniAppDocumentDao
+}
+
+/** v14→v15: add bootstrapStatus column to ssh_nodes for amplifierd bootstrap lifecycle. */
+val MIGRATION_14_15 = object : Migration(14, 15) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE ssh_nodes ADD COLUMN bootstrapStatus TEXT NOT NULL DEFAULT 'UNPROVISIONED'")
+    }
 }
 
 /** v13→v14: add agentName column to turn_events for delegation name tags. */
