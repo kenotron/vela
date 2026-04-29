@@ -28,6 +28,17 @@ open class NodeBootstrapper @Inject constructor(
 
     internal fun generateTokenForTest(): String = generateToken()
 
+    internal fun detectPlatform(unameOutput: String): RemotePlatform? =
+        when (unameOutput.trim()) {
+            "Darwin arm64"  -> RemotePlatform.MACOS_ARM64
+            "Darwin x86_64" -> RemotePlatform.MACOS_X86
+            "Linux x86_64"  -> RemotePlatform.LINUX_AMD64
+            "Linux aarch64" -> RemotePlatform.LINUX_ARM64
+            else            -> null
+        }
+
+    internal fun detectPlatformForTest(unameOutput: String) = detectPlatform(unameOutput)
+
     companion object {
         /** Build an instance for unit-testing pure helpers (no Hilt graph needed). */
         internal fun testInstance(): NodeBootstrapper = NodeBootstrapper(

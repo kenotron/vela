@@ -61,4 +61,42 @@ class NodeBootstrapperTest {
             RemotePlatform.LINUX_ARM64,
         )
     }
+
+    // ── detectPlatform ────────────────────────────────────────────────────────
+
+    @Test
+    fun detectPlatform_darwinArm64() {
+        val sut = NodeBootstrapper.testInstance()
+        assertThat(sut.detectPlatformForTest("Darwin arm64")).isEqualTo(RemotePlatform.MACOS_ARM64)
+    }
+
+    @Test
+    fun detectPlatform_darwinX86() {
+        val sut = NodeBootstrapper.testInstance()
+        assertThat(sut.detectPlatformForTest("Darwin x86_64")).isEqualTo(RemotePlatform.MACOS_X86)
+    }
+
+    @Test
+    fun detectPlatform_linuxAmd64() {
+        val sut = NodeBootstrapper.testInstance()
+        assertThat(sut.detectPlatformForTest("Linux x86_64")).isEqualTo(RemotePlatform.LINUX_AMD64)
+    }
+
+    @Test
+    fun detectPlatform_linuxArm64() {
+        val sut = NodeBootstrapper.testInstance()
+        assertThat(sut.detectPlatformForTest("Linux aarch64")).isEqualTo(RemotePlatform.LINUX_ARM64)
+    }
+
+    @Test
+    fun detectPlatform_trimsWhitespaceAndIgnoresTrailingNewline() {
+        val sut = NodeBootstrapper.testInstance()
+        assertThat(sut.detectPlatformForTest("  Darwin arm64\n")).isEqualTo(RemotePlatform.MACOS_ARM64)
+    }
+
+    @Test
+    fun detectPlatform_unknownReturnsNull() {
+        val sut = NodeBootstrapper.testInstance()
+        assertThat(sut.detectPlatformForTest("FreeBSD amd64")).isNull()
+    }
 }
