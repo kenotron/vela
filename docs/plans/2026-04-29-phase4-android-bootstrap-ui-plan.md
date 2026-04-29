@@ -51,7 +51,7 @@ The implementer:
 
 **Create:**
 - `app/src/main/kotlin/com/vela/app/ui/connectors/NodeBootstrapSheet.kt`
-- `app/src/test/kotlin/com/vela/app/ui/nodes/NodesViewModelBootstrapTest.kt`
+- `app/src/androidTest/kotlin/com/vela/app/ui/nodes/NodesViewModelBootstrapTest.kt`
 
 **Modify:**
 - `app/src/main/kotlin/com/vela/app/ssh/NodeBootstrapper.kt` (add `open` modifiers — prep)
@@ -94,12 +94,28 @@ open fun bootstrap(
 ): Flow<BootstrapEvent> = ...
 ```
 
-**Step 3: Compile to verify**
+**Step 3: Open `SshKeyManager` class and `getPublicKey()` method**
+
+Open the file `app/src/main/kotlin/com/vela/app/ssh/SshKeyManager.kt`. Add the `open` modifier to the class declaration:
+
+```kotlin
+open class SshKeyManager @Inject constructor(...)
+```
+
+Find the `getPublicKey()` method and add the `open` modifier:
+
+```kotlin
+open fun getPublicKey(): String = ...
+```
+
+This is required for `FakeKeyManager` to override `getPublicKey()` in instrumented tests.
+
+**Step 4: Compile to verify**
 
 Run: `cd /Users/ken/workspace/vela && ./gradlew :app:compileDebugKotlin`
 Expected: BUILD SUCCESSFUL.
 
-**Step 4: Commit**
+**Step 5: Commit**
 
 ```
 git add app/src/main/kotlin/com/vela/app/ssh/NodeBootstrapper.kt
@@ -160,6 +176,9 @@ Create `app/src/test/kotlin/com/vela/app/ui/nodes/NodesViewModelBootstrapTest.kt
 ```kotlin
 package com.vela.app.ui.nodes
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
 import com.vela.app.ssh.BootstrapEvent
 import com.vela.app.ssh.BootstrapStep
@@ -167,6 +186,9 @@ import com.vela.app.ssh.BundleChoice
 import com.vela.app.ssh.NodeBootstrapper
 import com.vela.app.ssh.SshKeyManager
 import com.vela.app.ssh.SshNodeRegistry
+import com.vela.app.ssh.SshNodeDao
+import com.vela.app.ssh.SshNodeEntity
+import com.vela.app.ssh.BootstrapStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -191,7 +213,9 @@ import org.junit.Test
  * No Mockito / MockK — hand-rolled fakes per project convention.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(AndroidJUnit4::class)
 class NodesViewModelBootstrapTest {
+    private val ctx: Context = ApplicationProvider.getApplicationContext()
 
     private val mainDispatcher = UnconfinedTestDispatcher()
 
@@ -202,28 +226,52 @@ class NodesViewModelBootstrapTest {
 
     private class FakeNodeBootstrapper(
         private val events: List<BootstrapEvent>,
-    ) : NodeBootstrapper() {  // requires NodeBootstrapper to have a no-arg constructor for tests
-        override fun bootstrap(
+        keyManager: SshKeyManager,
+        registry: SshNodeRegistry,
+    ) : NodeBootstrapper(keyManager, registry) {
+        override suspend fun bootstrap(
             nodeId: String,
             host: String,
             port: Int,
             username: String,
             bundle: BundleChoice,
             anthropicKey: String,
-        ): Flow<BootstrapEvent> = flow {
+        ): Flow<BootstrapEvent> = kotlinx.coroutines.flow.flow {
             events.forEach { emit(it) }
         }
     }
 
-    private class FakeRegistry : SshNodeRegistry(/* fake DAO not needed for these tests */)
-    private class FakeKeyManager : SshKeyManager(/* fake context */)
+    private class FakeSshNodeDao : SshNodeDao {
+        override fun getAllNodes(): kotlinx.coroutines.flow.Flow<List<SshNodeEntity>> = kotlinx.coroutines.flow.emptyFlow()
+        override suspend fun insert(node: SshNodeEntity) {}
+        override suspend fun delete(id: String) {}
+        override suspend fun getById(id: String): SshNodeEntity? = null
+        override suspend fun updateBootstrapStatus(id: String, status: String) {}
+        override suspend fun promoteToAmplifierd(id: String, type: String, url: String, token: String, status: String) {}
+    }
 
-    private fun newVm(events: List<BootstrapEvent>): NodesViewModel =
-        NodesViewModel(
-            registry      = FakeRegistry(),
-            keyManager    = FakeKeyManager(),
-            bootstrapper  = FakeNodeBootstrapper(events),
-        )
+    private class FakeRegistry : SshNodeRegistry(dao = FakeSshNodeDao()) {
+        val statusUpdates = mutableListOf<Pair<String, BootstrapStatus>>()
+        var promoted: Triple<String, String, String>? = null
+        override suspend fun updateBootstrapStatus(nodeId: String, status: BootstrapStatus) {
+            statusUpdates += nodeId to status
+        }
+        override suspend fun promoteToAmplifierd(nodeId: String, url: String, token: String) {
+            promoted = Triple(nodeId, url, token)
+        }
+    }
+
+    private class FakeKeyManager(context: Context) : SshKeyManager(context) {
+        override fun getPublicKey(): String = "ssh-rsa AAAAB3N fake-test-key test@vela"
+    }
+
+    private fun newVm(events: List<BootstrapEvent> = emptyList()): NodesViewModel {
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val registry = FakeRegistry()
+        val keyManager = FakeKeyManager(ctx)
+        val bootstrapper = FakeNodeBootstrapper(events, keyManager, registry)
+        return NodesViewModel(registry = registry, keyManager = keyManager, bootstrapper = bootstrapper)
+    }
 
     private fun trigger(vm: NodesViewModel) =
         vm.bootstrapNode(
@@ -231,7 +279,7 @@ class NodesViewModelBootstrapTest {
             host         = "10.0.0.1",
             port         = 22,
             username     = "ken",
-            bundle       = BundleChoice.superpowers,
+            bundle       = BundleChoice.SUPERPOWERS,
             anthropicKey = "sk-test",
         )
 
@@ -323,7 +371,7 @@ class NodesViewModelBootstrapTest {
 
 **Step 2: Run the tests to verify they fail**
 
-Run: `./gradlew :app:testDebugUnitTest --tests "com.vela.app.ui.nodes.NodesViewModelBootstrapTest"`
+Run: `./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.vela.app.ui.nodes.NodesViewModelBootstrapTest`
 Expected: FAIL — most likely a compile error: "No value passed for parameter 'bootstrapper'", or "unresolved reference: bootstrapState / bootstrapNode / clearBootstrapState".
 
 If `FakeRegistry` or `FakeKeyManager` cannot be constructed because the real classes don't have suitable constructors for tests, **stop and ask** — those classes are owned by Phases 2/3 and may need adjustment. (If `SshNodeRegistry` requires a `dao`, you can pass a hand-rolled fake DAO — see how Phase 2 tests construct the registry.) Update `newVm` accordingly. The point of this task is to assert the **VM contract**; how the fakes get built is a mechanical concern.
@@ -434,7 +482,7 @@ Inside the `NodesViewModel` class body, **above the closing brace** (after `fun 
 
 **Step 4: Run the tests to verify they pass**
 
-Run: `./gradlew :app:testDebugUnitTest --tests "com.vela.app.ui.nodes.NodesViewModelBootstrapTest"`
+Run: `./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.vela.app.ui.nodes.NodesViewModelBootstrapTest`
 Expected: PASS — 7 tests.
 
 **Step 5: Compile the rest of the app**
@@ -595,12 +643,14 @@ private fun StepIndicatorRow(state: BootstrapUiState) {
 }
 
 private fun stepLabel(step: BootstrapStep): String = when (step) {
-    BootstrapStep.DETECT             -> "Detect"
-    BootstrapStep.INSTALL_UV         -> "Install uv"
-    BootstrapStep.INSTALL_AMPLIFIERD -> "Install amplifierd"
-    BootstrapStep.WRITE_CONFIG       -> "Config"
-    BootstrapStep.INSTALL_SERVICE    -> "Service"
-    BootstrapStep.VERIFY             -> "Verify"
+    BootstrapStep.CONNECT             -> "Connect"
+    BootstrapStep.DETECT              -> "Detect"
+    BootstrapStep.INSTALL_UV          -> "Install uv"
+    BootstrapStep.INSTALL_AMPLIFIERD  -> "Install amplifierd"
+    BootstrapStep.WRITE_CONFIG        -> "Config"
+    BootstrapStep.INSTALL_SERVICE     -> "Service"
+    BootstrapStep.HEALTH_CHECK        -> "Health check"
+    BootstrapStep.PROMOTE             -> "Promote"
 }
 ```
 
@@ -806,7 +856,7 @@ private fun BootstrapForm(
     var host         by remember { mutableStateOf("") }
     var port         by remember { mutableStateOf("22") }
     var username     by remember { mutableStateOf("") }
-    var bundle       by remember { mutableStateOf(BundleChoice.superpowers) }
+    var bundle       by remember { mutableStateOf(BundleChoice.SUPERPOWERS) }
     var anthropicKey by remember { mutableStateOf("") }
 
     Column(
@@ -867,7 +917,7 @@ private fun BootstrapForm(
                 FilterChip(
                     selected = bundle == choice,
                     onClick  = { bundle = choice },
-                    label    = { Text(choice.label) },
+                    label    = { Text(choice.bundleName) },
                 )
             }
         }
@@ -1082,9 +1132,9 @@ git commit -m "feat(bootstrap-ui): host NodeBootstrapSheet from ConnectorsScreen
 Run: `./gradlew :app:installDebug`
 Expected: BUILD SUCCESSFUL, app installed on the connected device/emulator.
 
-**Step 2: Run the full unit-test suite**
+**Step 2: Run the full test suite**
 
-Run: `./gradlew :app:testDebugUnitTest`
+Run: `./gradlew :app:testDebugUnitTest && ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.vela.app.ui.nodes.NodesViewModelBootstrapTest`
 Expected: All tests PASS. (Especially `NodesViewModelBootstrapTest` — 7 tests.)
 
 **Step 3: Walk-through checklist on device**

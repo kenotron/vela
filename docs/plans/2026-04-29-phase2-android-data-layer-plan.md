@@ -51,12 +51,14 @@ sealed class BootstrapEvent {
 
 /** Ordered phases of the bootstrap pipeline (see design doc Section 1). */
 enum class BootstrapStep {
-    DETECT,
-    INSTALL_UV,
-    INSTALL_AMPLIFIERD,
-    WRITE_CONFIG,
-    INSTALL_SERVICE,
-    VERIFY,
+    CONNECT,          // open JSch session
+    DETECT,           // uname -sm platform detection
+    INSTALL_UV,       // install uv if absent
+    INSTALL_AMPLIFIERD, // uv tool install amplifierd + plugins
+    WRITE_CONFIG,     // SFTP settings.json to remote
+    INSTALL_SERVICE,  // write + activate launchd plist or systemd unit
+    HEALTH_CHECK,     // poll /health until 200 or timeout
+    PROMOTE           // upgrade node to AMPLIFIERD in Room
 }
 ```
 
@@ -89,13 +91,14 @@ import org.junit.Test
 class BootstrapStatusTest {
 
     @Test
-    fun `enum has exactly four values in lifecycle order`() {
+    fun `enum has exactly five values in lifecycle order`() {
         val values = BootstrapStatus.values().map { it.name }
         assertThat(values).containsExactly(
             "UNPROVISIONED",
             "BOOTSTRAPPING",
             "RUNNING",
             "STALE",
+            "FAILED",
         ).inOrder()
     }
 
@@ -137,15 +140,17 @@ enum class NodeType { SSH, AMPLIFIERD }
  * Lifecycle of an amplifierd-capable node.
  *
  * UNPROVISIONED → fresh SSH node, never bootstrapped.
- * BOOTSTRAPPING → bootstrap in progress (or failed mid-way).
+ * BOOTSTRAPPING → bootstrap in progress.
  * RUNNING       → amplifierd is live and health-checked.
  * STALE         → running but a newer amplifierd version is available.
+ * FAILED        → bootstrap attempted but failed; retry required.
  */
 enum class BootstrapStatus {
     UNPROVISIONED,
     BOOTSTRAPPING,
     RUNNING,
     STALE,
+    FAILED,
 }
 
 data class SshNode(

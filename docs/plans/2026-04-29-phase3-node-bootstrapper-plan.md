@@ -13,11 +13,11 @@
 ## Prerequisites
 
 **Phase 2 must be complete and committed.** This plan assumes the following exist:
-- `BootstrapEvent` sealed class (with `StepStart`, `StepComplete`, `StepProgress`, `Failed`, `Complete`)
+- `BootstrapEvent` sealed class (with `StepStart`, `StepComplete`, `Output`, `Failed`, `Complete`)
 - `BootstrapStep` enum (8 steps: CONNECT, DETECT, INSTALL_UV, INSTALL_AMPLIFIERD, WRITE_CONFIG, INSTALL_SERVICE, HEALTH_CHECK, PROMOTE)
-- `BootstrapStatus` enum (NONE, RUNNING, FAILED — stored on `SshNode`)
+- `BootstrapStatus` enum (UNPROVISIONED, BOOTSTRAPPING, RUNNING, STALE, FAILED — stored on `SshNode`)
 - `SshNodeRegistry.promoteToAmplifierd(nodeId, url, token)` method
-- `SshNodeRegistry.setBootstrapStatus(nodeId, status)` method (or equivalent)
+- `SshNodeRegistry.updateBootstrapStatus(nodeId: String, status: BootstrapStatus)` method
 
 If any are missing, **stop and complete Phase 2 first.** Do not stub them in this plan.
 
@@ -907,14 +907,26 @@ First add a fake registry helper at the bottom of the test file:
         override suspend fun promoteToAmplifierd(nodeId: String, url: String, token: String) {
             promotedTo.add(Triple(nodeId, url, token))
         }
-        override suspend fun setBootstrapStatus(nodeId: String, status: BootstrapStatus) {
+        override suspend fun updateBootstrapStatus(nodeId: String, status: BootstrapStatus) {
             statusUpdates.add(nodeId to status.name)
         }
     }
 
     companion object {
-        private fun throwingDao(): com.vela.app.data.db.SshNodeDao =
-            error("DAO must not be touched in unit tests")
+        private fun throwingDao(): com.vela.app.data.db.SshNodeDao = object : com.vela.app.data.db.SshNodeDao {
+            override fun getAllNodes(): kotlinx.coroutines.flow.Flow<List<com.vela.app.data.db.SshNodeEntity>> =
+                throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
+            override suspend fun insert(node: com.vela.app.data.db.SshNodeEntity) =
+                throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
+            override suspend fun delete(id: String) =
+                throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
+            override suspend fun getById(id: String): com.vela.app.data.db.SshNodeEntity? =
+                throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
+            override suspend fun updateBootstrapStatus(id: String, status: String) =
+                throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
+            override suspend fun promoteToAmplifierd(id: String, type: String, url: String, token: String, status: String) =
+                throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
+        }
     }
 ```
 
@@ -1177,7 +1189,7 @@ Add to `NodeBootstrapper`:
         val url = if (tailscale.exitCode == 0 && !tsIp.isNullOrEmpty())
             "http://$tsIp:8410" else "http://$host:8410"
         registry.promoteToAmplifierd(nodeId, url, token)
-        registry.setBootstrapStatus(nodeId, BootstrapStatus.RUNNING)
+        registry.updateBootstrapStatus(nodeId, BootstrapStatus.RUNNING)
         emit(BootstrapEvent.StepComplete(BootstrapStep.PROMOTE))
 
         emit(BootstrapEvent.Complete(url, token))
@@ -1230,8 +1242,8 @@ Append:
         val failed = events.filterIsInstance<BootstrapEvent.Failed>()
         assertThat(failed).hasSize(1)
         assertThat(failed[0].step).isEqualTo(BootstrapStep.DETECT)
-        assertThat(failed[0].message).contains("Unsupported platform")
-        assertThat(failed[0].message).contains("FreeBSD amd64")
+        assertThat(failed[0].error).contains("Unsupported platform")
+        assertThat(failed[0].error).contains("FreeBSD amd64")
         // No promotion happened.
         assertThat(registry.promotedTo).isEmpty()
         // Status set to FAILED.
@@ -1261,8 +1273,8 @@ Append:
         val failed = events.filterIsInstance<BootstrapEvent.Failed>()
         assertThat(failed).hasSize(1)
         assertThat(failed[0].step).isEqualTo(BootstrapStep.INSTALL_AMPLIFIERD)
-        assertThat(failed[0].message).contains("exit 1")
-        assertThat(failed[0].message).contains("package not found")
+        assertThat(failed[0].error).contains("exit 1")
+        assertThat(failed[0].error).contains("package not found")
     }
 
     @Test
@@ -1288,7 +1300,7 @@ Append:
         val failed = events.filterIsInstance<BootstrapEvent.Failed>()
         assertThat(failed).hasSize(1)
         assertThat(failed[0].step).isEqualTo(BootstrapStep.HEALTH_CHECK)
-        assertThat(failed[0].message).contains("amplifierd crashed: missing key")
+        assertThat(failed[0].error).contains("amplifierd crashed: missing key")
         // Confirm 15 attempts were made.
         val healthCount = shell.commands.count { it == "curl -fsS http://127.0.0.1:8410/health" }
         assertThat(healthCount).isEqualTo(15)
@@ -1313,8 +1325,8 @@ Append:
         ).toList()
 
         val failed = events.filterIsInstance<BootstrapEvent.Failed>()
-        assertThat(failed[0].message).contains("stderr line")
-        assertThat(failed[0].message).contains("stdout line")
+        assertThat(failed[0].error).contains("stderr line")
+        assertThat(failed[0].error).contains("stdout line")
     }
 ```
 
@@ -1332,7 +1344,7 @@ Replace the orchestration body with proper failure handling. In `bootstrapWithSh
 1. **DETECT failure:** replace `error(...)` with:
    ```kotlin
    if (platform == null) {
-       registry.setBootstrapStatus(nodeId, BootstrapStatus.FAILED)
+       registry.updateBootstrapStatus(nodeId, BootstrapStatus.FAILED)
        emit(BootstrapEvent.Failed(BootstrapStep.DETECT, "Unsupported platform: ${unameResult.stdout.trim()}"))
        return@flow
    }
@@ -1345,7 +1357,7 @@ Replace the orchestration body with proper failure handling. In `bootstrapWithSh
    ): Boolean {
        val r = shell.exec(command)
        if (r.exitCode != 0) {
-           registry.setBootstrapStatus(nodeId, BootstrapStatus.FAILED)
+           registry.updateBootstrapStatus(nodeId, BootstrapStatus.FAILED)
            emit(BootstrapEvent.Failed(step, "exit ${r.exitCode}: ${r.stdout.trim()}"))
            return false
        }
@@ -1365,7 +1377,7 @@ Replace the orchestration body with proper failure handling. In `bootstrapWithSh
    repeat(15) { attempt ->
        val r = shell.exec("curl -fsS http://127.0.0.1:8410/health")
        if (r.exitCode == 0) { healthy = true; return@repeat }
-       emit(BootstrapEvent.StepProgress(BootstrapStep.HEALTH_CHECK, "attempt ${attempt + 1}/15"))
+       emit(BootstrapEvent.Output("health check attempt ${attempt + 1}/15"))
        kotlinx.coroutines.delay(2_000)
    }
    if (!healthy) {
@@ -1376,7 +1388,7 @@ Replace the orchestration body with proper failure handling. In `bootstrapWithSh
                "journalctl --user -n 20 -u amplifierd --no-pager"
        }
        val logs = shell.exec(logCmd).stdout
-       registry.setBootstrapStatus(nodeId, BootstrapStatus.FAILED)
+       registry.updateBootstrapStatus(nodeId, BootstrapStatus.FAILED)
        emit(BootstrapEvent.Failed(BootstrapStep.HEALTH_CHECK, "Health check timed out after 15 attempts. Logs:\n$logs"))
        return@flow
    }
@@ -1391,7 +1403,7 @@ Replace the orchestration body with proper failure handling. In `bootstrapWithSh
    for (attempt in 1..15) {
        val r = shell.exec("curl -fsS http://127.0.0.1:8410/health")
        if (r.exitCode == 0) { healthy = true; break }
-       emit(BootstrapEvent.StepProgress(BootstrapStep.HEALTH_CHECK, "attempt $attempt/15"))
+       emit(BootstrapEvent.Output("health check attempt $attempt/15"))
        kotlinx.coroutines.delay(2_000)
    }
    ```

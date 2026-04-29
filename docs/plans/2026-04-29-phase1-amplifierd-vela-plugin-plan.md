@@ -49,7 +49,7 @@ requires-python = ">=3.11"
 dependencies = ["fastapi>=0.100.0"]
 
 [project.entry-points."amplifierd.plugins"]
-vela = "vela_plugin:create_router"
+vela = "vela_plugin"
 
 [build-system]
 requires = ["hatchling"]
@@ -1367,7 +1367,7 @@ git commit -m "feat(vela-plugin): add end-to-end integration test for plugin lif
 After Task 10, the following should all be true:
 
 - [ ] `cd plugins/amplifierd-vela && uv run pytest -v` → 0 failures.
-- [ ] `plugins/amplifierd-vela/pyproject.toml` declares the `amplifierd.plugins` entry point as `vela = "vela_plugin:create_router"`.
+- [ ] `plugins/amplifierd-vela/pyproject.toml` declares the `amplifierd.plugins` entry point as `vela = "vela_plugin"`.
 - [ ] `vela_plugin.create_router(state)` returns a FastAPI `APIRouter` and never raises during bundle activation, even when bundles fail to load.
 - [ ] All routes under the returned router require `X-Amplifier-Token` unless the request is from `127.0.0.1`/`::1`/`localhost` or hits `/health`.
 - [ ] `~/.amplifierd/projects.json` is written atomically (write to `.tmp` → `os.replace`); no `.tmp` file remains after a successful write.
