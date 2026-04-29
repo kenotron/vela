@@ -1,0 +1,542 @@
+# =============================================================================
+# Amplifierd Node Bootstrap — 4-Phase Execution Orchestrator
+# =============================================================================
+#
+# Executes the four implementation plans for the amplifierd node bootstrap
+# feature with maximum parallelization, respecting the dependency graph:
+#
+#   Phase 1 (Python plugin)     ─────────┐
+#                                         ├──▶ APPROVAL GATE ──▶ Phase 3 (NodeBootstrapper) ──▶ APPROVAL GATE ──▶ Phase 4 (UI)
+#   Phase 2 (Android data layer) ────────┘
+#
+#   • Phase 1 and Phase 2 are independent and run CONCURRENTLY (parallel: 2)
+#   • Phase 3 depends on Phase 2 completing (and the human approval gate)
+#   • Phase 4 depends on Phase 3 completing (and the human approval gate)
+#
+# Each phase executes its plan using the canonical superpowers 3-agent
+# pipeline (implement → spec-review → quality-review with convergence loops,
+# fresh agent per task, commit-on-pass). Concretely, every phase:
+#
+#   1. Loads & parses the plan into a JSON list of tasks (`superpowers:plan-writer`)
+#   2. Iterates the tasks SEQUENTIALLY (preserving intra-phase task order),
+#      delegating each task to the canonical FLAT-mode sub-recipe
+#      `superpowers:recipes/single-task-pipeline.yaml`, which itself runs
+#      `superpowers:implementer` followed by `superpowers:spec-reviewer` and
+#      `superpowers:code-quality-reviewer` with convergence loops and a commit
+#      after each task passes review.
+#   3. Produces a phase-level pass/fail summary.
+#
+# -----------------------------------------------------------------------------
+# Why single-task-pipeline.yaml (flat-mode) instead of subagent-driven-development.yaml
+# -----------------------------------------------------------------------------
+# `subagent-driven-development.yaml` is a STAGED sub-recipe with its own
+# internal approval gate ("final-review"). Running two staged sub-recipes
+# concurrently via `foreach` + `parallel: 2` is documented as undefined
+# behavior (parallel approval gates aren't tracked deterministically in
+# session state). To get real parallelism for Phase 1 + Phase 2 with exactly
+# the TWO outer approval gates the user requested, this orchestrator inlines
+# the per-phase loop and delegates only the per-TASK pipeline to the
+# flat-mode `single-task-pipeline.yaml` (which is explicitly documented as
+# "extracted from subagent-driven-development.yaml to enable bounded
+# parallelism via foreach + type: recipe").
+#
+# Net effect:
+#   • Same 3-agent pipeline per task (implement → spec-review → quality-review)
+#   • Same per-task commit semantics
+#   • EXACTLY 2 approval gates total (where the user asked for them)
+#   • No undefined-behavior warnings
+#   • Phase 1 and Phase 2 truly run concurrently
+#
+# -----------------------------------------------------------------------------
+# Approval gates in this run
+# -----------------------------------------------------------------------------
+# Exactly two outer approval gates fire during a full execution:
+#   1. After Stage 1 (parallel-phase-1-and-2)  → before Phase 3
+#   2. After Stage 2 (phase-3-node-bootstrapper) → before Phase 4
+#
+# Manage gates with:
+#   amplifier run "list pending approvals"
+#   amplifier run "approve recipe session <session-id> stage <stage-name>"
+#   amplifier run "resume recipe session <session-id>"
+#
+# -----------------------------------------------------------------------------
+# Usage
+# -----------------------------------------------------------------------------
+#   amplifier tool invoke recipes \
+#     operation=execute \
+#     recipe_path=/Users/ken/workspace/vela/docs/plans/amplifierd-bootstrap-execution.yaml
+#
+# All four plan paths and project metadata are baked into the `context:` block
+# below — no inputs are required at invocation time.
+#
+# -----------------------------------------------------------------------------
+# Project context
+# -----------------------------------------------------------------------------
+#   Repo:                /Users/ken/workspace/vela
+#   Phase 1 language:    Python  (test framework: pytest)
+#   Phase 2-4 language:  Kotlin/Android  (test framework: JUnit4 + Google Truth, no Mockito)
+#
+# These are surfaced in approval prompts and the final summary. The actual
+# per-task implementation guidance lives in the plan files themselves.
+#
+# =============================================================================
+# CHANGELOG
+# =============================================================================
+#
+# v1.0.0 (2026-04-29):
+#   - NEW FEATURE: Initial 4-phase orchestrator for the amplifierd node
+#     bootstrap implementation.
+#     * Parallel dispatch of Phase 1 (Python amplifierd-vela plugin) and
+#       Phase 2 (Android data layer) via foreach + parallel: 2 with a
+#       multi-step body (load-plan → per-task → summary).
+#     * Sequential Phase 3 (NodeBootstrapper) and Phase 4 (Bootstrap UI)
+#       with two outer approval gates between phase groups.
+#     * Per-task delegation to `superpowers:recipes/single-task-pipeline.yaml`
+#       (flat-mode sub-recipe; no inner approval gate) gives the 3-agent
+#       pipeline (implementer → spec-reviewer → code-quality-reviewer) with
+#       convergence loops and per-task commits.
+#     * KEY DECISION: Used single-task-pipeline.yaml instead of the staged
+#       subagent-driven-development.yaml to avoid parallel approval-gate
+#       undefined behavior and to deliver EXACTLY two outer approval gates
+#       as requested.
+#
+
+name: "amplifierd-bootstrap-execution"
+description: "Execute the 4-phase amplifierd node bootstrap implementation. Phase 1 + Phase 2 run in parallel; Phase 3 and Phase 4 run sequentially with human approval gates between phase groups. Each phase loads its plan and runs its tasks through the superpowers 3-agent pipeline (implement -> spec-review -> quality-review)."
+version: "1.0.0"
+author: "recipes:recipe-author"
+created: "2026-04-29T00:00:00Z"
+tags:
+  - "amplifierd"
+  - "node-bootstrap"
+  - "multi-phase"
+  - "parallel"
+  - "subagent-driven"
+  - "vela"
+
+# -----------------------------------------------------------------------------
+# Top-level context — all plan paths and project metadata
+# -----------------------------------------------------------------------------
+context:
+  # Project metadata (informational; surfaced in approval prompts and summary)
+  repo_path: "/Users/ken/workspace/vela"
+  phase1_language: "Python"
+  phase1_test_framework: "pytest"
+  phases234_language: "Kotlin (Android)"
+  phases234_test_framework: "JUnit4 + Google Truth (no Mockito)"
+
+  # Individual plan paths (used by phase-specific stages)
+  phase1_plan: "/Users/ken/workspace/vela/docs/plans/2026-04-29-phase1-amplifierd-vela-plugin-plan.md"
+  phase2_plan: "/Users/ken/workspace/vela/docs/plans/2026-04-29-phase2-android-data-layer-plan.md"
+  phase3_plan: "/Users/ken/workspace/vela/docs/plans/2026-04-29-phase3-node-bootstrapper-plan.md"
+  phase4_plan: "/Users/ken/workspace/vela/docs/plans/2026-04-29-phase4-android-bootstrap-ui-plan.md"
+
+  # List used by the parallel foreach in stage 1 — order is irrelevant because
+  # both iterations run concurrently (parallel: 2).
+  parallel_phase_plans:
+    - "/Users/ken/workspace/vela/docs/plans/2026-04-29-phase1-amplifierd-vela-plugin-plan.md"
+    - "/Users/ken/workspace/vela/docs/plans/2026-04-29-phase2-android-data-layer-plan.md"
+
+# -----------------------------------------------------------------------------
+# Recursion protection
+# -----------------------------------------------------------------------------
+# Each per-task call into single-task-pipeline.yaml adds 1 level of depth.
+# The outer parallel foreach (Stage 1) wraps a per-task foreach inside it
+# (the "task pipeline" foreach), which then calls single-task-pipeline (depth
+# 2 from this orchestrator). depth=5 leaves comfortable headroom.
+recursion:
+  max_depth: 5
+  max_total_steps: 1000
+
+# -----------------------------------------------------------------------------
+# Rate limiting
+# -----------------------------------------------------------------------------
+# Phase 1 and Phase 2 run in parallel and EACH internally dispatches multiple
+# agent calls per task (implementer, spec-reviewer, code-quality-reviewer,
+# spec-fix, quality-fix). Generous limit lets that real parallelism happen
+# while keeping API-rate friendliness.
+rate_limiting:
+  max_concurrent_llm: 8
+  backoff:
+    enabled: true
+    initial_delay_ms: 2000
+    max_delay_ms: 60000
+    multiplier: 2.0
+
+# -----------------------------------------------------------------------------
+# Stages
+# -----------------------------------------------------------------------------
+stages:
+
+  # ===========================================================================
+  # STAGE 1 — Parallel execution of Phase 1 (Python plugin) and Phase 2
+  #            (Android data layer). These two plans are INDEPENDENT.
+  #
+  # Pattern: outer foreach over the two plan paths runs CONCURRENTLY (parallel: 2).
+  # Each iteration is a 3-step body:
+  #   1. load-phase-plan  — parse the plan into a JSON task list
+  #   2. run-phase-tasks  — sequential foreach over tasks, delegating each
+  #                          task to single-task-pipeline.yaml (flat sub-recipe)
+  #   3. phase-summary    — one-paragraph status of which tasks passed/failed
+  # The entire 3-step body runs once per phase plan; both phases run in parallel.
+  # ===========================================================================
+  - name: "parallel-phase-1-and-2"
+    steps:
+      - id: "execute-phase-1-and-2-in-parallel"
+        foreach: "{{parallel_phase_plans}}"
+        as: "phase_plan_path"
+        parallel: 2
+        collect: "phase_1_and_2_results"
+        steps:
+          # -----------------------------------------------------------------
+          # Step A — Parse the phase plan into a structured task list
+          # -----------------------------------------------------------------
+          - id: "load-phase-plan"
+            agent: "superpowers:plan-writer"
+            prompt: |
+              Load the implementation plan from: {{phase_plan_path}}
+
+              Parse the plan and extract all implementation tasks as a structured list.
+
+              For each task, extract:
+              - task_id: Unique identifier or name
+              - description: What needs to be implemented
+              - spec: The detailed specification/requirements
+              - acceptance_criteria: How to verify the task is complete
+              - files: Files likely to be created or modified
+              - dependencies: Any tasks this depends on (if applicable)
+
+              Return the result as a JSON object with this exact structure:
+              {"tasks": [<array of task objects>], "total_tasks": <number>, "plan_path": "{{phase_plan_path}}"}
+
+              Each task object in the array must have these keys:
+              - "task_id": string
+              - "description": string
+              - "spec": string (the detailed specification)
+              - "acceptance_criteria": string
+              - "files": array of file paths
+              - "dependencies": array of task_ids (empty array if none)
+
+              The "tasks" key MUST contain the ordered array — order by
+              dependencies (independent first), since they are processed
+              sequentially within this phase to preserve intra-phase ordering.
+
+              IMPORTANT: Preserve ALL spec details verbatim — they are critical
+              for the downstream spec-compliance reviewer.
+            output: "phase_plan_data"
+            parse_json: true
+            timeout: 600
+
+          # -----------------------------------------------------------------
+          # Step B — Per-task pipeline (sequential within phase, parallel across phases)
+          # Each task is delegated to the flat-mode single-task-pipeline.yaml
+          # which runs the canonical 3-agent pipeline:
+          #   implementer → spec-reviewer → code-quality-reviewer
+          # with convergence loops and a per-task commit on pass.
+          # -----------------------------------------------------------------
+          - id: "run-phase-tasks"
+            foreach: "{{phase_plan_data.tasks}}"
+            as: "current_task"
+            parallel: false   # sequential within a phase to respect intra-phase task dependencies
+            type: "recipe"
+            recipe: "superpowers:recipes/single-task-pipeline.yaml"
+            context:
+              current_task: "{{current_task}}"
+              project_brief: |
+                Repo: {{repo_path}}
+                Plan path: {{phase_plan_path}}
+                NOTE: Phase 1 (amplifierd-vela Python plugin) uses Python + pytest.
+                Phases 2-4 (Android) use Kotlin + JUnit4 + Google Truth (no Mockito).
+                The plan file itself is the source of truth for language/framework.
+            collect: "task_results"
+            timeout: 7200    # per-task ceiling (2h); covers iterative spec/quality fixes
+
+          # -----------------------------------------------------------------
+          # Step C — Phase-level pass/fail summary
+          # -----------------------------------------------------------------
+          - id: "phase-summary"
+            agent: "superpowers:plan-writer"
+            prompt: |
+              PHASE EXECUTION SUMMARY
+              =======================
+              Plan: {{phase_plan_path}}
+
+              Original task list (from plan):
+              {{phase_plan_data.tasks}}
+
+              Per-task pipeline results:
+              {{task_results}}
+
+              Produce a concise summary:
+
+              ## Status
+              - Total tasks: {{phase_plan_data.total_tasks}}
+              - Passed (all reviews approved & committed): [count]
+              - Failed (any unresolved spec/quality issues): [count]
+
+              ## Per-task table
+              For each task: task_id | spec status | quality status | files modified | notes
+
+              ## Issues to flag for the human reviewer
+              List any tasks whose spec-review or quality-review iteration
+              limits were exhausted, or any tasks that failed outright.
+              These will surface in the upcoming approval gate.
+            output: "phase_summary"
+            timeout: 600
+
+    # ----- OUTER APPROVAL GATE #1 -----
+    approval:
+      required: true
+      prompt: |
+        ======================================================================
+        STAGE 1 COMPLETE — Phase 1 (Python plugin) + Phase 2 (Android data layer)
+        ======================================================================
+
+        Both independent foundational phases have completed in parallel.
+
+        Phase 1 (amplifierd-vela Python plugin):
+          plan:           {{phase1_plan}}
+          language:       {{phase1_language}}
+          test framework: {{phase1_test_framework}}
+
+        Phase 2 (Android data layer):
+          plan:           {{phase2_plan}}
+          language:       {{phases234_language}}
+          test framework: {{phases234_test_framework}}
+
+        Combined results (idx 0 = Phase 1, idx 1 = Phase 2):
+        {{phase_1_and_2_results}}
+
+        Phase 3 (NodeBootstrapper service) DEPENDS ON Phase 2.
+        Review the foundational work above before proceeding.
+
+        OPTIONS:
+          • APPROVE — proceed to Phase 3 (NodeBootstrapper)
+          • DENY    — halt execution; address issues in phases 1/2 first
+
+        ======================================================================
+      timeout: 0          # wait forever — this is a real human checkpoint
+      default: "deny"     # if somehow timed out, fail safe
+
+  # ===========================================================================
+  # STAGE 2 — Phase 3: NodeBootstrapper service.
+  #            Depends on Phase 2 (Android data layer) being complete.
+  # Pattern is identical to a single iteration of Stage 1's body.
+  # ===========================================================================
+  - name: "phase-3-node-bootstrapper"
+    steps:
+      - id: "load-phase-3-plan"
+        agent: "superpowers:plan-writer"
+        prompt: |
+          Load the implementation plan from: {{phase3_plan}}
+
+          Parse the plan and extract all implementation tasks. Return a JSON object:
+          {"tasks": [<array of task objects>], "total_tasks": <number>, "plan_path": "{{phase3_plan}}"}
+
+          Each task object must have: task_id, description, spec,
+          acceptance_criteria, files, dependencies.
+
+          Order tasks by dependencies (independent first); they will be
+          processed sequentially. Preserve ALL spec details verbatim.
+        output: "phase_3_plan_data"
+        parse_json: true
+        timeout: 600
+
+      - id: "run-phase-3-tasks"
+        foreach: "{{phase_3_plan_data.tasks}}"
+        as: "current_task"
+        parallel: false
+        type: "recipe"
+        recipe: "superpowers:recipes/single-task-pipeline.yaml"
+        context:
+          current_task: "{{current_task}}"
+          project_brief: |
+            Repo: {{repo_path}}
+            Plan path: {{phase3_plan}}
+            Phase: 3 — NodeBootstrapper service
+            Language: {{phases234_language}}
+            Test framework: {{phases234_test_framework}}
+            Depends on: Phase 2 (Android data layer) being complete.
+        collect: "phase_3_task_results"
+        timeout: 7200
+
+      - id: "phase-3-summary"
+        agent: "superpowers:plan-writer"
+        prompt: |
+          PHASE 3 EXECUTION SUMMARY (NodeBootstrapper)
+          ============================================
+          Plan: {{phase3_plan}}
+
+          Tasks:        {{phase_3_plan_data.tasks}}
+          Task results: {{phase_3_task_results}}
+
+          Produce a concise summary:
+
+          ## Status
+          - Total tasks: {{phase_3_plan_data.total_tasks}}
+          - Passed: [count]
+          - Failed: [count]
+
+          ## Per-task table
+          For each task: task_id | spec status | quality status | files modified | notes
+
+          ## Issues to flag for the human reviewer
+          Anything blocking Phase 4 (Bootstrap UI) consumption of NodeBootstrapper.
+        output: "phase_3_result"
+        timeout: 600
+
+    # ----- OUTER APPROVAL GATE #2 -----
+    approval:
+      required: true
+      prompt: |
+        ======================================================================
+        STAGE 2 COMPLETE — Phase 3 (NodeBootstrapper)
+        ======================================================================
+
+        Phase 3 (NodeBootstrapper service) has completed.
+
+          plan:           {{phase3_plan}}
+          language:       {{phases234_language}}
+          test framework: {{phases234_test_framework}}
+
+        Result:
+        {{phase_3_result}}
+
+        Phase 4 (Bootstrap UI) DEPENDS ON Phase 3.
+        Review the NodeBootstrapper implementation before proceeding.
+
+        OPTIONS:
+          • APPROVE — proceed to Phase 4 (Android Bootstrap UI)
+          • DENY    — halt execution; address issues in Phase 3 first
+
+        ======================================================================
+      timeout: 0
+      default: "deny"
+
+  # ===========================================================================
+  # STAGE 3 — Phase 4: Android Bootstrap UI.
+  #            Depends on Phase 3 (NodeBootstrapper) being complete.
+  # ===========================================================================
+  - name: "phase-4-android-bootstrap-ui"
+    steps:
+      - id: "load-phase-4-plan"
+        agent: "superpowers:plan-writer"
+        prompt: |
+          Load the implementation plan from: {{phase4_plan}}
+
+          Parse the plan and extract all implementation tasks. Return a JSON object:
+          {"tasks": [<array of task objects>], "total_tasks": <number>, "plan_path": "{{phase4_plan}}"}
+
+          Each task object must have: task_id, description, spec,
+          acceptance_criteria, files, dependencies.
+
+          Order tasks by dependencies (independent first); they will be
+          processed sequentially. Preserve ALL spec details verbatim.
+        output: "phase_4_plan_data"
+        parse_json: true
+        timeout: 600
+
+      - id: "run-phase-4-tasks"
+        foreach: "{{phase_4_plan_data.tasks}}"
+        as: "current_task"
+        parallel: false
+        type: "recipe"
+        recipe: "superpowers:recipes/single-task-pipeline.yaml"
+        context:
+          current_task: "{{current_task}}"
+          project_brief: |
+            Repo: {{repo_path}}
+            Plan path: {{phase4_plan}}
+            Phase: 4 — Android Bootstrap UI
+            Language: {{phases234_language}}
+            Test framework: {{phases234_test_framework}}
+            Depends on: Phase 3 (NodeBootstrapper) being complete.
+        collect: "phase_4_task_results"
+        timeout: 7200
+
+      - id: "phase-4-summary"
+        agent: "superpowers:plan-writer"
+        prompt: |
+          PHASE 4 EXECUTION SUMMARY (Bootstrap UI)
+          =========================================
+          Plan: {{phase4_plan}}
+
+          Tasks:        {{phase_4_plan_data.tasks}}
+          Task results: {{phase_4_task_results}}
+
+          Produce a concise summary:
+
+          ## Status
+          - Total tasks: {{phase_4_plan_data.total_tasks}}
+          - Passed: [count]
+          - Failed: [count]
+
+          ## Per-task table
+          For each task: task_id | spec status | quality status | files modified | notes
+        output: "phase_4_result"
+        timeout: 600
+
+      # -------------------------------------------------------------------
+      # Final cross-phase summary (no further approval gate; the user
+      # explicitly requested only TWO outer gates total).
+      # -------------------------------------------------------------------
+      - id: "final-summary"
+        agent: "superpowers:plan-writer"
+        prompt: |
+          AMPLIFIERD NODE BOOTSTRAP — FULL EXECUTION SUMMARY
+          ===================================================
+
+          All four phases of the amplifierd node bootstrap feature have been
+          executed end-to-end via this orchestrator.
+
+          Project:
+            repo: {{repo_path}}
+
+          Phase 1 — amplifierd-vela Python plugin
+            plan:           {{phase1_plan}}
+            language:       {{phase1_language}}
+            test framework: {{phase1_test_framework}}
+
+          Phase 2 — Android data layer
+            plan:           {{phase2_plan}}
+            language:       {{phases234_language}}
+            test framework: {{phases234_test_framework}}
+
+          Phase 3 — NodeBootstrapper service
+            plan:           {{phase3_plan}}
+            language:       {{phases234_language}}
+            test framework: {{phases234_test_framework}}
+
+          Phase 4 — Bootstrap UI
+            plan:           {{phase4_plan}}
+            language:       {{phases234_language}}
+            test framework: {{phases234_test_framework}}
+
+          Phase 1 + Phase 2 results (parallel block):
+          {{phase_1_and_2_results}}
+
+          Phase 3 result:
+          {{phase_3_result}}
+
+          Phase 4 result:
+          {{phase_4_result}}
+
+          Produce a concise human-readable summary covering:
+
+          ## Per-phase status
+          For each phase: tasks attempted, tasks passed, tasks failed, files modified.
+
+          ## Cross-phase integration notes
+          Highlight any contracts that span phases (e.g. data-layer interfaces
+          consumed by NodeBootstrapper or by the UI) and confirm they line up.
+
+          ## Outstanding issues (if any)
+          Anything flagged as unresolved spec or quality issues during the
+          per-task review loops, plus any known gaps the human should address
+          before declaring the feature complete.
+
+          ## Recommended next steps
+          Concrete commands/actions for the human (running full test suites
+          per module, opening PRs per phase, manual smoke testing on device, etc.).
+        output: "execution_summary"
+        timeout: 600
