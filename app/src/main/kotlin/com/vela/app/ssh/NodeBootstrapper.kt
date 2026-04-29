@@ -2,6 +2,18 @@ package com.vela.app.ssh
 
 import javax.inject.Inject
 
+// ── Supporting enums ─────────────────────────────────────────────────────────
+
+enum class BundleChoice(val packageSuffix: String?, val bundleName: String) {
+    SUPERPOWERS("amplifierd-bundle-superpowers", "superpowers"),
+    LIFEOS("amplifierd-bundle-lifeos", "lifeos"),
+    TOOLS_ONLY(null, ""),
+}
+
+enum class RemotePlatform { MACOS_ARM64, MACOS_X86, LINUX_AMD64, LINUX_ARM64 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 open class NodeBootstrapper @Inject constructor(
     private val keyManager: SshKeyManager,
     private val registry: SshNodeRegistry,

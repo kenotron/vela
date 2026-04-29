@@ -30,4 +30,35 @@ class NodeBootstrapperTest {
 
         assertThat(a).isNotEqualTo(b)
     }
+
+    // ── enums ─────────────────────────────────────────────────────────────────
+
+    @Test
+    fun bundleChoice_superpowers_hasCorrectPackageAndName() {
+        assertThat(BundleChoice.SUPERPOWERS.packageSuffix).isEqualTo("amplifierd-bundle-superpowers")
+        assertThat(BundleChoice.SUPERPOWERS.bundleName).isEqualTo("superpowers")
+    }
+
+    @Test
+    fun bundleChoice_lifeos_hasCorrectPackageAndName() {
+        assertThat(BundleChoice.LIFEOS.packageSuffix).isEqualTo("amplifierd-bundle-lifeos")
+        assertThat(BundleChoice.LIFEOS.bundleName).isEqualTo("lifeos")
+    }
+
+    @Test
+    fun bundleChoice_toolsOnly_hasNullPackageAndEmptyName() {
+        assertThat(BundleChoice.TOOLS_ONLY.packageSuffix).isNull()
+        assertThat(BundleChoice.TOOLS_ONLY.bundleName).isEmpty()
+    }
+
+    @Test
+    fun remotePlatform_allFourValuesExist() {
+        val all = RemotePlatform.values().toSet()
+        assertThat(all).containsExactly(
+            RemotePlatform.MACOS_ARM64,
+            RemotePlatform.MACOS_X86,
+            RemotePlatform.LINUX_AMD64,
+            RemotePlatform.LINUX_ARM64,
+        )
+    }
 }
