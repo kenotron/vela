@@ -442,8 +442,10 @@ The service-file regeneration step is **load-bearing**. `uv tool install --force
 
 If the upgrade fails any step, the node returns to the previous version (the old binary path is still present until `uv` garbage-collects it) and surfaces the error in the same log sheet pattern as initial bootstrap.
 
-## Open Questions
+## Decisions
 
-1. **Plugin distribution** — Should `amplifierd-vela` be published to PyPI, or distributed only as a local package via the Vela repo (e.g. `--with git+https://github.com/.../vela#subdirectory=plugins/amplifierd-vela`)? PyPI gives a cleaner install command and version pinning; local-only avoids the publish step during early development. Defer to first stable release: develop local, publish at v1.0.
-2. **Provider key coverage** — Is `ANTHROPIC_API_KEY` the only key worth collecting at setup, or should the bootstrap also accept `OPENAI_API_KEY`, `AZURE_OPENAI_API_KEY`, etc., for users running multiple providers? Adding an "Advanced" expander in setup with optional fields keeps the default path simple while making the multi-provider case a non-event.
-3. **Tailscale auto-detection** — During bootstrap, if `tailscale` CLI is present on the remote (`which tailscale`), should the app auto-fill the recorded URL with `tailscale ip -4` output rather than the SSH host the user typed? Most Vela nodes will be on Tailscale; pre-filling the Tailscale IP avoids a class of "I bootstrapped via local IP and now can't reach it from outside the LAN" mistakes. Recommended: yes, with the SSH host as fallback if `tailscale` is absent or returns no IP.
+1. **Plugin distribution** — `amplifierd-vela` will be distributed as a git URL during development (`--with git+https://github.com/...<vela-repo>#subdirectory=plugins/amplifierd-vela`). Published to PyPI at v1.0 to simplify the install command. No publish step blocks development work.
+
+2. **Provider key coverage** — Bootstrap collects `ANTHROPIC_API_KEY` by default. An **Advanced** expander in the setup screen exposes optional fields for `OPENAI_API_KEY` and `AZURE_OPENAI_API_KEY`. The common path stays simple; multi-provider is a non-event for users who need it.
+
+3. **Tailscale auto-detection** — During bootstrap, if `tailscale` CLI is present on the remote (`which tailscale`), the app runs `tailscale ip -4` and uses the returned IP as the node URL rather than the SSH host the user typed. Falls back to the SSH host if `tailscale` is absent or returns no address. This prevents the class of "bootstrapped via LAN IP, broken remotely" mistakes for the majority of Vela nodes that are on Tailscale.
