@@ -21,8 +21,10 @@ class Settings:
     bundles: list[str] = field(default_factory=list)
 
 
-def load_settings(path: Path = DEFAULT_PATH) -> Settings:
+def load_settings(path: Path | None = None) -> Settings:
     """Load settings from ``path``. Returns defaults if file is missing or empty."""
+    if path is None:
+        path = DEFAULT_PATH
     if not Path(path).exists():
         return Settings()
 
