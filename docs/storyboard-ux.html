@@ -1,0 +1,1791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vela UX Storyboard — Design Language v7</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* =====================================================
+   RESET & DESIGN TOKENS  (mirrors DESIGN.md exactly)
+   ===================================================== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  /* Surfaces */
+  --abyss:          #0B0E1A;   /* app background */
+  --surface-sub:    #11152A;   /* resting cards */
+  --surface-raised: #171C36;   /* expanded / modals */
+  --surface-peak:   #1F2542;   /* top overlay */
+  --coord-bg:       #0C1E26;   /* coordinator screen */
+  --coord-card:     #13303C;   /* coordinator branch cards */
+
+  /* Accent */
+  --accent:         #5EEAD4;   /* brand cyan-aqua */
+  --accent-coord:   #1FE0C2;   /* coordinator teal sibling */
+
+  /* Status: Running — warm amber */
+  --running:        #F5A524;
+  --running-on:     #1A1000;
+  --running-c:      #3A2400;
+  --running-oc:     #FFD89B;
+
+  /* Status: Waiting — electric violet */
+  --waiting:        #A78BFA;
+  --waiting-on:     #1A0F3A;
+  --waiting-c:      #2E1A5C;
+  --waiting-oc:     #DDD0FF;
+
+  /* Status: Done — quiet sage */
+  --done:           #7DCFA5;
+  --done-on:        #0A2418;
+  --done-c:         #143A29;
+  --done-oc:        #B8E8CD;
+
+  /* Status: Error — coral */
+  --error:          #FF6B6B;
+  --error-on:       #2A0808;
+  --error-c:        #4A1818;
+  --error-oc:       #FFC4C4;
+
+  /* Text */
+  --text-1:         #F5F2EC;   /* primary — warm near-white */
+  --text-2:         #B5B8C8;   /* secondary */
+  --text-3:         #7A7E94;   /* tertiary */
+  --text-4:         #4A4D5E;   /* disabled */
+
+  /* Strokes */
+  --stroke-hair:    rgba(255,255,255,0.06);
+  --stroke-edge:    rgba(255,255,255,0.12);
+
+  /* Fonts */
+  --serif: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+  --sans:  'Inter', system-ui, sans-serif;
+  --mono:  'JetBrains Mono', 'SF Mono', 'Cascadia Code', monospace;
+}
+
+/* =====================================================
+   PAGE
+   ===================================================== */
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--abyss);
+  background-image: radial-gradient(ellipse 55% 35% at 50% -4%, rgba(94,234,212,0.045) 0%, transparent 60%);
+  color: var(--text-1);
+  font-family: var(--sans);
+  min-height: 100vh;
+  padding: 64px 36px 100px;
+  line-height: 1.5;
+}
+
+/* =====================================================
+   PAGE HEADER
+   ===================================================== */
+.page-header {
+  text-align: center;
+  margin-bottom: 72px;
+}
+.hdr-logo-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.hdr-logo-icon {
+  width: 52px; height: 52px;
+  background: var(--surface-raised);
+  border: 1px solid var(--stroke-edge);
+  border-radius: 16px;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 28px rgba(94,234,212,0.16);
+  flex-shrink: 0;
+}
+.hdr-title {
+  font-family: var(--serif);
+  font-size: 42px;
+  font-weight: 400;
+  color: var(--text-1);
+  letter-spacing: -0.5px;
+}
+.hdr-tagline {
+  font-size: 13px;
+  color: var(--text-3);
+  margin-bottom: 28px;
+  letter-spacing: 0.3px;
+}
+
+.flow-map {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 5px;
+  background: var(--surface-sub);
+  border: 1px solid var(--stroke-hair);
+  border-radius: 16px;
+  padding: 16px 28px;
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.95;
+  color: var(--text-4);
+  margin-bottom: 24px;
+}
+.flow-map .fp { color: var(--text-2); }
+.flow-map .fa { color: var(--accent); }
+.flow-map .fn { color: var(--done); }
+
+.legend {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.legend-item {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 11.5px; color: var(--text-3);
+}
+.legend-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* =====================================================
+   STORYBOARD GRID
+   ===================================================== */
+.storyboard-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 340px);
+  gap: 72px 52px;
+  justify-content: center;
+  max-width: 1340px;
+  margin: 0 auto;
+}
+@media (max-width: 1200px) { .storyboard-grid { grid-template-columns: repeat(2,340px); } }
+@media (max-width: 780px)  { .storyboard-grid { grid-template-columns: 340px; } body { padding: 36px 12px 80px; } }
+
+.row-connector {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 11px; color: var(--text-3);
+  grid-column: 1 / -1;
+}
+.row-connector::before, .row-connector::after {
+  content: ''; flex: 1; height: 1px; background: var(--stroke-hair);
+}
+.rc-pill {
+  background: var(--surface-sub);
+  border: 1px solid var(--stroke-edge);
+  border-radius: 20px;
+  padding: 5px 16px;
+  white-space: nowrap;
+  display: flex; align-items: center; gap: 6px;
+}
+.rc-pill .rca { color: var(--accent); }
+
+/* =====================================================
+   SCREEN CELL
+   ===================================================== */
+.screen-cell {
+  display: flex; flex-direction: column;
+  align-items: center; gap: 20px;
+}
+.screen-meta { text-align: center; width: 100%; }
+.screen-num {
+  font-size: 10px; font-weight: 700;
+  color: var(--accent);
+  text-transform: uppercase; letter-spacing: 1.8px;
+  margin-bottom: 4px;
+}
+.screen-title { font-size: 15px; font-weight: 700; color: var(--text-1); margin-bottom: 4px; }
+.screen-desc  { font-size: 11px; color: var(--text-3); line-height: 1.6; }
+.screen-desc .sda { color: var(--accent); font-weight: 600; }
+
+/* =====================================================
+   PHONE FRAME
+   ===================================================== */
+.phone-frame {
+  width: 340px; height: 716px;
+  background: #1C1C20;
+  border-radius: 50px;
+  border: 2px solid #38383E;
+  box-shadow:
+    0 0 0 1px #0A0A0D,
+    0 50px 130px rgba(0,0,0,0.95),
+    0 20px 60px rgba(0,0,0,0.7),
+    inset 0 1px 0 rgba(255,255,255,0.05);
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+/* punch-hole camera */
+.phone-frame::before {
+  content: '';
+  position: absolute; top: 17px; left: 50%; transform: translateX(-50%);
+  width: 12px; height: 12px;
+  background: #050507;
+  border-radius: 50%;
+  z-index: 300;
+  box-shadow: 0 0 0 1.5px #26262C;
+}
+/* power button */
+.phone-frame::after {
+  content: '';
+  position: absolute; right: -2px; top: 140px;
+  width: 3px; height: 60px;
+  background: linear-gradient(180deg, #2C2C34 0%, #20202A 100%);
+  border-radius: 0 3px 3px 0;
+  z-index: 301;
+}
+
+/* =====================================================
+   PHONE SCREEN
+   ===================================================== */
+.phone-screen {
+  position: absolute; inset: 0;
+  background: var(--abyss);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  border-radius: 48px;
+}
+
+/* =====================================================
+   STATUS BAR
+   ===================================================== */
+.status-bar {
+  height: 46px;
+  display: flex; align-items: flex-end; justify-content: space-between;
+  padding: 0 26px 9px;
+  flex-shrink: 0;
+  z-index: 20;
+}
+.sb-time { font-size: 14px; font-weight: 700; color: var(--text-1); letter-spacing: -0.3px; }
+.sb-icons { display: flex; align-items: center; gap: 6px; }
+
+/* =====================================================
+   APP BAR
+   ===================================================== */
+.app-bar {
+  height: 56px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 16px;
+  flex-shrink: 0;
+}
+.ab-left  { display: flex; align-items: center; gap: 8px; }
+.ab-back  { color: var(--accent); display: flex; align-items: center; }
+.ab-title-group { display: flex; flex-direction: column; }
+.ab-title {
+  font-size: 17px; font-weight: 700; color: var(--text-1);
+  letter-spacing: -0.4px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 195px;
+  line-height: 1.2;
+}
+.ab-subtitle-small { font-size: 10.5px; color: var(--text-3); line-height: 1; }
+.ab-vela {
+  font-size: 20px; font-weight: 700;
+  color: var(--accent); letter-spacing: -0.3px;
+}
+.ab-right { display: flex; align-items: center; gap: 4px; }
+.ab-icon-btn {
+  width: 34px; height: 34px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; color: var(--text-2);
+}
+
+/* =====================================================
+   CONTENT AREA
+   ===================================================== */
+.content-area {
+  flex: 1; overflow: hidden;
+  display: flex; flex-direction: column;
+  min-height: 0;
+}
+.scroll-content {
+  flex: 1; overflow: hidden;
+  padding: 8px 16px 88px;
+  display: flex; flex-direction: column;
+  gap: 12px; min-height: 0;
+}
+
+/* =====================================================
+   VOICE FAB — persistent bottom-right (DESIGN.md §7.7)
+   ===================================================== */
+.voice-fab {
+  position: absolute;
+  bottom: 20px; right: 16px;
+  width: 64px; height: 64px;
+  border-radius: 50%;
+  z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.voice-fab-idle {
+  background: var(--surface-peak);
+  border: 1.5px solid var(--accent);
+  box-shadow: 0 0 28px rgba(94,234,212,0.18);
+}
+.voice-fab-running {
+  background: var(--running);
+  border: 1.5px solid var(--running);
+  box-shadow: 0 0 32px rgba(245,165,36,0.26);
+  animation: fab-breathe 2.4s ease-in-out infinite;
+}
+@keyframes fab-breathe {
+  0%, 100% { box-shadow: 0 0 24px rgba(245,165,36,0.22); }
+  50%       { box-shadow: 0 0 48px rgba(245,165,36,0.42); }
+}
+
+/* =====================================================
+   SECTION HEADER
+   ===================================================== */
+.section-hdr {
+  font-size: 10px; font-weight: 700;
+  color: var(--text-3);
+  text-transform: uppercase; letter-spacing: 2px;
+  padding: 2px 0;
+  display: flex; align-items: center; justify-content: space-between;
+}
+
+/* =====================================================
+   NODE TILES (DESIGN.md §7.1)
+   28dp radius, serif name, status stripe, no border
+   ===================================================== */
+.node-tile {
+  background: var(--surface-sub);
+  border-radius: 28px;
+  padding: 20px;
+  display: flex; flex-direction: column;
+  gap: 8px;
+  position: relative; overflow: hidden;
+  min-height: 118px;
+}
+.node-tile::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: 4px;
+}
+.node-tile.s-running::before { background: var(--running); animation: stripe-breathe 2.4s ease-in-out infinite; }
+.node-tile.s-waiting::before { background: var(--waiting); }
+.node-tile.s-done::before    { background: var(--done); }
+.node-tile.s-idle::before    { background: var(--accent); opacity: 0.45; }
+.node-tile.s-running { box-shadow: 0 0 24px rgba(245,165,36,0.15); }
+@keyframes stripe-breathe {
+  0%, 100% { opacity: 0.7; }
+  50%       { opacity: 1; }
+}
+
+.nt-header { display: flex; align-items: flex-start; justify-content: space-between; }
+.nt-left   { display: flex; align-items: center; gap: 12px; }
+.nt-avatar {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: var(--surface-raised);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; flex-shrink: 0;
+}
+.nt-name {
+  font-family: var(--serif);
+  font-size: 22px; font-weight: 400;
+  color: var(--text-1); line-height: 1.15;
+}
+.nt-telemetry { font-size: 11.5px; color: var(--text-2); }
+.nt-live-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+.nt-live-dot.s-running { background: var(--running); animation: dot-breathe 2.4s ease-in-out infinite; }
+.nt-live-dot.s-idle    { background: var(--accent); opacity: 0.5; }
+@keyframes dot-breathe { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
+
+/* =====================================================
+   STATUS CHIP (DESIGN.md §7.2 — pill shape)
+   ===================================================== */
+.status-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 24px; padding: 0 10px;
+  border-radius: 12px;
+  font-size: 9.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.8px;
+  white-space: nowrap;
+}
+.chip-running { background: var(--running-c);  color: var(--running-oc); }
+.chip-waiting { background: var(--waiting-c);  color: var(--waiting-oc); }
+.chip-done    { background: var(--done-c);     color: var(--done-oc); }
+.chip-error   { background: var(--error-c);    color: var(--error-oc); }
+.chip-idle    { background: var(--surface-raised); color: var(--text-3); }
+.chip-coord   { background: rgba(31,224,194,0.14); color: var(--accent-coord); }
+
+/* =====================================================
+   PROJECT CARDS
+   ===================================================== */
+.project-card {
+  background: var(--surface-sub);
+  border-radius: 20px;
+  padding: 16px;
+  display: flex; flex-direction: column;
+  gap: 6px;
+  position: relative; overflow: hidden;
+}
+.project-card::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: 4px;
+}
+.project-card.pc-active::before { background: var(--running); }
+.project-card.pc-idle::before   { background: var(--accent); opacity: 0.35; }
+.pc-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.pc-name {
+  font-family: var(--serif);
+  font-size: 20px; font-weight: 400;
+  color: var(--text-1);
+}
+.pc-bundle { font-size: 10px; color: var(--text-3); font-family: var(--mono); margin-top: 2px; }
+.pc-meta   { font-size: 11px; color: var(--text-2); }
+
+/* =====================================================
+   SESSION CARDS (DESIGN.md §7.2)
+   ===================================================== */
+.session-card {
+  background: var(--surface-sub);
+  border-radius: 20px;
+  padding: 16px;
+  display: flex; flex-direction: column;
+  gap: 7px;
+  position: relative; overflow: hidden;
+}
+.session-card::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+}
+.session-card.sc-running::before { background: var(--running); animation: stripe-breathe 2.4s ease-in-out infinite; }
+.session-card.sc-waiting::before { background: var(--waiting); animation: stripe-pulse 1.4s ease-in-out infinite; }
+.session-card.sc-done::before    { background: var(--done); }
+.session-card.sc-error::before   { background: var(--error); }
+.session-card.sc-running { box-shadow: 0 0 24px rgba(245,165,36,0.13); }
+.session-card.sc-waiting { background: #171436; }
+.session-card.sc-error   { background: #1C141A; }
+@keyframes stripe-pulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+
+.sc-header { display: flex; align-items: flex-start; gap: 8px; }
+.sc-title  { font-size: 14px; font-weight: 600; color: var(--text-1); flex: 1; line-height: 1.35; }
+.sc-meta   { font-size: 10.5px; color: var(--text-2); display: flex; align-items: center; gap: 5px; }
+.sc-meta .sep { color: var(--text-4); }
+.sc-decide { font-size: 11.5px; color: var(--waiting); font-weight: 600; display: flex; align-items: center; gap: 4px; }
+.sc-error-reason { font-size: 11.5px; color: var(--text-2); }
+
+.sc-spinner {
+  width: 14px; height: 14px;
+  border: 1.5px solid transparent;
+  border-top-color: var(--running);
+  border-radius: 50%;
+  animation: spin 1.6s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* =====================================================
+   NEW SESSION BUTTON
+   ===================================================== */
+.new-session-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  background: var(--accent);
+  color: var(--abyss);
+  border-radius: 26px; height: 52px;
+  font-size: 12px; font-weight: 700;
+  letter-spacing: 0.5px; text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+/* =====================================================
+   NODE HERO (DESIGN.md §8 Screen 2)
+   ===================================================== */
+.node-hero { padding: 24px 16px 16px; flex-shrink: 0; }
+.hero-name {
+  font-family: var(--serif);
+  font-size: 40px; font-weight: 400;
+  color: var(--text-1);
+  line-height: 1.1; letter-spacing: -1px;
+  margin-bottom: 8px;
+}
+.hero-meta { font-size: 12px; color: var(--text-2); }
+
+/* =====================================================
+   STATUS PILL (session detail)
+   ===================================================== */
+.status-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 26px; padding: 0 12px;
+  border-radius: 13px;
+  font-size: 9.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.8px;
+}
+.pill-running { background: var(--running-c); color: var(--running-oc); }
+.pill-waiting { background: var(--waiting-c); color: var(--waiting-oc); }
+
+/* =====================================================
+   SESSION TITLE AREA (Screen 4)
+   ===================================================== */
+.session-title-area { padding: 16px 16px 8px; flex-shrink: 0; }
+.session-title-str {
+  font-family: var(--serif);
+  font-size: 26px; font-weight: 400;
+  color: var(--text-1); line-height: 1.25;
+  letter-spacing: -0.4px; margin-bottom: 10px;
+}
+
+/* =====================================================
+   TURN LIST (DESIGN.md §8 Screen 4)
+   No chat bubbles — serif user turns, card agent turns
+   ===================================================== */
+.turn-list {
+  flex: 1; overflow: hidden;
+  padding: 8px 16px 84px;
+  display: flex; flex-direction: column;
+  gap: 10px; min-height: 0;
+}
+/* User turn — right-aligned serif, 2dp cyan leading line */
+.turn-user {
+  align-self: flex-end;
+  max-width: 80%;
+  position: relative;
+  padding-right: 2px;
+  text-align: right;
+}
+.turn-user::after {
+  content: '';
+  position: absolute; right: -8px; top: 0; bottom: 0;
+  width: 2px; background: var(--accent); border-radius: 1px;
+}
+.turn-user-text {
+  font-family: var(--serif);
+  font-size: 14px; color: var(--text-1); line-height: 1.55;
+}
+/* Agent turn — surface/sub card */
+.turn-agent {
+  background: var(--surface-sub);
+  border-radius: 20px; padding: 14px;
+  font-size: 13px; color: var(--text-1); line-height: 1.55;
+  display: flex; flex-direction: column; gap: 8px;
+}
+/* Tool call card (DESIGN.md §7.3) */
+.tool-call-card {
+  background: var(--surface-raised);
+  border-radius: 16px;
+  padding: 10px 12px 10px 16px;
+  display: flex; flex-direction: column; gap: 4px;
+  position: relative; overflow: hidden;
+  border: 1px solid var(--stroke-hair);
+}
+.tool-call-card::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: 3px; background: var(--accent);
+}
+.tc-header { display: flex; align-items: center; gap: 8px; }
+.tc-icon   { font-size: 10px; color: var(--text-3); flex-shrink: 0; font-family: var(--mono); }
+.tc-name   { font-size: 11px; font-weight: 500; font-family: var(--mono); color: var(--text-2); flex: 1; }
+.tc-dur    { font-size: 10px; color: var(--text-3); }
+.tc-done   { font-size: 10px; color: var(--done); font-weight: 600; }
+.tc-run-lbl { font-size: 10px; color: var(--running); font-weight: 600; display: flex; align-items: center; gap: 3px; }
+.tc-result { font-size: 10px; color: var(--text-3); font-family: var(--mono); }
+.spin-sm   { display: inline-block; animation: spin 1.6s linear infinite; }
+
+/* Expanded tool — code block */
+.code-block {
+  background: rgba(0,0,0,0.45);
+  border-radius: 8px; padding: 8px 10px;
+  font-family: var(--mono); font-size: 9px; line-height: 1.75;
+  overflow: hidden;
+}
+.cd     { color: #7A9CBB; }
+.cd-del { color: var(--error); }
+.cd-add { color: var(--done); }
+.cd-dim { color: var(--text-4); }
+.cd-num { color: var(--text-4); margin-right: 5px; user-select: none; }
+
+/* =====================================================
+   COORDINATOR SCREEN (DESIGN.md §8 Screen 5)
+   ===================================================== */
+.coord-screen { background: var(--coord-bg) !important; }
+
+.coord-hero { padding: 20px 16px 12px; flex-shrink: 0; }
+.coord-hero-name {
+  font-family: var(--serif);
+  font-size: 28px; font-weight: 400;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-coord) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1.2; margin-bottom: 6px;
+}
+.coord-hero-meta { font-size: 11.5px; color: var(--accent-coord); opacity: 0.7; }
+
+.coord-strip {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 16px;
+  background: rgba(31,224,194,0.06);
+  border-top: 1px solid rgba(31,224,194,0.12);
+  border-bottom: 1px solid rgba(31,224,194,0.12);
+  flex-shrink: 0;
+}
+.coord-info  { font-size: 11px; color: var(--accent-coord); font-weight: 600; }
+.step-pips   { display: flex; gap: 3px; }
+.step-pip    { width: 14px; height: 3px; border-radius: 2px; }
+.s-done-pip  { background: var(--done); }
+.s-act-pip   { background: var(--running); }
+.s-todo-pip  { background: var(--surface-raised); }
+
+.branch-card {
+  background: var(--coord-card);
+  border-radius: 24px 8px 8px 24px;   /* asymmetric — DESIGN.md §7.5 */
+  padding: 14px 14px 14px 18px;
+  display: flex; flex-direction: column; gap: 7px;
+  border: 1px solid rgba(31,224,194,0.12);
+  position: relative; overflow: hidden;
+}
+.branch-card::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: 3px; background: var(--accent-coord);
+  opacity: 0.5;
+}
+.branch-card.bc-running::before { opacity: 1; animation: stripe-breathe 2.4s ease-in-out infinite; }
+.branch-card.bc-waiting { opacity: 0.55; }
+.branch-card.bc-done::before { background: var(--done); opacity: 1; }
+
+.bc-header   { display: flex; align-items: center; justify-content: space-between; }
+.bc-name-row { display: flex; align-items: center; gap: 7px; }
+.bc-name     { font-size: 12px; font-weight: 600; font-family: var(--mono); color: var(--text-1); }
+.bc-link     { font-size: 10px; color: var(--accent-coord); }
+.bc-steps    { display: flex; flex-direction: column; gap: 4px; }
+.bc-step     { font-size: 10.5px; display: flex; align-items: center; gap: 5px; }
+.bc-done-step  { color: var(--text-2); }
+.bc-run-step   { color: var(--running); }
+.bc-wait-step  { color: var(--text-3); }
+
+.coord-connector {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 9.5px; color: var(--text-3);
+}
+.coord-connector::before, .coord-connector::after {
+  content: ''; flex: 1; height: 1px;
+  background: rgba(31,224,194,0.18);
+}
+
+/* =====================================================
+   VOICE OVERLAY (DESIGN.md §7.4)
+   Full-screen bloom from FAB position
+   ===================================================== */
+.voice-overlay {
+  position: absolute; inset: 0;
+  background: rgba(11,14,26,0.88);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  z-index: 100; border-radius: 48px;
+}
+/* The bloom circle */
+.vo-bloom {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 340px; height: 340px;
+  margin-left: -170px; margin-top: -170px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(94,234,212,0.45);
+  pointer-events: none;
+}
+.vo-node-tag {
+  position: absolute; top: 62px; left: 50%; transform: translateX(-50%);
+  font-size: 11px; color: var(--text-2);
+  background: var(--surface-raised);
+  border: 1px solid var(--stroke-edge);
+  padding: 5px 14px; border-radius: 20px;
+  white-space: nowrap; display: flex; align-items: center; gap: 6px;
+}
+.vo-node-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 6px var(--accent);
+}
+.vo-waveform {
+  display: flex; align-items: flex-end; gap: 3px;
+  height: 44px; margin-bottom: 24px;
+}
+.wv-b {
+  width: 3px; border-radius: 2px;
+  background: var(--accent); opacity: 0.7;
+  transform-origin: bottom center;
+}
+.vo-transcript-area {
+  padding: 0 28px; text-align: center; margin-bottom: 10px;
+}
+.vo-transcript {
+  font-family: var(--serif);
+  font-size: 26px; font-weight: 400;
+  color: var(--text-1); line-height: 1.4;
+}
+.vo-hint {
+  font-size: 11px; color: var(--text-3); text-align: center; margin-bottom: 36px;
+}
+.vo-hint .vha { color: var(--accent); }
+.vo-actions { display: flex; align-items: center; gap: 28px; }
+.vo-cancel-btn {
+  width: 56px; height: 56px; border-radius: 50%;
+  background: var(--surface-raised);
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid rgba(255,107,107,0.4);
+}
+.vo-send-btn {
+  width: 64px; height: 64px; border-radius: 50%;
+  background: var(--accent);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 24px rgba(94,234,212,0.35);
+}
+
+/* =====================================================
+   APPROVAL GATE SHEET (DESIGN.md §7.6)
+   Bottom sheet from surface-peak, violet eyebrow
+   ===================================================== */
+.approval-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.6);
+  border-radius: 48px;
+  z-index: 80;
+}
+.approval-sheet {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  background: var(--surface-peak);
+  border-radius: 32px 32px 0 0;
+  padding: 0 24px 28px;
+  z-index: 90;
+}
+.sheet-handle {
+  width: 36px; height: 4px;
+  background: var(--text-3);
+  border-radius: 2px;
+  margin: 12px auto 20px;
+}
+.approval-eyebrow {
+  font-size: 9.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 1.6px;
+  color: var(--waiting); margin-bottom: 10px;
+}
+.approval-title {
+  font-family: var(--serif);
+  font-size: 25px; font-weight: 400;
+  color: var(--text-1); line-height: 1.3; margin-bottom: 14px;
+}
+.approval-context {
+  background: var(--surface-raised);
+  border-radius: 12px; padding: 10px 12px;
+  font-family: var(--mono); font-size: 9.5px;
+  color: var(--text-2); line-height: 1.75;
+  margin-bottom: 18px;
+  border: 1px solid var(--stroke-hair);
+}
+.approval-btns { display: flex; gap: 12px; }
+.btn-deny {
+  flex: 1; height: 52px; border-radius: 26px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;
+  color: var(--error); border: 1px solid rgba(255,107,107,0.3);
+}
+.btn-approve {
+  flex: 1; height: 52px; border-radius: 26px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;
+  background: var(--accent); color: var(--abyss);
+}
+
+/* =====================================================
+   NODE CONFIG (DESIGN.md §8 Screen 8)
+   ===================================================== */
+.config-section {
+  background: var(--surface-sub);
+  border-radius: 20px;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.cs-header {
+  font-size: 9.5px; font-weight: 700;
+  color: var(--text-3); text-transform: uppercase; letter-spacing: 1.5px;
+  padding: 10px 14px 4px;
+}
+.cs-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 11px 14px; border-top: 1px solid var(--stroke-hair);
+}
+.cs-label { font-size: 13px; font-weight: 500; color: var(--text-1); display: flex; align-items: center; gap: 7px; }
+.cs-val   { font-size: 10.5px; color: var(--accent); font-family: var(--mono); background: rgba(94,234,212,0.1); padding: 2px 8px; border-radius: 6px; }
+
+/* M3 Expressive toggle */
+.toggle-sw {
+  width: 44px; height: 24px; border-radius: 12px;
+  display: flex; align-items: center; padding: 2px;
+  flex-shrink: 0;
+}
+.toggle-sw.on  { background: var(--accent); justify-content: flex-end; }
+.toggle-sw.off { background: var(--surface-raised); justify-content: flex-start; }
+.toggle-thumb  {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: white; box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+}
+
+.slider-wrap { padding: 4px 14px 10px; }
+.slider-row  { display: flex; justify-content: space-between; margin-bottom: 6px; }
+.slr-label   { font-size: 11px; color: var(--text-2); }
+.slr-val     { font-size: 13px; font-weight: 700; color: var(--text-1); }
+.slider-track { height: 4px; background: var(--surface-raised); border-radius: 2px; position: relative; }
+.slider-fill  { position: absolute; left: 0; top: 0; bottom: 0; width: 40%; background: var(--accent); border-radius: 2px; }
+.slider-thumb { position: absolute; top: -8px; left: calc(40% - 9px); width: 20px; height: 20px; background: white; border-radius: 50%; box-shadow: 0 1px 5px rgba(0,0,0,0.4); border: 2px solid var(--accent); }
+
+.push-btn {
+  position: absolute;
+  bottom: 24px; left: 16px; right: 16px;
+  height: 52px; border-radius: 26px;
+  background: var(--accent); color: var(--abyss);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+}
+
+/* =====================================================
+   CONNECT NODE (DESIGN.md §8 Screen 9)
+   ===================================================== */
+.connect-content {
+  padding: 28px 16px 16px;
+  flex: 1; display: flex; flex-direction: column;
+}
+.connect-hero {
+  font-family: var(--serif);
+  font-size: 34px; font-weight: 400; color: var(--text-1);
+  margin-bottom: 8px; line-height: 1.1;
+}
+.connect-sub {
+  font-size: 13px; color: var(--text-2);
+  margin-bottom: 28px; line-height: 1.6;
+}
+.connect-input {
+  height: 52px; background: var(--surface-raised);
+  border-radius: 16px; padding: 0 16px;
+  display: flex; align-items: center;
+  border: 1.5px solid var(--accent);      /* focused state */
+  font-size: 13px; color: var(--text-3);
+  margin-bottom: 12px; font-family: var(--sans);
+}
+.connect-qr {
+  text-align: center; font-size: 12.5px;
+  color: var(--accent); font-weight: 500;
+  padding: 10px 0; margin-bottom: auto;
+}
+.connect-btn {
+  margin: 0 0 88px;
+  height: 52px; border-radius: 26px;
+  background: var(--accent); color: var(--abyss);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+}
+
+/* =====================================================
+   ADD CARD
+   ===================================================== */
+.add-card {
+  border: 1px dashed var(--stroke-edge);
+  border-radius: 20px; padding: 16px;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  color: var(--text-3); font-size: 12.5px; font-weight: 500;
+}
+
+/* =====================================================
+   FOOTER
+   ===================================================== */
+.sb-footer {
+  text-align: center;
+  margin-top: 80px; padding-top: 32px;
+  border-top: 1px solid var(--stroke-hair);
+  color: var(--text-3); font-size: 12px;
+  max-width: 1340px; margin-left: auto; margin-right: auto;
+}
+.sb-footer strong { color: var(--text-2); }
+
+/* =====================================================
+   ANIMATIONS
+   ===================================================== */
+@keyframes wave-anim {
+  from { transform: scaleY(0.3); opacity: 0.6; }
+  to   { transform: scaleY(1);   opacity: 1;   }
+}
+</style>
+</head>
+<body>
+
+<!-- ===================================================
+     PAGE HEADER
+     =================================================== -->
+<header class="page-header">
+  <div class="hdr-logo-row">
+    <div class="hdr-logo-icon">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+        <path d="M14 4 L16.4 12 L24 14 L16.4 16 L14 24 L11.6 16 L4 14 L11.6 12 Z" fill="#5EEAD4" opacity="0.9"/>
+        <circle cx="14" cy="14" r="2" fill="rgba(94,234,212,0.35)"/>
+      </svg>
+    </div>
+    <h1 class="hdr-title">Vela UX Storyboard</h1>
+  </div>
+  <p class="hdr-tagline">Android AI Agent Terminal &nbsp;·&nbsp; Material 3 Expressive &nbsp;·&nbsp; Voice-First &nbsp;·&nbsp; Remote amplifierd Nodes</p>
+
+  <div class="flow-map">
+    <span class="fp">Home (Nodes) <span class="fa">→</span> Node Detail <span class="fa">→</span> Session List <span class="fa">→</span> Session Detail <span class="fa">→</span> Tool Calls</span>
+    <span style="color:#1F2542;">──────────────────────────────────────────────────────────────────────</span>
+    <span><span class="fn">hold Voice FAB</span> <span class="fa">→</span> Voice Capture Overlay <em style="color:#4A4D5E;">(persists every screen)</em></span>
+    <span><span class="fn">coordinator session</span> <span class="fa">→</span> Coordinator View <em style="color:#4A4D5E;">(cross-node work graph, teal surface shift)</em></span>
+    <span><span class="fn">waiting session card</span> <span class="fa">→</span> Approval Gate <em style="color:#4A4D5E;">(bottom sheet, violet)</em></span>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#F5A524;box-shadow:0 0 8px rgba(245,165,36,0.8)"></div>
+      Running (amber)
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#A78BFA"></div>
+      Waiting / Approval (violet)
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#7DCFA5"></div>
+      Done (sage)
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#FF6B6B"></div>
+      Error (coral)
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#5EEAD4"></div>
+      Accent / Idle FAB (cyan)
+    </div>
+  </div>
+</header>
+
+
+<!-- ===================================================
+     STORYBOARD GRID
+     =================================================== -->
+<div class="storyboard-grid">
+
+
+<!-- ╔═══════════════════════════════════════╗
+     ║  SCREEN 1 — HOME / NODE LIST          ║
+     ╚═══════════════════════════════════════╝ -->
+<div class="screen-cell">
+  <div class="phone-frame">
+    <div class="phone-screen">
+
+      <div class="status-bar">
+        <span class="sb-time">9:41</span>
+        <div class="sb-icons">
+          <svg width="17" height="12" viewBox="0 0 17 12" fill="white"><rect x="0" y="8" width="3" height="4" rx="0.5" opacity="0.35"/><rect x="4.5" y="5" width="3" height="7" rx="0.5" opacity="0.6"/><rect x="9" y="2" width="3" height="10" rx="0.5" opacity="0.8"/><rect x="13.5" y="0" width="3" height="12" rx="0.5"/></svg>
+          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><circle cx="8" cy="11" r="1.3" fill="white"/><path d="M4.8 7.8 Q8 5.5 11.2 7.8" stroke="white" stroke-width="1.3" stroke-linecap="round"/><path d="M2 5 Q8 1 14 5" stroke="white" stroke-width="1.3" stroke-linecap="round" opacity="0.55"/></svg>
+          <svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x="0.6" y="0.6" width="20" height="10.8" rx="2.5" stroke="white" stroke-opacity="0.75" stroke-width="1.2"/><rect x="21.2" y="3.5" width="2.5" height="5" rx="1" fill="white" opacity="0.55"/><rect x="2.2" y="2.2" width="14" height="7.6" rx="1.5" fill="white"/></svg>
+        </div>
+      </div>
+
+      <div class="app-bar">
+        <div class="ab-left">
+          <div class="ab-title-group">
+            <span class="ab-vela">Vela</span>
+            <span class="ab-subtitle-small" style="color:var(--done);font-weight:600;">2 nodes online</span>
+          </div>
+        </div>
+        <div class="ab-right">
+          <div class="ab-icon-btn">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-linecap="round"><circle cx="10" cy="10" r="2.8"/><path d="M10 2v2M17.1 4.9l-1.4 1.4M18 10h-2M17.1 15.1l-1.4-1.4M10 18v-2M2.9 15.1l1.4-1.4M2 10h2M2.9 4.9l1.4 1.4"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <div class="content-area">
+        <div class="scroll-content">
+          <div class="section-hdr">Nodes</div>
+
+          <!-- Node 1: running -->
+          <div class="node-tile s-running">
+            <div class="nt-header">
+              <div class="nt-left">
+                <div class="nt-avatar">☁</div>
+                <span class="nt-name">amplifierd-cloud</span>
+              </div>
+              <div class="nt-live-dot s-running"></div>
+            </div>
+            <div class="nt-telemetry">3 active · <span style="color:var(--running);font-weight:600;">1 running</span> · last sync 8s</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <span class="status-chip chip-running">running</span>
+              <span class="status-chip chip-idle" style="font-size:9px;">Azure · v0.4.2</span>
+            </div>
+          </div>
+
+          <!-- Node 2: idle -->
+          <div class="node-tile s-idle">
+            <div class="nt-header">
+              <div class="nt-left">
+                <div class="nt-avatar">🖥</div>
+                <span class="nt-name">amplifierd-mac</span>
+              </div>
+              <div class="nt-live-dot s-idle"></div>
+            </div>
+            <div class="nt-telemetry">1 session · <span style="color:var(--text-3);">idle</span> · last sync 4m</div>
+            <div style="display:flex;gap:6px;">
+              <span class="status-chip chip-idle">Mac M2 · v0.4.1</span>
+            </div>
+          </div>
+
+          <!-- Add node -->
+          <div class="add-card">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg>
+            Connect a node
+          </div>
+        </div>
+      </div>
+
+      <!-- Voice FAB: idle -->
+      <div class="voice-fab voice-fab-idle">
+        <svg width="24" height="28" viewBox="0 0 24 28" fill="none">
+          <rect x="8" y="1" width="8" height="15" rx="4" fill="#5EEAD4"/>
+          <path d="M3 13C3 19.5 21 19.5 21 13" stroke="#5EEAD4" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+          <line x1="12" y1="19.5" x2="12" y2="25" stroke="#5EEAD4" stroke-width="2.2" stroke-linecap="round"/>
+          <line x1="8" y1="25" x2="16" y2="25" stroke="#5EEAD4" stroke-width="2.2" stroke-linecap="round"/>
+        </svg>
+      </div>
+
+    </div>
+  </div>
+  <div class="screen-meta">
+    <div class="screen-num">Screen 1</div>
+    <div class="screen-title">Home — Node List</div>
+    <div class="screen-desc">Fleet view. Serif node tiles. Amber glow = active work. Tap a tile <span class="sda">→ Node Detail</span></div>
+  </div>
+</div>
+
+
+<!-- ╔═══════════════════════════════════════╗
+     ║  SCREEN 2 — NODE DETAIL / PROJECTS    ║
+     ╚═══════════════════════════════════════╝ -->
+<div class="screen-cell">
+  <div class="phone-frame">
+    <div class="phone-screen">
+
+      <div class="status-bar">
+        <span class="sb-time">9:41</span>
+        <div class="sb-icons">
+          <svg width="17" height="12" viewBox="0 0 17 12" fill="white"><rect x="0" y="8" width="3" height="4" rx="0.5" opacity="0.35"/><rect x="4.5" y="5" width="3" height="7" rx="0.5" opacity="0.6"/><rect x="9" y="2" width="3" height="10" rx="0.5" opacity="0.8"/><rect x="13.5" y="0" width="3" height="12" rx="0.5"/></svg>
+          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><circle cx="8" cy="11" r="1.3" fill="white"/><path d="M4.8 7.8 Q8 5.5 11.2 7.8" stroke="white" stroke-width="1.3" stroke-linecap="round"/><path d="M2 5 Q8 1 14 5" stroke="white" stroke-width="1.3" stroke-linecap="round" opacity="0.55"/></svg>
+          <svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x="0.6" y="0.6" width="20" height="10.8" rx="2.5" stroke="white" stroke-opacity="0.75" stroke-width="1.2"/><rect x="21.2" y="3.5" width="2.5" height="5" rx="1" fill="white" opacity="0.55"/><rect x="2.2" y="2.2" width="14" height="7.6" rx="1.5" fill="white"/></svg>
+        </div>
+      </div>
+
+      <div class="app-bar">
+        <div class="ab-left">
+          <div class="ab-back"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4L6 9L11 14"/></svg></div>
+        </div>
+        <div class="ab-right">
+          <div class="ab-icon-btn">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-linecap="round"><circle cx="9" cy="9" r="2"/><path d="M9 1.5v2M14.7 3.3l-1.4 1.4M16.5 9h-2M14.7 14.7l-1.4-1.4M9 16.5v-2M3.3 14.7l1.4-1.4M1.5 9h2M3.3 3.3l1.4 1.4"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hero — display-l Instrument Serif -->
+      <div class="node-hero">
+        <div class="hero-name">amplifierd-cloud</div>
+        <div class="hero-meta">online · 4 active sessions · last sync 8s ago</div>
+      </div>
+
+      <div class="content-area">
+        <div class="scroll-content" style="padding-top:0;">
+          <div class="section-hdr">Projects</div>
+
+          <div class="project-card pc-active">
+            <div class="pc-header">
+              <div>
+                <div class="pc-name">Work</div>
+                <div class="pc-bundle">bundle: superpowers</div>
+              </div>
+              <span class="status-chip chip-running">2 running</span>
+            </div>
+            <div class="pc-meta">12 sessions · last active <strong style="color:var(--text-1)">2m ago</strong></div>
+          </div>
+
+          <div class="project-card pc-idle">
+            <div class="pc-header">
+              <div>
+                <div class="pc-name">Personal</div>
+                <div class="pc-bundle">bundle: lifeos</div>
+              </div>
+              <span class="status-chip chip-idle">idle</span>
+            </div>
+            <div class="pc-meta">4 sessions · last active 2d ago</div>
+          </div>
+
+          <div class="project-card pc-idle">
+            <div class="pc-header">
+              <div>
+                <div class="pc-name">Home Automation</div>
+                <div class="pc-bundle">bundle: tools</div>
+              </div>
+              <span class="status-chip chip-idle">idle</span>
+            </div>
+            <div class="pc-meta">2 sessions · last active 5d ago</div>
+          </div>
+
+          <div class="add-card">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg>
+            New project
+          </div>
+        </div>
+      </div>
+
+      <div class="voice-fab voice-fab-idle">
+        <svg width="24" height="28" viewBox="0 0 24 28" fill="none"><rect x="8" y="1" width="8" height="15" rx="4" fill="#5EEAD4"/><path d="M3 13C3 19.5 21 19.5 21 13" stroke="#5EEAD4" stroke-width="2.2" stroke-linecap="round" fill="none"/><line x1="12" y1="19.5" x2="12" y2="25" stroke="#5EEAD4" stroke-width="2.2" stroke-linecap="round"/><line x1="8" y1="25" x2="16" y2="25" stroke="#5EEAD4" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </div>
+
+    </div>
+  </div>
+  <div class="screen-meta">
+    <div class="screen-num">Screen 2</div>
+    <div class="screen-title">Node Detail — Projects</div>
+    <div class="screen-desc">Display-scale serif hero. Tap a project <span class="sda">→ Session List</span></div>
+  </div>
+</div>
+
+
+<!-- ╔═══════════════════════════════════════╗
+     ║  SCREEN 3 — SESSION LIST              ║
+     ╚═══════════════════════════════════════╝ -->
+<div class="screen-cell">
+  <div class="phone-frame">
+    <div class="phone-screen">
+
+      <div class="status-bar">
+        <span class="sb-time">9:41</span>
+        <div class="sb-icons">
+          <svg width="17" height="12" viewBox="0 0 17 12" fill="white"><rect x="0" y="8" width="3" height="4" rx="0.5" opacity="0.35"/><rect x="4.5" y="5" width="3" height="7" rx="0.5" opacity="0.6"/><rect x="9" y="2" width="3" height="10" rx="0.5" opacity="0.8"/><rect x="13.5" y="0" width="3" height="12" rx="0.5"/></svg>
+          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><circle cx="8" cy="11" r="1.3" fill="white"/><path d="M4.8 7.8 Q8 5.5 11.2 7.8" stroke="white" stroke-width="1.3" stroke-linecap="round"/><path d="M2 5 Q8 1 14 5" stroke="white" stroke-width="1.3" stroke-linecap="round" opacity="0.55"/></svg>
+          <svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x="0.6" y="0.6" width="20" height="10.8" rx="2.5" stroke="white" stroke-opacity="0.75" stroke-width="1.2"/><rect x="21.2" y="3.5" width="2.5" height="5" rx="1" fill="white" opacity="0.55"/><rect x="2.2" y="2.2" width="14" height="7.6" rx="1.5" fill="white"/></svg>
+        </div>
+      </div>
+
+      <div class="app-bar">
+        <div class="ab-left">
+          <div class="ab-back"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4L6 9L11 14"/></svg></div>
+          <span class="ab-title">Work</span>
+        </div>
+      </div>
+
+      <div class="content-area">
+        <div class="scroll-content">
+
+          <div class="new-session-btn">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="var(--abyss)" stroke-width="2" stroke-linecap="round"><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg>
+            New Session
+          </div>
+
+          <div class="section-hdr">Active</div>
+
+          <!-- Running -->
+          <div class="session-card sc-running">
+            <div class="sc-header">
+              <span class="sc-title">Review auth PR #847</span>
+              <div class="sc-spinner"></div>
+              <span class="status-chip chip-running">running</span>
+            </div>
+            <div class="sc-meta">
+              <span style="font-family:var(--mono);font-size:10px;">claude-sonnet</span>
+              <span class="sep">·</span><span>4 steps</span>
+              <span class="sep">·</span><span>2m ago</span>
+            </div>
+          </div>
+
+          <!-- Waiting — violet, charged surface -->
+          <div class="session-card sc-waiting">
+            <div class="sc-header">
+              <span class="sc-title">Deploy to staging</span>
+              <span class="status-chip chip-waiting">waiting</span>
+            </div>
+            <div class="sc-decide">▶ Decide &nbsp;·&nbsp; waiting 4m</div>
+            <div class="sc-meta">
+              <span style="font-family:var(--mono);font-size:10px;">claude-sonnet</span>
+              <span class="sep">·</span><span>7 steps</span>
+            </div>
+          </div>
+
+          <div class="section-hdr">Recent</div>
+
+          <!-- Done -->
+          <div class="session-card sc-done">
+            <div class="sc-header">
+              <span class="sc-title">Write migration script</span>
+              <span class="status-chip chip-done">done</span>
+            </div>
+            <div class="sc-meta">
+              <span style="font-family:var(--mono);font-size:10px;">claude-haiku</span>
+              <span class="sep">·</span><span>7 steps</span>
+              <span class="sep">·</span><span>1h ago</span>
+            </div>
+          </div>
+
+          <!-- Error -->
+          <div class="session-card sc-error">
+            <div class="sc-header">
+              <span class="sc-title">Update staging env vars</span>
+              <span class="status-chip chip-error">error</span>
+            </div>
+            <div class="sc-error-reason">Permission denied on secrets vault</div>
+            <div class="sc-meta">
+              <span style="font-family:var(--mono);font-size:10px;">claude-sonnet</span>
+              <span class="sep">·</span>
+              <span style="color:var(--error);font-size:11px;font-weight:600;">Retry</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Amber FAB: a running session is on this node -->
+      <div class="voice-fab voice-fab-running">
+        <svg width="24" height="28" viewBox="0 0 24 28" fill="none"><rect x="8" y="1" width="8" height="15" rx="4" fill="#1A1000"/><path d="M3 13C3 19.5 21 19.5 21 13" stroke="#1A1000" stroke-width="2.2" stroke-linecap="round" fill="none"/><line x1="12" y1="19.5" x2="12" y2="25" stroke="#1A1000" stroke-width="2.2" stroke-linecap="round"/><line x1="8" y1="25" x2="16" y2="25" stroke="#1A1000" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </div>
+
+    </div>
+  </div>
+  <div class="screen-meta">
+    <div class="screen-num">Screen 3</div>
+    <div class="screen-title">Session List — Work</div>
+    <div class="screen-desc">Amber=running · Violet=waiting · Sage=done · Coral=error. FAB glows amber — work is in motion.</div>
+  </div>
+</div>
+
+
+<!-- ╔═══════════════════════════════════════╗
+     ║  SCREEN 4 — SESSION DETAIL            ║
+     ╚═══════════════════════════════════════╝ -->
+<div class="screen-cell">
+  <div class="phone-frame">
+    <div class="phone-screen">
+
+      <div class="status-bar">
+        <span class="sb-time">9:43</span>
+        <div class="sb-icons">
+          <svg width="17" height="12" viewBox="0 0 17 12" fill="white"><rect x="0" y="8" width="3" height="4" rx="0.5" opacity="0.35"/><rect x="4.5" y="5" width="3" height="7" rx="0.5" opacity="0.6"/><rect x="9" y="2" width="3" height="10" rx="0.5" opacity="0.8"/><rect x="13.5" y="0" width="3" height="12" rx="0.5"/></svg>
+          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><circle cx="8" cy="11" r="1.3" fill="white"/><path d="M4.8 7.8 Q8 5.5 11.2 7.8" stroke="white" stroke-width="1.3" stroke-linecap="round"/><path d="M2 5 Q8 1 14 5" stroke="white" stroke-width="1.3" stroke-linecap="round" opacity="0.55"/></svg>
+          <svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x="0.6" y="0.6" width="20" height="10.8" rx="2.5" stroke="white" stroke-opacity="0.75" stroke-width="1.2"/><rect x="21.2" y="3.5" width="2.5" height="5" rx="1" fill="white" opacity="0.55"/><rect x="2.2" y="2.2" width="14" height="7.6" rx="1.5" fill="white"/></svg>
+        </div>
+      </div>
+
+      <div class="app-bar">
+        <div class="ab-left">
+          <div class="ab-back"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4L6 9L11 14"/></svg></div>
+          <div class="ab-title-group">
+            <span class="ab-title" style="max-width:170px;">Review auth PR #847</span>
+          </div>
+        </div>
+        <div class="ab-right">
+          <div style="width:8px;height:8px;border-radius:50%;background:var(--running);box-shadow:0 0 8px var(--running);animation:dot-breathe 2.4s ease-in-out infinite;"></div>
+        </div>
+      </div>
+
+      <!-- Session title + status pill -->
+      <div class="session-title-area">
+        <div class="session-title-str">Review auth PR #847</div>
+        <span class="status-pill pill-running">● RUNNING · amplifierd-cloud</span>
+      </div>
+
+      <!-- Turn list — NO chat bubbles per DESIGN.md §9.4 -->
+      <div class="turn-list">
+
+        <!-- User turn: right-aligned serif + cyan line -->
+        <div class="turn-user">
+          <div class="turn-user-text">Review PR #847 and leave inline comments on any security issues</div>
+        </div>
+
+        <!-- Agent turn: surface/sub card -->
+        <div class="turn-agent">
+          <span style="font-size:13px;">I'll fetch the diff and check for common vulnerabilities — SQL injection, auth bypass, unvalidated inputs.</span>
+
+          <!-- Tool call: collapsed, done -->
+          <div class="tool-call-card">
+            <div class="tc-header">
+              <span class="tc-icon">&lt;/&gt;</span>
+              <span class="tc-name">github: get_pull_request</span>
+              <span class="tc-done">✓ 1.2s</span>
+            </div>
+            <div class="tc-result">PR #847 · +342 −89 · 7 files changed</div>
+          </div>
+
+          <!-- Tool call: expanded with diff -->
+          <div class="tool-call-card">
+            <div class="tc-header">
+              <span class="tc-icon">$_</span>
+              <span class="tc-name">bash: git diff HEAD~1</span>
+              <span class="tc-done">✓ 0.8s</span>
+            </div>
+            <div class="code-block">
+              <span class="cd-dim">@@ -147,7 +147,11 @@ validateToken(t)</span><br>
+              <span class="cd-num"> 147</span><span class="cd"> const decoded = jwt.verify(t, SECRET)</span><br>
+              <span class="cd-num cd-del"> 148</span><span class="cd-del">- return decoded.userId</span><br>
+              <span class="cd-num cd-add"> 148</span><span class="cd-add">+ if (!decoded?.exp) throw new Error()</span><br>
+              <span class="cd-num cd-add"> 149</span><span class="cd-add">+ if (Date.now() &gt; decoded.exp * 1000)</span><br>
+              <span class="cd-num cd-add"> 150</span><span class="cd-add">+   throw new Error('Token expired')</span><br>
+              <span class="cd-num cd-add"> 151</span><span class="cd-add">+ return decoded.userId</span>
+            </div>
+          </div>
+
+          <!-- Tool call: running -->
+          <div class="tool-call-card">
+            <div class="tc-header">
+              <span class="tc-icon">&lt;/&gt;</span>
+              <span class="tc-name">github: create_review_comment</span>
+              <div class="tc-run-lbl"><span class="spin-sm">⟳</span> running</div>
+            </div>
+            <div class="tc-result" style="color:var(--running);opacity:0.75;">Posting comment on line 148…</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Amber FAB: running -->
+      <div class="voice-fab voice-fab-running">
+        <svg width="24" height="28" viewBox="0 0 24 28" fill="none"><rect x="8" y="1" width="8" height="15" rx="4" fill="#1A1000"/><path d="M3 13C3 19.5 21 19.5 21 13" stroke="#1A1000" stroke-width="2.2" stroke-linecap="round" fill="none"/><line x1="12" y1="19.5" x2="12" y2="25" stroke="#1A1000" stroke-width="2.2" stroke-linecap="round"/><line x1="8" y1="25" x2="16" y2="25" stroke="#1A1000" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </div>
+
+    </div>
+  </div>
+  <div class="screen-meta">
+    <div class="screen-num">Screen 4</div>
+    <div class="screen-title">Session Detail — Turn History</div>
+    <div class="screen-desc">Serif user turns (right, cyan stripe). Agent turns = surface card. Tool calls = mono receipt.</div>
+  </div>
+</div>
+
+
+<!-- Row connector -->
+<div class="row-connector">
+  <div class="rc-pill"><span class="rca">Coordinator sessions</span> shift the entire surface temperature to teal</div>
+</div>
+
+
+<!-- ╔═══════════════════════════════════════╗
+     ║  SCREEN 5 — COORDINATOR SESSION       ║
+     ╚═══════════════════════════════════════╝ -->
+<div class="screen-cell">
+  <div class="phone-frame">
+    <div class="phone-screen coord-screen">
+
+      <div class="status-bar">
+        <span class="sb-time">9:44</span>
+        <div class="sb-icons">
+          <svg width="17" height="12" viewBox="0 0 17 12" fill="white"><rect x="0" y="8" width="3" height="4" rx="0.5" opacity="0.35"/><rect x="4.5" y="5" width="3" height="7" rx="0.5" opacity="0.6"/><rect x="9" y="2" width="3" height="10" rx="0.5" opacity="0.8"/><rect x="13.5" y="0" width="3" height="12" rx="0.5"/></svg>
+          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><circle cx="8" cy="11" r="1.3" fill="white"/><path d="M4.8 7.8 Q8 5.5 11.2 7.8" stroke="white" stroke-width="1.3" stroke-linecap="round"/><path d="M2 5 Q8 1 14 5" stroke="white" stroke-width="1.3" stroke-linecap="round" opacity="0.55"/></svg>
+          <svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x="0.6" y="0.6" width="20" height="10.8" rx="2.5" stroke="white" stroke-opacity="0.75" stroke-width="1.2"/><rect x="21.2" y="3.5" width="2.5" height="5" rx="1" fill="white" opacity="0.55"/><rect x="2.2" y="2.2" width="14" height="7.6" rx="1.5" fill="white"/></svg>
+        </div>
+      </div>
+
+      <div class="app-bar">
+        <div class="ab-left">
+          <div class="ab-back"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="var(--accent-coord)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4L6 9L11 14"/></svg></div>
+          <div class="ab-title-group">
+            <span class="ab-title" style="max-width:140px;">Deploy auth service</span>
+          </div>
+        </div>
+        <div class="ab-right">
+          <div style="width:8px;height:8px;border-radius:50%;background:var(--running);box-shadow:0 0 8px var(--running);animation:dot-breathe 2.4s ease-in-out infinite;"></div>
+          <span class="status-chip chip-coord" style="margin-left:4px;">coordinator</span>
+        </div>
+      </div>
+
+      <!-- Coordinator hero — gradient text (one permitted gradient) -->
+      <div class="coord-hero">
+        <div class="coord-hero-name">Deploy auth service</div>
+        <div class="coord-hero-meta">Work · amplifierd-cloud</div>
+      </div>
+
+      <!-- Coordinator strip -->
+      <div class="coord-strip">
+        <div class="coord-info">
+          <svg width="11" height="11" style="margin-right:5px;" viewBox="0 0 11 11" fill="none" stroke="var(--accent-coord)" stroke-width="1.3"><circle cx="5.5" cy="5.5" r="4"/><circle cx="5.5" cy="5.5" r="1.5" fill="var(--accent-coord)"/><line x1="5.5" y1="0.5" x2="5.5" y2="2.5"/><line x1="5.5" y1="8.5" x2="5.5" y2="10.5"/><line x1="0.5" y1="5.5" x2="2.5" y2="5.5"/><line x1="8.5" y1="5.5" x2="10.5" y2="5.5"/></svg>
+          Orchestrating 2 nodes · step 3
+        </div>
+        <div class="step-pips">
+          <div class="step-pip s-done-pip"></div>
+          <div class="step-pip s-done-pip"></div>
+          <div class="step-pip s-act-pip"></div>
+          <div class="step-pip s-todo-pip"></div>
+          <div class="step-pip s-todo-pip"></div>
+        </div>
+      </div>
+
+      <div class="content-area">
+        <div class="scroll-content" style="padding-top:12px;">
+
+          <!-- Branch: mac (running) — asymmetric rounding -->
+          <div class="branch-card bc-running">
+            <div class="bc-header">
+              <div class="bc-name-row">
+                <span style="font-size:16px;">🖥</span>
+                <span class="bc-name">amplifierd-mac</span>
+              </div>
+              <span class="bc-link">view session →</span>
+            </div>
+            <div class="bc-steps">
+              <div class="bc-step bc-done-step"><span>✓</span> git clone auth-service</div>
+              <div class="bc-step bc-done-step"><span>✓</span> run tests <span style="color:var(--done);font-size:9.5px;">(47 passed)</span></div>
+              <div class="bc-step bc-run-step"><span class="spin-sm">⟳</span> build artifact &amp; push registry…</div>
+            </div>
+          </div>
+
+          <div class="coord-connector">waiting for build artifact</div>
+
+          <!-- Branch: cloud (waiting) -->
+          <div class="branch-card bc-waiting">
+            <div class="bc-header">
+              <div class="bc-name-row">
+                <span style="font-size:16px;">☁</span>
+                <span class="bc-name">amplifierd-cloud</span>
+              </div>
+              <span style="font-size:10px;color:var(--text-3);">waiting</span>
+            </div>
+            <div class="bc-steps">
+              <div class="bc-step bc-wait-step"><span>○</span> waiting for mac build artifact</div>
+              <div class="bc-step bc-wait-step"><span>○</span> deploy auth-service:v2.3.1</div>
+              <div class="bc-step bc-wait-step"><span>○</span> run health checks</div>
+            </div>
+          </div>
+
+          <!-- Branch: this phone -->
+          <div class="branch-card bc-done">
+            <div class="bc-header">
+              <div class="bc-name-row">
+                <span style="font-size:16px;">📱</span>
+                <span class="bc-name">vela-android <span style="font-size:9.5px;color:var(--text-3);font-weight:400;">(this device)</span></span>
+              </div>
+            </div>
+            <div class="bc-steps">
+              <div class="bc-step bc-done-step"><span>✓</span> get_location → 47.6°N, 122.3°W</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="voice-fab voice-fab-running">
+        <svg width="24" height="28" viewBox="0 0 24 28" fill="none"><rect x="8" y="1" width="8" height="15" rx="4" fill="#1A1000"/><path d="M3 13C3 19.5 21 19.5 21 13" stroke="#1A1000" stroke-width="2.2" stroke-linecap="round" fill="none"/><line x1="12" y1="19.5" x2="12" y2="25" stroke="#1A1000" stroke-width="2.2" stroke-linecap="round"/><line x1="8" y1="25" x2="16" y2="25" stroke="#1A1000" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </div>
+
+    </div>
+  </div>
+  <div class="screen-meta">
+    <div class="screen-num">Screen 5</div>
+    <div class="screen-title">Coordinator Session</div>
+    <div class="screen-desc">Surface temperature shifts to teal. Asymmetric branch cards. Title = only permitted gradient.</div>
+  </div>
+</div>
+
+
+<!-- ╔═══════════════════════════════════════╗
+     ║  SCREEN 6 — VOICE CAPTURE OVERLAY     ║
+     ╚═══════════════════════════════════════╝ -->
+<div class="screen-cell">
+  <div class="phone-frame">
+    <div class="phone-screen">
+
+      <!-- Blurred background — session list faintly visible -->
+      <div style="position:absolute;inset:0;background:var(--surface-sub);opacity:0.3;border-radius:48px;"></div>
+      <div style="position:absolute;top:96px;left:16px;right:16px;opacity:0.22;">
+        <div style="background:var(--surface-sub);border-radius:20px;padding:14px;margin-bottom:12px;">
+          <div style="font-family:var(--serif);font-size:16px;color:var(--text-1);">Review auth PR #847</div>
+          <div style="font-size:10px;color:var(--text-2);margin-top:3px;">running · 2m ago</div>
+        </div>
+        <div style="background:#171436;border-radius:20px;padding:14px;">
+          <div style="font-family:var(--serif);font-size:16px;color:var(--text-1);">Deploy to staging</div>
+          <div style="font-size:10px;color:var(--waiting);margin-top:3px;">waiting for approval</div>
+        </div>
+      </div>
+
+      <!-- Voice overlay -->
+      <div class="voice-overlay">
+
+        <!-- Bloom circle -->
+        <div class="vo-bloom"></div>
+
+        <!-- Node indicator -->
+        <div class="vo-node-tag">
+          <div class="vo-node-dot"></div>
+          → amplifierd-cloud / Work
+        </div>
+
+        <!-- Waveform -->
+        <div class="vo-waveform">
+          <div class="wv-b" style="height:10px;animation:wave-anim 0.65s ease-in-out infinite alternate;"></div>
+          <div class="wv-b" style="height:26px;animation:wave-anim 0.85s ease-in-out infinite alternate;animation-delay:0.06s;"></div>
+          <div class="wv-b" style="height:16px;animation:wave-anim 0.72s ease-in-out infinite alternate;animation-delay:0.12s;"></div>
+          <div class="wv-b" style="height:38px;animation:wave-anim 0.95s ease-in-out infinite alternate;animation-delay:0.04s;"></div>
+          <div class="wv-b" style="height:22px;animation:wave-anim 0.78s ease-in-out infinite alternate;animation-delay:0.2s;"></div>
+          <div class="wv-b" style="height:44px;animation:wave-anim 1.0s ease-in-out infinite alternate;animation-delay:0.08s;"></div>
+          <div class="wv-b" style="height:14px;animation:wave-anim 0.68s ease-in-out infinite alternate;animation-delay:0.3s;"></div>
+          <div class="wv-b" style="height:30px;animation:wave-anim 0.88s ease-in-out infinite alternate;animation-delay:0.16s;"></div>
+          <div class="wv-b" style="height:18px;animation:wave-anim 0.74s ease-in-out infinite alternate;animation-delay:0.24s;"></div>
+          <div class="wv-b" style="height:40px;animation:wave-anim 0.92s ease-in-out infinite alternate;animation-delay:0.02s;"></div>
+        </div>
+
+        <!-- Instrument Serif transcript -->
+        <div class="vo-transcript-area">
+          <div class="vo-transcript">"Review the latest PR and—"</div>
+        </div>
+
+        <div class="vo-hint">
+          <span class="vha">Release</span> to send &nbsp;·&nbsp; <span class="vha">Swipe down</span> to cancel
+        </div>
+
+        <!-- Cancel + Send -->
+        <div class="vo-actions">
+          <div class="vo-cancel-btn">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--error)" stroke-width="2" stroke-linecap="round"><line x1="5" y1="5" x2="15" y2="15"/><line x1="15" y1="5" x2="5" y2="15"/></svg>
+          </div>
+          <div class="vo-send-btn">
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="var(--abyss)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 19 L19 11 L3 3 L5 9.5 L14 11 L5 12.5Z"/></svg>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+  <div class="screen-meta">
+    <div class="screen-num">Screen 6</div>
+    <div class="screen-title">Voice Capture Overlay</div>
+    <div class="screen-desc">FAB blooms from bottom-right. Instrument Serif transcript. Cyan bloom ring. Cancel ← → Send.</div>
+  </div>
+</div>
+
+
+<!-- Row connector -->
+<div class="row-connector">
+  <div class="rc-pill"><span class="rca">Approval gate</span> rises as bottom sheet — violet eyebrow, serif title, whole screen dims</div>
+</div>
+
+
+<!-- ╔═══════════════════════════════════════╗
+     ║  SCREEN 7 — APPROVAL GATE SHEET       ║
+     ╚═══════════════════════════════════════╝ -->
+<div class="screen-cell">
+  <div class="phone-frame">
+    <div class="phone-screen">
+
+      <!-- Session detail behind the sheet (faded) -->
+      <div class="status-bar">
+        <span class="sb-time">9:47</span>
+        <div class="sb-icons">
+          <svg width="17" height="12" viewBox="0 0 17 12" fill="white"><rect x="0" y="8" width="3" height="4" rx="0.5" opacity="0.35"/><rect x="4.5" y="5" width="3" height="7" rx="0.5" opacity="0.6"/><rect x="9" y="2" width="3" height="10" rx="0.5" opacity="0.8"/><rect x="13.5" y="0" width="3" height="12" rx="0.5"/></svg>
+          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><circle cx="8" cy="11" r="1.3" fill="white"/><path d="M4.8 7.8 Q8 5.5 11.2 7.8" stroke="white" stroke-width="1.3" stroke-linecap="round"/></svg>
+          <svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x="0.6" y="0.6" width="20" height="10.8" rx="2.5" stroke="white" stroke-opacity="0.75" stroke-width="1.2"/><rect x="2.2" y="2.2" width="14" height="7.6" rx="1.5" fill="white"/></svg>
+        </div>
+      </div>
+      <div style="padding:12px 16px;opacity:0.35;">
+        <div style="font-family:var(--serif);font-size:22px;color:var(--text-1);margin-bottom:6px;">Deploy to staging</div>
+        <div style="background:var(--surface-sub);border-radius:16px;padding:12px;font-size:12px;color:var(--text-2);">
+          Staging deployment succeeded · 3 pods healthy<br>
+          <span style="color:var(--text-3);font-family:var(--mono);font-size:10px;">auth-service:v2.3.1</span>
+        </div>
+      </div>
+
+      <!-- Backdrop -->
+      <div class="approval-backdrop"></div>
+
+      <!-- Bottom sheet -->
+      <div class="approval-sheet">
+        <div class="sheet-handle"></div>
+        <div class="approval-eyebrow">Approval Required</div>
+        <div class="approval-title">Deploy auth-service to production?</div>
+        <div class="approval-context">
+          kubectl apply -f deploy/prod/<br>
+          image: auth-service:v2.3.1<br>
+          replicas: 4 → affects ~1,200 active users<br>
+          <span style="color:var(--done);">✓ Staging health checks passed</span>
+        </div>
+        <div class="approval-btns">
+          <div class="btn-deny">Deny</div>
+          <div class="btn-approve">Approve</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  <div class="screen-meta">
+    <div class="screen-num">Screen 7</div>
+    <div class="screen-title">Approval Gate</div>
+    <div class="screen-desc">Bottom sheet from <code style="font-size:10px;color:var(--accent)">surface/peak</code>. Violet eyebrow. Serif question. Context in mono. Deny ← → Approve.</div>
+  </div>
+</div>
+
+
+<!-- ╔═══════════════════════════════════════╗
+     ║  SCREEN 8 — NODE CONFIG / PUSH BUNDLE ║
+     ╚═══════════════════════════════════════╝ -->
+<div class="screen-cell">
+  <div class="phone-frame">
+    <div class="phone-screen">
+
+      <div class="status-bar">
+        <span class="sb-time">9:41</span>
+        <div class="sb-icons">
+          <svg width="17" height="12" viewBox="0 0 17 12" fill="white"><rect x="0" y="8" width="3" height="4" rx="0.5" opacity="0.35"/><rect x="4.5" y="5" width="3" height="7" rx="0.5" opacity="0.6"/><rect x="9" y="2" width="3" height="10" rx="0.5" opacity="0.8"/><rect x="13.5" y="0" width="3" height="12" rx="0.5"/></svg>
+          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><circle cx="8" cy="11" r="1.3" fill="white"/><path d="M4.8 7.8 Q8 5.5 11.2 7.8" stroke="white" stroke-width="1.3" stroke-linecap="round"/><path d="M2 5 Q8 1 14 5" stroke="white" stroke-width="1.3" stroke-linecap="round" opacity="0.55"/></svg>
+          <svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x="0.6" y="0.6" width="20" height="10.8" rx="2.5" stroke="white" stroke-opacity="0.75" stroke-width="1.2"/><rect x="21.2" y="3.5" width="2.5" height="5" rx="1" fill="white" opacity="0.55"/><rect x="2.2" y="2.2" width="14" height="7.6" rx="1.5" fill="white"/></svg>
+        </div>
+      </div>
+
+      <div class="app-bar">
+        <div class="ab-left">
+          <div class="ab-back"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4L6 9L11 14"/></svg></div>
+          <div class="ab-title-group">
+            <span class="ab-title">amplifierd-cloud</span>
+            <span class="ab-subtitle-small">Configuration</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="content-area">
+        <div class="scroll-content">
+
+          <!-- Bundle -->
+          <div class="config-section">
+            <div class="cs-header">Bundle</div>
+            <div class="cs-row">
+              <div class="cs-label">Active bundle</div>
+              <div style="display:flex;align-items:center;gap:5px;">
+                <span class="cs-val">superpowers</span>
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="var(--text-3)" stroke-width="1.5" stroke-linecap="round"><path d="M2 4l4 4 4-4"/></svg>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tools -->
+          <div class="config-section">
+            <div class="cs-header">Tools</div>
+            <div class="cs-row">
+              <div class="cs-label"><span style="font-family:var(--mono);font-size:12px;color:var(--text-3);">$</span> bash</div>
+              <div class="toggle-sw on"><div class="toggle-thumb"></div></div>
+            </div>
+            <div class="cs-row">
+              <div class="cs-label"><span style="font-family:var(--mono);font-size:11px;color:var(--text-3);">&lt;/&gt;</span> github</div>
+              <div class="toggle-sw on"><div class="toggle-thumb"></div></div>
+            </div>
+            <div class="cs-row">
+              <div class="cs-label"><span style="font-family:var(--mono);font-size:11px;color:var(--text-3);">🔍</span> web_search</div>
+              <div class="toggle-sw on"><div class="toggle-thumb"></div></div>
+            </div>
+            <div class="cs-row">
+              <div class="cs-label"><span style="font-family:var(--mono);font-size:11px;color:var(--text-3);">📄</span> read_file</div>
+              <div class="toggle-sw on"><div class="toggle-thumb"></div></div>
+            </div>
+            <div class="cs-row">
+              <div class="cs-label"><span style="font-family:var(--mono);font-size:11px;color:var(--text-3);">⚙</span> code_runner</div>
+              <div class="toggle-sw off"><div class="toggle-thumb"></div></div>
+            </div>
+          </div>
+
+          <!-- Limits -->
+          <div class="config-section">
+            <div class="cs-header">Limits</div>
+            <div class="slider-wrap">
+              <div class="slider-row">
+                <span class="slr-label">Max steps / session</span>
+                <strong class="slr-val">10</strong>
+              </div>
+              <div class="slider-track">
+                <div class="slider-fill"></div>
+                <div class="slider-thumb"></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Push button: sticky bottom, cyan filled -->
+      <div class="push-btn">Push to Node</div>
+
+    </div>
+  </div>
+  <div class="screen-meta">
+    <div class="screen-num">Screen 8</div>
+    <div class="screen-title">Node Config — Push Bundle</div>
+    <div class="screen-desc">M3 Expressive toggles in cyan. Slider with value chip. Sticky Push button.</div>
+  </div>
+</div>
+
+
+<!-- ╔═══════════════════════════════════════╗
+     ║  SCREEN 9 — CONNECT A NODE            ║
+     ╚═══════════════════════════════════════╝ -->
+<div class="screen-cell">
+  <div class="phone-frame">
+    <div class="phone-screen">
+
+      <div class="status-bar">
+        <span class="sb-time">9:41</span>
+        <div class="sb-icons">
+          <svg width="17" height="12" viewBox="0 0 17 12" fill="white"><rect x="0" y="8" width="3" height="4" rx="0.5" opacity="0.35"/><rect x="4.5" y="5" width="3" height="7" rx="0.5" opacity="0.6"/><rect x="9" y="2" width="3" height="10" rx="0.5" opacity="0.8"/><rect x="13.5" y="0" width="3" height="12" rx="0.5"/></svg>
+          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><circle cx="8" cy="11" r="1.3" fill="white"/><path d="M4.8 7.8 Q8 5.5 11.2 7.8" stroke="white" stroke-width="1.3" stroke-linecap="round"/><path d="M2 5 Q8 1 14 5" stroke="white" stroke-width="1.3" stroke-linecap="round" opacity="0.55"/></svg>
+          <svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x="0.6" y="0.6" width="20" height="10.8" rx="2.5" stroke="white" stroke-opacity="0.75" stroke-width="1.2"/><rect x="21.2" y="3.5" width="2.5" height="5" rx="1" fill="white" opacity="0.55"/><rect x="2.2" y="2.2" width="14" height="7.6" rx="1.5" fill="white"/></svg>
+        </div>
+      </div>
+
+      <div class="app-bar">
+        <div class="ab-left">
+          <div class="ab-back"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4L6 9L11 14"/></svg></div>
+        </div>
+      </div>
+
+      <div class="connect-content">
+        <div class="connect-hero">Connect a node.</div>
+        <div class="connect-sub">Enter the address of an amplifierd instance on your Tailscale network.</div>
+
+        <!-- Large input: focused, cyan border -->
+        <div class="connect-input">
+          <span style="color:var(--accent);margin-right:8px;font-family:var(--mono);font-size:12px;">@</span>
+          mac-mini.tailnet.ts.net
+        </div>
+
+        <div class="connect-qr">
+          <svg width="14" height="14" style="margin-right:5px;" viewBox="0 0 14 14" fill="none" stroke="var(--accent)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="1" width="5" height="5" rx="0.5"/><rect x="8" y="1" width="5" height="5" rx="0.5"/><rect x="1" y="8" width="5" height="5" rx="0.5"/><rect x="9" y="9" width="1.5" height="1.5" fill="var(--accent)"/><rect x="11.5" y="9" width="1.5" height="1.5" fill="var(--accent)"/><rect x="9" y="11.5" width="4" height="1.5" fill="var(--accent)"/><rect x="2" y="2" width="3" height="3" fill="var(--accent)"/><rect x="9" y="2" width="3" height="3" fill="var(--accent)"/><rect x="2" y="9" width="3" height="3" fill="var(--accent)"/></svg>
+          Pair via QR
+        </div>
+
+        <div class="connect-btn">Connect</div>
+      </div>
+
+      <!-- Idle FAB -->
+      <div class="voice-fab voice-fab-idle">
+        <svg width="24" height="28" viewBox="0 0 24 28" fill="none"><rect x="8" y="1" width="8" height="15" rx="4" fill="#5EEAD4"/><path d="M3 13C3 19.5 21 19.5 21 13" stroke="#5EEAD4" stroke-width="2.2" stroke-linecap="round" fill="none"/><line x1="12" y1="19.5" x2="12" y2="25" stroke="#5EEAD4" stroke-width="2.2" stroke-linecap="round"/><line x1="8" y1="25" x2="16" y2="25" stroke="#5EEAD4" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </div>
+
+    </div>
+  </div>
+  <div class="screen-meta">
+    <div class="screen-num">Screen 9</div>
+    <div class="screen-title">Connect a Node</div>
+    <div class="screen-desc">Serif hero. Single large input (focused, cyan border). Pair via QR text button. Connect fills full width.</div>
+  </div>
+</div>
+
+
+</div><!-- /storyboard-grid -->
+
+
+<!-- FOOTER -->
+<div class="sb-footer" style="margin-top:80px;">
+  <strong>Vela</strong> &nbsp;·&nbsp; Android AI Agent Terminal &nbsp;·&nbsp; UX Storyboard v7
+  &nbsp;&nbsp;|&nbsp;&nbsp;
+  9 screens &nbsp;·&nbsp; Material 3 Expressive &nbsp;·&nbsp; Voice-first cockpit
+  &nbsp;&nbsp;|&nbsp;&nbsp;
+  <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-4);">#0B0E1A abyss · #5EEAD4 accent · #F5A524 running · #A78BFA waiting · #7DCFA5 done · #FF6B6B error</span>
+</div>
+
+</body>
+</html>
