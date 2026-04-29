@@ -430,7 +430,7 @@ Motion in Vela is **physical**. Spring physics, never linear tweens. Surfaces fe
   - Disc: `#F5A524`.
   - Mic glyph: 26dp, `#1A1000` (on-color).
 - **Press feedback**: scale 1.00 → 0.94, `motion/spring-snappy`.
-- **Activation**: hold-to-talk OR tap-to-toggle (user setting). On activation, transitions to overlay via `motion/spring-voice`.
+- **Activation**: tap to start, tap the Stop button in the overlay to finish. No holding. Recording continues indefinitely — built for long dictations, voice memos, and rambling thoughts. On tap, transitions to overlay via `motion/spring-voice`.
 - **Disabled state** (no node connected): halo gone, ring `text/disabled`, disc `surface/sub`, glyph `text/disabled`, no breathing.
 
 ---

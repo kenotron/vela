@@ -853,18 +853,31 @@ body {
   font-size: 11px; color: var(--text-3); text-align: center; margin-bottom: 36px;
 }
 .vo-hint .vha { color: var(--accent); }
-.vo-actions { display: flex; align-items: center; gap: 28px; }
-.vo-cancel-btn {
-  width: 56px; height: 56px; border-radius: 50%;
-  background: var(--surface-raised);
-  display: flex; align-items: center; justify-content: center;
-  border: 1px solid rgba(255,107,107,0.4);
+/* Recording timer: JetBrains Mono, tabular figures, pulsing red dot */
+.vo-timer {
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--mono);
+  font-size: 22px; font-weight: 500; letter-spacing: 3px;
+  color: var(--text-1);
+  margin-bottom: 28px;
 }
-.vo-send-btn {
-  width: 64px; height: 64px; border-radius: 50%;
-  background: var(--accent);
+.vo-rec-dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--error);
+  box-shadow: 0 0 6px var(--error);
+  animation: rec-pulse 1s ease-in-out infinite;
+  flex-shrink: 0;
+}
+@keyframes rec-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.45; transform: scale(0.8); }
+}
+/* Stop button: single bottom action — error-container tonal fill (M3 pattern) */
+.vo-stop-btn {
+  width: 72px; height: 72px; border-radius: 50%;
+  background: var(--error-c);
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 0 24px rgba(94,234,212,0.35);
+  box-shadow: 0 0 0 1.5px rgba(255,107,107,0.28), 0 4px 20px rgba(255,107,107,0.1);
 }
 
 /* =====================================================
@@ -1107,7 +1120,7 @@ body {
   <div class="flow-map">
     <span class="fp">Home (Nodes) <span class="fa">→</span> Node Detail <span class="fa">→</span> Session List <span class="fa">→</span> Session Detail <span class="fa">→</span> Tool Calls</span>
     <span style="color:#1F2542;">────────────────────────────────────────────────────────────────────────</span>
-    <span><span class="fn">hold Voice FAB</span> <span class="fa">→</span> Voice Capture Overlay <span style="color:#4A4D5E;">(persists every screen)</span></span>
+    <span><span class="fn">tap Voice FAB</span> <span class="fa">→</span> Voice Capture Overlay — tap Stop when done <span style="color:#4A4D5E;">(no holding; supports long recordings)</span></span>
     <span><span class="fn">coordinator session</span> <span class="fa">→</span> Coordinator View <span style="color:#4A4D5E;">(cross-node work graph, teal surface shift)</span></span>
     <span><span class="fn">waiting session card</span> <span class="fa">→</span> Approval Gate <span style="color:#4A4D5E;">(bottom sheet, violet)</span></span>
   </div>
@@ -1870,22 +1883,20 @@ body {
 
         <!-- Hint: Inter 11px -->
         <div class="vo-hint">
-          <span class="vha">Release</span> to send &nbsp;·&nbsp; <span class="vha">Swipe down</span> to cancel
+          Recording &nbsp;·&nbsp; <span class="vha">Swipe to discard</span>
         </div>
 
-        <!-- Cancel + Send buttons -->
-        <div class="vo-actions">
-          <div class="vo-cancel-btn">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--error)" stroke-width="2" stroke-linecap="round">
-              <line x1="5" y1="5" x2="15" y2="15"/>
-              <line x1="15" y1="5" x2="5" y2="15"/>
-            </svg>
-          </div>
-          <div class="vo-send-btn">
-            <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="var(--abyss)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 19 L19 11 L3 3 L5 9.5 L14 11 L5 12.5Z"/>
-            </svg>
-          </div>
+        <!-- Recording timer: duration + pulsing dot -->
+        <div class="vo-timer">
+          <div class="vo-rec-dot"></div>
+          1:24
+        </div>
+
+        <!-- Stop button: single action while recording -->
+        <div class="vo-stop-btn">
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="var(--error-oc)">
+            <rect x="4" y="4" width="14" height="14" rx="2.5"/>
+          </svg>
         </div>
 
       </div>
@@ -1894,10 +1905,9 @@ body {
   </div>
   <div class="screen-meta">
     <div class="screen-num">Screen 6</div>
-    <div class="screen-title">Voice Capture Overlay</div>
+    <div class="screen-title">Voice Capture Overlay — Recording</div>
     <div class="screen-desc">
-      FAB blooms from bottom-right. Instrument Serif 26px transcript.
-      Cyan bloom ring. Cancel ← · Send →.
+      Tap to start, tap Stop when done — no holding. Timer counts up. <span class="sda">Phase 2</span>: Stop → review transcript → Send.
     </div>
   </div>
 </div>
