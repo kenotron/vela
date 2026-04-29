@@ -22,7 +22,7 @@
      * the user copies it into ~/.ssh/authorized_keys on each remote machine.
      */
     @Singleton
-    class SshKeyManager @Inject constructor(
+    open class SshKeyManager @Inject constructor(
         private val context: Context,
     ) {
         private val prefs: SharedPreferences
@@ -31,7 +31,7 @@
         // ── Public API ─────────────────────────────────────────────────────────────
 
         /** Human-readable OpenSSH public key line to paste into authorized_keys. */
-        fun getPublicKey(): String {
+        open fun getPublicKey(): String {
             ensureKeyExists()
             return prefs.getString(KEY_PUB, "") ?: ""
         }
