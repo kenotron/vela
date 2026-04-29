@@ -59,3 +59,41 @@ def test_create_project_validates_body(fake_state, projects_path):
     client = _client(fake_state, projects_path)
     r = client.post("/projects", json={})
     assert r.status_code == 422  # FastAPI validation error
+
+
+from tests.conftest import FakeSessionManager  # noqa: E402  (re-import for clarity)
+import types  # noqa: E402
+
+
+def test_list_project_sessions_filters_by_project_id(projects_path):
+    sessions = [
+        {"id": "s1", "metadata": {"project_id": "p1"}},
+        {"id": "s2", "metadata": {"project_id": "p2"}},
+        {"id": "s3", "metadata": {"project_id": "p1"}},
+        {"id": "s4", "metadata": {}},
+    ]
+    state = types.SimpleNamespace(session_manager=FakeSessionManager(sessions))
+    client = _client(state, projects_path)
+
+    r = client.get("/projects/p1/sessions")
+    assert r.status_code == 200
+    ids = [s["id"] for s in r.json()]
+    assert ids == ["s1", "s3"]
+
+
+def test_list_project_sessions_empty_when_none_match(projects_path):
+    sessions = [{"id": "s1", "metadata": {"project_id": "other"}}]
+    state = types.SimpleNamespace(session_manager=FakeSessionManager(sessions))
+    client = _client(state, projects_path)
+    r = client.get("/projects/missing/sessions")
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+def test_list_project_sessions_handles_session_without_metadata(projects_path):
+    sessions = [{"id": "s1"}]  # no metadata key at all
+    state = types.SimpleNamespace(session_manager=FakeSessionManager(sessions))
+    client = _client(state, projects_path)
+    r = client.get("/projects/p1/sessions")
+    assert r.status_code == 200
+    assert r.json() == []
