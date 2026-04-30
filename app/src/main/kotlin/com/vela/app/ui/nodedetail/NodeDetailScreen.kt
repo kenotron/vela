@@ -1,6 +1,7 @@
 package com.vela.app.ui.nodedetail
 
 import androidx.compose.foundation.border
+import com.vela.app.ui.navigation.Routes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -115,7 +116,7 @@ fun NodeDetailScreen(
 
             item(key = "new-project-placeholder") {
                 NewProjectPlaceholder(
-                    onTap = { /* Phase 3: show new-project sheet */ }
+                    onTap = { navController.navigate(Routes.CONNECT_NODE) }
                 )
             }
         }
