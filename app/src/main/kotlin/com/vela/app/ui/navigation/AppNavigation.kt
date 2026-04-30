@@ -13,12 +13,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.vela.app.ui.approval.ApprovalGateSheet
 import com.vela.app.ui.approval.ApprovalSheetViewModel
+import com.vela.app.ui.connectnode.ConnectNodeScreen
 import com.vela.app.ui.home.HomeScreen
+import com.vela.app.ui.nodeconfig.NodeConfigScreen
 import com.vela.app.ui.nodedetail.NodeDetailScreen
 import com.vela.app.ui.sessiondetail.SessionDetailScreen
 import com.vela.app.ui.sessionlist.SessionListScreen
@@ -77,8 +81,24 @@ fun VelaApp(modifier: Modifier = Modifier) {
             composable(Routes.SESSION_LIST)   { SessionListScreen(navController) }
             composable(Routes.SESSION_DETAIL) { SessionDetailScreen(navController) }
             composable(Routes.COORDINATOR)    { CoordinatorPlaceholder(navController) }
-            composable(Routes.NODE_CONFIG)    { NodeConfigPlaceholder(navController) }
-            composable(Routes.CONNECT_NODE)   { ConnectNodePlaceholder(navController) }
+            composable(
+                route     = Routes.NODE_CONFIG,
+                arguments = listOf(
+                    navArgument("nodeId") { type = NavType.StringType }
+                ),
+            ) { backStackEntry ->
+                val nodeId = backStackEntry.arguments?.getString("nodeId") ?: return@composable
+                NodeConfigScreen(
+                    nodeId         = nodeId,
+                    onNavigateBack = { navController.popBackStack() },
+                )
+            }
+            composable(Routes.CONNECT_NODE) {
+                ConnectNodeScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onConnected    = { navController.popBackStack() },
+                )
+            }
         }
 
         // Persistent Voice FAB — always on top, always bottom-right.
@@ -111,18 +131,5 @@ private fun CoordinatorPlaceholder(navController: NavController) {
     }
 }
 
-@Composable
-private fun NodeConfigPlaceholder(navController: NavController) {
-    Surface(modifier = Modifier.fillMaxSize(), color = VelaColors.Abyss) {
-        Text(text = "Node Config", color = VelaColors.TextPrimary)
-    }
-}
-
-@Composable
-private fun ConnectNodePlaceholder(navController: NavController) {
-    Surface(modifier = Modifier.fillMaxSize(), color = VelaColors.Abyss) {
-        Text(text = "Connect a Node", color = VelaColors.TextPrimary)
-    }
-}
 
 
