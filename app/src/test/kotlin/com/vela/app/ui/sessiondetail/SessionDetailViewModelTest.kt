@@ -86,4 +86,11 @@ class SessionDetailViewModelTest {
         ).readText()
         assertThat(src).contains("fun ToolCallCard")
     }
+
+    @Test fun `SessionDetailScreen source file exists with SessionDetailScreen composable`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/sessiondetail/SessionDetailScreen.kt"
+        ).readText()
+        assertThat(src).contains("fun SessionDetailScreen")
+    }
 }
