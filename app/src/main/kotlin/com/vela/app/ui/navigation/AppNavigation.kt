@@ -1,31 +1,30 @@
 package com.vela.app.ui.navigation
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.vela.app.ui.approval.ApprovalGateSheet
+import com.vela.app.ui.approval.ApprovalSheetViewModel
 import com.vela.app.ui.home.HomeScreen
 import com.vela.app.ui.nodedetail.NodeDetailScreen
 import com.vela.app.ui.sessiondetail.SessionDetailScreen
 import com.vela.app.ui.sessionlist.SessionListScreen
 import com.vela.app.ui.theme.VelaColors
+import com.vela.app.ui.voice.VoiceFab
+import com.vela.app.ui.voice.VoiceOverlayViewModel
 
 // ── Routes
 
@@ -58,16 +57,17 @@ object Routes {
  * Root composable for the entire Vela UI.
  *
  * Contains the [NavHost] for hierarchical navigation (Home → Node → Project →
- * Session) and the persistent [VoiceFabPlaceholder] overlaid at bottom-right
- * above all screens.
- *
- * All screen destinations are placeholders in Phase 1. They are replaced
- * screen-by-screen in Phases 2–6.
+ * Session), the persistent [VoiceFab] overlaid at bottom-right above all
+ * screens, and the [ApprovalGateSheet] driven by [ApprovalSheetViewModel].
  */
 @Composable
 fun VelaApp(modifier: Modifier = Modifier) {
     val navController = rememberNavController()
     Box(modifier = modifier.fillMaxSize()) {
+        val voiceVm: VoiceOverlayViewModel    = hiltViewModel()
+        val approvalVm: ApprovalSheetViewModel = hiltViewModel()
+        val approvalReq by approvalVm.request.collectAsState()
+
         NavHost(
             navController    = navController,
             startDestination = Routes.HOME,
@@ -82,12 +82,21 @@ fun VelaApp(modifier: Modifier = Modifier) {
         }
 
         // Persistent Voice FAB — always on top, always bottom-right.
-        // Replaced with the real VoiceFab in Phase 2.
-        VoiceFabPlaceholder(
-            modifier = Modifier
+        VoiceFab(
+            voiceVm          = voiceVm,
+            isSessionRunning = false,
+            modifier         = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(20.dp),
         )
+
+        approvalReq?.let { req ->
+            ApprovalGateSheet(
+                request   = req,
+                onApprove = { approvalVm.approve() },
+                onDeny    = { approvalVm.deny() },
+            )
+        }
     }
 }
 
@@ -116,30 +125,4 @@ private fun ConnectNodePlaceholder(navController: NavController) {
     }
 }
 
-// ── Voice FAB placeholder
 
-/**
- * Placeholder for the persistent Voice FAB.
- *
- * Matches the DESIGN.md §7.7 idle-state dimensions (64dp, cyan ring on
- * SurfacePeak disc) without any animation or interaction logic.
- * The real VoiceFab with bloom animation is built in Phase 2.
- */
-@Composable
-fun VoiceFabPlaceholder(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .size(64.dp)
-            .clip(CircleShape)
-            .background(VelaColors.SurfacePeak)
-            .border(1.5.dp, VelaColors.Accent, CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector        = Icons.Default.Mic,
-            contentDescription = "Voice",
-            tint               = VelaColors.Accent,
-            modifier           = Modifier.size(26.dp),
-        )
-    }
-}
