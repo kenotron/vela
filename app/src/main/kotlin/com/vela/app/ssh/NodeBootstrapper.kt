@@ -265,12 +265,19 @@ WantedBy=default.target
         emit(BootstrapEvent.StepComplete(BootstrapStep.INSTALL_UV))
 
         // Step 4: INSTALL_AMPLIFIERD
+        // Skip the slow git-clone install if amplifierd is already present and works.
         emit(BootstrapEvent.StepStart(BootstrapStep.INSTALL_AMPLIFIERD))
-        val ampR = shell.exec(buildUvInstallCommand(bundle))
-        if (ampR.exitCode != 0) {
-            registry.updateBootstrapStatus(nodeId, BootstrapStatus.FAILED)
-            emit(BootstrapEvent.Failed(BootstrapStep.INSTALL_AMPLIFIERD, "exit ${ampR.exitCode}: ${ampR.stdout.trim()}"))
-            return@flow
+        val verCheck = shell.exec("export PATH=\"\$HOME/.local/bin:\$PATH\" && amplifierd --version 2>/dev/null | head -1")
+        if (verCheck.stdout.trim().isNotBlank()) {
+            emit(BootstrapEvent.Output("✓ amplifierd already installed (${verCheck.stdout.trim()}) — skipping reinstall"))
+        } else {
+            emit(BootstrapEvent.Output("Installing amplifierd (this may take a minute)…"))
+            val ampR = shell.exec(buildUvInstallCommand(bundle))
+            if (ampR.exitCode != 0) {
+                registry.updateBootstrapStatus(nodeId, BootstrapStatus.FAILED)
+                emit(BootstrapEvent.Failed(BootstrapStep.INSTALL_AMPLIFIERD, "exit ${ampR.exitCode}: ${ampR.stdout.trim()}"))
+                return@flow
+            }
         }
         emit(BootstrapEvent.StepComplete(BootstrapStep.INSTALL_AMPLIFIERD))
 
