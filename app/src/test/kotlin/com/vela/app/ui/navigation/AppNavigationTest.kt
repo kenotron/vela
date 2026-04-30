@@ -81,4 +81,35 @@ class AppNavigationTest {
         assertThat(src).contains("SessionDetailScreen(navController)")
         assertThat(src).doesNotContain("SessionDetailPlaceholder")
     }
+
+    // ── Phase 4 wiring ──────────────────────────────────────────────────────────────────
+
+    @Test fun `AppNavigation uses VoiceFab not VoiceFabPlaceholder`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/navigation/AppNavigation.kt"
+        ).readText()
+        com.google.common.truth.Truth.assertThat(src).doesNotContain("VoiceFabPlaceholder(")
+        com.google.common.truth.Truth.assertThat(src).contains("VoiceFab(")
+    }
+
+    @Test fun `AppNavigation includes ApprovalGateSheet`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/navigation/AppNavigation.kt"
+        ).readText()
+        com.google.common.truth.Truth.assertThat(src).contains("ApprovalGateSheet(")
+    }
+
+    @Test fun `AppNavigation imports VoiceOverlayViewModel`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/navigation/AppNavigation.kt"
+        ).readText()
+        com.google.common.truth.Truth.assertThat(src).contains("VoiceOverlayViewModel")
+    }
+
+    @Test fun `AppNavigation imports ApprovalSheetViewModel`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/navigation/AppNavigation.kt"
+        ).readText()
+        com.google.common.truth.Truth.assertThat(src).contains("ApprovalSheetViewModel")
+    }
 }
