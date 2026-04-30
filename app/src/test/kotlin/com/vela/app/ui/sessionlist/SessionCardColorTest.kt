@@ -84,4 +84,13 @@ class SessionCardColorTest {
         assertThat(chipOnContainerFor(SessionStatus.ERROR).toArgb())
             .isEqualTo(VelaColors.ErrorOnContainer.toArgb())
     }
+
+    // ── Structural: verify composable exists ──────────────────────────────────
+
+    @Test fun `SessionCard source contains SessionCard composable`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/sessionlist/SessionCard.kt"
+        ).readText()
+        assertThat(src).contains("fun SessionCard")
+    }
 }
