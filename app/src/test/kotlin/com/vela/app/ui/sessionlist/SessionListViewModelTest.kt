@@ -101,4 +101,13 @@ class SessionListViewModelTest {
         val vm = makeVm()
         assertThat(vm.recentSessions.value).isEmpty()
     }
+
+    // ── Structural: verify screen composable exists ──────────────────────────
+
+    @Test fun `SessionListScreen source file exists with SessionListScreen composable`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/sessionlist/SessionListScreen.kt"
+        ).readText()
+        assertThat(src).contains("fun SessionListScreen")
+    }
 }
