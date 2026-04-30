@@ -16,11 +16,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -28,7 +33,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,8 +50,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.vela.app.ssh.BootstrapStatus
 import com.vela.app.ssh.SshNode
+import com.vela.app.ui.connectors.NodeBootstrapSheet
 import com.vela.app.ui.navigation.Routes
 import com.vela.app.ui.theme.VelaColors
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -64,6 +73,7 @@ fun NodeDetailScreen(
 ) {
     val node by viewModel.node.collectAsState()
     val projects by viewModel.projects.collectAsState()
+    val repairState by viewModel.repairState.collectAsState()
     val coroutineScope = rememberCoroutineScope()
 
     // "New project" dialog state
@@ -72,6 +82,14 @@ fun NodeDetailScreen(
 
     // "Delete node" confirm dialog state
     var showDeleteDialog by remember { mutableStateOf(false) }
+
+    // Auto-dismiss repair sheet after brief "done" beat
+    LaunchedEffect(repairState.isComplete) {
+        if (repairState.isComplete) {
+            delay(1500)
+            viewModel.clearRepairState()
+        }
+    }
 
     if (showDeleteDialog) {
         AlertDialog(
@@ -153,6 +171,19 @@ fun NodeDetailScreen(
         )
     }
 
+    if (repairState.isBootstrapping || repairState.isComplete || repairState.errorMessage != null) {
+        ModalBottomSheet(
+            onDismissRequest = { viewModel.clearRepairState() },
+            containerColor   = VelaColors.SurfaceRaised,
+            sheetState       = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            NodeBootstrapSheet(
+                state     = repairState,
+                onDismiss = { viewModel.clearRepairState() },
+            )
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -168,12 +199,28 @@ fun NodeDetailScreen(
                 },
                 title   = {},
                 actions = {
-                    IconButton(onClick = { showDeleteDialog = true }) {
-                        Icon(
-                            imageVector        = Icons.Default.Delete,
-                            contentDescription = "Remove node",
-                            tint               = VelaColors.TextTertiary,
-                        )
+                    var menuExpanded by remember { mutableStateOf(false) }
+
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "More options", tint = VelaColors.TextTertiary)
+                        }
+                        DropdownMenu(
+                            expanded         = menuExpanded,
+                            onDismissRequest = { menuExpanded = false },
+                            containerColor   = VelaColors.SurfaceRaised,
+                        ) {
+                            DropdownMenuItem(
+                                text    = { Text("Repair connection", color = VelaColors.TextPrimary) },
+                                onClick = { menuExpanded = false; viewModel.startRepair() },
+                                leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null, tint = VelaColors.Accent) },
+                            )
+                            DropdownMenuItem(
+                                text    = { Text("Remove node", color = VelaColors.Error) },
+                                onClick = { menuExpanded = false; showDeleteDialog = true },
+                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = VelaColors.Error) },
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(

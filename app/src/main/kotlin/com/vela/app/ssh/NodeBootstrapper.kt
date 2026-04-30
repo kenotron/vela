@@ -114,6 +114,21 @@ open class NodeBootstrapper @Inject constructor(
     internal fun generateSettingsJsonForTest(bundle: BundleChoice, token: String) =
         generateSettingsJson(bundle, token)
 
+    /** Overload for repair flow: accepts an explicit list of bundle names instead of a [BundleChoice]. */
+    private fun generateSettingsJson(bundleNames: List<String>, token: String): String {
+        val bundles = org.json.JSONArray()
+        bundleNames.forEach { bundles.put(it) }
+        val vela = org.json.JSONObject().put("auth_token", token)
+        return org.json.JSONObject()
+            .put("host", "0.0.0.0")
+            .put("port", 8410)
+            .put("log_level", "info")
+            .put("bundles", bundles)
+            .put("disabled_plugins", org.json.JSONArray())
+            .put("vela", vela)
+            .toString(2)
+    }
+
     internal fun generateLaunchdPlist(username: String, anthropicKey: String, homeDir: String): String = """
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -140,8 +155,11 @@ open class NodeBootstrapper @Inject constructor(
 </plist>
     """.trimIndent()
 
-    internal fun generateLaunchdPlistForTest(username: String, anthropicKey: String, homeDir: String) =
-        generateLaunchdPlist(username, anthropicKey, homeDir)
+    internal fun generateLaunchdPlistForTest(
+        username: String,
+        anthropicKey: String,
+        homeDir: String = "/Users/$username",
+    ) = generateLaunchdPlist(username, anthropicKey, homeDir)
 
     internal fun generateSystemdUnit(anthropicKey: String): String = """
 [Unit]
@@ -313,6 +331,179 @@ WantedBy=default.target
         emit(BootstrapEvent.StepComplete(BootstrapStep.PROMOTE))
 
         emit(BootstrapEvent.Complete(url, token))
+    }
+
+    // ── Public repair entry ───────────────────────────────────────────────────────────────────────
+
+    /**
+     * Public entry: opens a real JSch session, then delegates to [repairWithShell].
+     * Uses [existingToken] from the DB — does NOT generate a new token.
+     */
+    open suspend fun repair(
+        nodeId: String,
+        host: String,
+        port: Int,
+        username: String,
+        existingToken: String,
+    ): kotlinx.coroutines.flow.Flow<BootstrapEvent> = kotlinx.coroutines.flow.flow {
+        val shell = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            openJschShell(host, port, username)
+        }
+        try {
+            repairWithShell(shell, nodeId, host, username, existingToken).collect { emit(it) }
+        } finally {
+            shell.close()
+        }
+    }
+
+    /** Test-friendly variant: caller supplies the shell. */
+    internal fun repairWithShell(
+        shell: RemoteShell,
+        nodeId: String,
+        host: String,
+        username: String,
+        existingToken: String,
+    ): kotlinx.coroutines.flow.Flow<BootstrapEvent> = kotlinx.coroutines.flow.flow {
+
+        // Step 1: DETECT
+        emit(BootstrapEvent.StepStart(BootstrapStep.DETECT))
+        val unameResult = shell.exec("uname -sm")
+        val platform = detectPlatform(unameResult.stdout)
+        if (platform == null) {
+            registry.updateBootstrapStatus(nodeId, BootstrapStatus.FAILED)
+            emit(BootstrapEvent.Failed(BootstrapStep.DETECT, "Unsupported platform: ${unameResult.stdout.trim()}"))
+            return@flow
+        }
+        emit(BootstrapEvent.StepComplete(BootstrapStep.DETECT))
+
+        // Step 2: Resolve homeDir
+        val homeDir = shell.exec("echo \$HOME").stdout.trim().ifBlank {
+            when (platform) {
+                RemotePlatform.MACOS_ARM64, RemotePlatform.MACOS_X86 -> "/Users/$username"
+                RemotePlatform.LINUX_AMD64, RemotePlatform.LINUX_ARM64 -> "/home/$username"
+            }
+        }
+
+        // Step 3: Read existing ANTHROPIC_API_KEY from the service file on the remote
+        val anthropicKey: String = when (platform) {
+            RemotePlatform.MACOS_ARM64, RemotePlatform.MACOS_X86 -> {
+                val macKeyCmd = """grep -A1 'ANTHROPIC_API_KEY' "$homeDir/Library/LaunchAgents/com.vela.amplifierd.plist" 2>/dev/null | grep '<string>' | sed 's/.*<string>//;s/<\/string>//'"""
+                shell.exec(macKeyCmd).stdout.trim()
+            }
+            RemotePlatform.LINUX_AMD64, RemotePlatform.LINUX_ARM64 -> {
+                val linuxKeyCmd = """grep 'ANTHROPIC_API_KEY' "$homeDir/.config/systemd/user/amplifierd.service" 2>/dev/null | sed 's/.*ANTHROPIC_API_KEY=//;s/"//'"""
+                shell.exec(linuxKeyCmd).stdout.trim()
+            }
+        }
+        if (anthropicKey.isBlank()) {
+            emit(BootstrapEvent.Output("⚠ ANTHROPIC_API_KEY not found in existing service file — service will start without it"))
+        }
+
+        // Step 4: INSTALL_UV (idempotent)
+        emit(BootstrapEvent.StepStart(BootstrapStep.INSTALL_UV))
+        val uvR = shell.exec("which uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh")
+        if (uvR.exitCode != 0) {
+            registry.updateBootstrapStatus(nodeId, BootstrapStatus.FAILED)
+            emit(BootstrapEvent.Failed(BootstrapStep.INSTALL_UV, "exit ${uvR.exitCode}: ${uvR.stdout.trim()}"))
+            return@flow
+        }
+        emit(BootstrapEvent.StepComplete(BootstrapStep.INSTALL_UV))
+
+        // Step 5: Read existing bundles from settings.json, then INSTALL_AMPLIFIERD --force
+        emit(BootstrapEvent.StepStart(BootstrapStep.INSTALL_AMPLIFIERD))
+        val bundlesCmd = """cat "$homeDir/.amplifierd/settings.json" 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print(' '.join(['--with '+b for b in d.get('bundles',[])]))" 2>/dev/null || true"""
+        val bundlesOutput = shell.exec(bundlesCmd).stdout.trim()
+
+        // Build --force install command; $homeDir is interpolated by Kotlin, $PATH stays as shell var.
+        val forceInstallCmd = buildString {
+            append("export PATH=\"$homeDir/.local/bin:\$PATH\" && uv tool install --force")
+            if (bundlesOutput.isNotBlank()) {
+                append(" $bundlesOutput")
+            }
+            append(" --with git+https://github.com/kenotron/vela#subdirectory=plugins/amplifierd-vela")
+            append(" git+https://github.com/microsoft/amplifierd")
+        }
+        val ampR = shell.exec(forceInstallCmd)
+        if (ampR.exitCode != 0) {
+            registry.updateBootstrapStatus(nodeId, BootstrapStatus.FAILED)
+            emit(BootstrapEvent.Failed(BootstrapStep.INSTALL_AMPLIFIERD, "exit ${ampR.exitCode}: ${ampR.stdout.trim()}"))
+            return@flow
+        }
+        emit(BootstrapEvent.StepComplete(BootstrapStep.INSTALL_AMPLIFIERD))
+
+        // Parse bundle names (strip '--with' flags) for settings.json
+        // bundlesOutput is like "--with superpowers --with lifeos" or blank
+        val bundleNames: List<String> = if (bundlesOutput.isNotBlank()) {
+            bundlesOutput.split(" ").filterIndexed { i, _ -> i % 2 == 1 }
+        } else {
+            listOf("superpowers")
+        }
+
+        // Step 6: Stop existing service before reinstalling
+        when (platform) {
+            RemotePlatform.MACOS_ARM64, RemotePlatform.MACOS_X86 ->
+                shell.exec("launchctl bootout gui/\$UID/com.vela.amplifierd 2>/dev/null; true")
+            RemotePlatform.LINUX_AMD64, RemotePlatform.LINUX_ARM64 ->
+                shell.exec("systemctl --user stop amplifierd 2>/dev/null; true")
+        }
+
+        // Step 7: WRITE_CONFIG — use existingToken, NOT a new token
+        emit(BootstrapEvent.StepStart(BootstrapStep.WRITE_CONFIG))
+        val tmpName = "/tmp/amplifierd_settings_${java.util.UUID.randomUUID()}.json"
+        shell.sftpWrite(tmpName, generateSettingsJson(bundleNames, existingToken))
+        shell.exec("mkdir -p ~/.amplifierd && mv $tmpName ~/.amplifierd/settings.json")
+        emit(BootstrapEvent.StepComplete(BootstrapStep.WRITE_CONFIG))
+
+        // Step 8: INSTALL_SERVICE — regenerate service file with discovered API key, then activate
+        emit(BootstrapEvent.StepStart(BootstrapStep.INSTALL_SERVICE))
+        when (platform) {
+            RemotePlatform.MACOS_ARM64, RemotePlatform.MACOS_X86 -> {
+                shell.exec("mkdir -p ~/Library/LaunchAgents")
+                shell.sftpWrite(
+                    "$homeDir/Library/LaunchAgents/com.vela.amplifierd.plist",
+                    generateLaunchdPlist(username, anthropicKey, homeDir),
+                )
+                shell.exec("launchctl bootstrap gui/\$UID ~/Library/LaunchAgents/com.vela.amplifierd.plist")
+                shell.exec("launchctl kickstart -k gui/\$UID/com.vela.amplifierd")
+            }
+            RemotePlatform.LINUX_AMD64, RemotePlatform.LINUX_ARM64 -> {
+                shell.exec("mkdir -p ~/.config/systemd/user")
+                shell.sftpWrite(
+                    "$homeDir/.config/systemd/user/amplifierd.service",
+                    generateSystemdUnit(anthropicKey),
+                )
+                shell.exec("systemctl --user daemon-reload")
+                shell.exec("systemctl --user enable --now amplifierd")
+            }
+        }
+        emit(BootstrapEvent.StepComplete(BootstrapStep.INSTALL_SERVICE))
+
+        // Step 9: HEALTH_CHECK — polls up to 15 times with 2s delay
+        emit(BootstrapEvent.StepStart(BootstrapStep.HEALTH_CHECK))
+        var healthy = false
+        for (attempt in 1..15) {
+            val r = shell.exec("curl -fsS http://127.0.0.1:8410/health")
+            if (r.exitCode == 0) { healthy = true; break }
+            emit(BootstrapEvent.Output("health check attempt $attempt/15"))
+            kotlinx.coroutines.delay(2_000)
+        }
+        if (!healthy) {
+            val logCmd = when (platform) {
+                RemotePlatform.MACOS_ARM64, RemotePlatform.MACOS_X86 ->
+                    "tail -n 20 ~/.amplifierd/stderr.log 2>/dev/null; tail -n 20 ~/.amplifierd/stdout.log 2>/dev/null"
+                RemotePlatform.LINUX_AMD64, RemotePlatform.LINUX_ARM64 ->
+                    "journalctl --user -n 20 -u amplifierd --no-pager"
+            }
+            val logs = shell.exec(logCmd).stdout
+            registry.updateBootstrapStatus(nodeId, BootstrapStatus.FAILED)
+            emit(BootstrapEvent.Failed(BootstrapStep.HEALTH_CHECK, "Health check timed out after 15 attempts. Logs:\n$logs"))
+            return@flow
+        }
+        emit(BootstrapEvent.StepComplete(BootstrapStep.HEALTH_CHECK))
+
+        // Step 10: Complete — update status to RUNNING, emit Complete with existingToken
+        registry.updateBootstrapStatus(nodeId, BootstrapStatus.RUNNING)
+        emit(BootstrapEvent.Complete("http://$host:8410", existingToken))
     }
 
     // ── JSch session factory ──────────────────────────────────────────────────

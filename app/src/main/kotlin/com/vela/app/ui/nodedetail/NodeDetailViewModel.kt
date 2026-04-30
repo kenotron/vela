@@ -5,8 +5,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vela.app.amplifierd.AmplifierdProject
 import com.vela.app.amplifierd.AmplifierdRepository
+import com.vela.app.ssh.BootstrapEvent
+import com.vela.app.ssh.NodeBootstrapper
 import com.vela.app.ssh.SshNode
 import com.vela.app.ssh.SshNodeRegistry
+import com.vela.app.ui.nodes.BootstrapUiState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +19,7 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -24,6 +28,7 @@ class NodeDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val registry: SshNodeRegistry,
     private val amplifierd: AmplifierdRepository,
+    private val bootstrapper: NodeBootstrapper,
 ) : ViewModel() {
 
     val nodeId: String = checkNotNull(savedStateHandle["nodeId"])
@@ -73,4 +78,39 @@ class NodeDetailViewModel @Inject constructor(
             false
         }
     }
+
+    // ── Repair state ──────────────────────────────────────────────────────────────────────────────
+
+    private val _repairState = MutableStateFlow(BootstrapUiState())
+    val repairState: StateFlow<BootstrapUiState> = _repairState
+
+    fun startRepair() {
+        val n = node.value ?: return
+        _repairState.value = BootstrapUiState(isBootstrapping = true)
+        viewModelScope.launch(Dispatchers.IO) {
+            bootstrapper.repair(
+                nodeId        = nodeId,
+                host          = n.primaryHost,
+                port          = n.port,
+                username      = n.username,
+                existingToken = n.token,
+            ).collect { event ->
+                when (event) {
+                    is BootstrapEvent.Output       -> _repairState.update { it.copy(logLines = it.logLines + event.line) }
+                    is BootstrapEvent.StepStart    -> _repairState.update { it.copy(currentStep = event.step) }
+                    is BootstrapEvent.StepComplete -> _repairState.update { it.copy(completedSteps = it.completedSteps + event.step) }
+                    is BootstrapEvent.Failed       -> _repairState.update {
+                        it.copy(
+                            isBootstrapping = false,
+                            errorMessage    = event.error,
+                            logLines        = it.logLines + event.logs,
+                        )
+                    }
+                    is BootstrapEvent.Complete     -> _repairState.update { it.copy(isBootstrapping = false, isComplete = true) }
+                }
+            }
+        }
+    }
+
+    fun clearRepairState() { _repairState.value = BootstrapUiState() }
 }

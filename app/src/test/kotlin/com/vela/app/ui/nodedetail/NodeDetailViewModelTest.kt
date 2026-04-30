@@ -2,8 +2,11 @@ package com.vela.app.ui.nodedetail
 
 import androidx.lifecycle.SavedStateHandle
 import com.google.common.truth.Truth.assertThat
+import com.vela.app.amplifierd.AmplifierdRepository
 import com.vela.app.data.db.SshNodeDao
 import com.vela.app.data.db.SshNodeEntity
+import com.vela.app.ssh.NodeBootstrapper
+import com.vela.app.ssh.SshKeyManager
 import com.vela.app.ssh.SshNodeRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -44,7 +47,13 @@ class NodeDetailViewModelTest {
         dao: FakeSshNodeDao = FakeSshNodeDao(),
     ): NodeDetailViewModel {
         val savedState = SavedStateHandle(mapOf("nodeId" to nodeId))
-        return NodeDetailViewModel(savedState, SshNodeRegistry(dao))
+        val registry = SshNodeRegistry(dao)
+        val amplifierd = AmplifierdRepository(registry)
+        val bootstrapper = NodeBootstrapper(
+            keyManager = SshKeyManager(android.content.ContextWrapper(null)),
+            registry   = registry,
+        )
+        return NodeDetailViewModel(savedState, registry, amplifierd, bootstrapper)
     }
 
     // ── Tests ───────────────────────────────────────────────────────────────────

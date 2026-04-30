@@ -2,6 +2,7 @@ package com.vela.app.ui.sessionlist
 
 import androidx.lifecycle.SavedStateHandle
 import com.google.common.truth.Truth.assertThat
+import com.vela.app.amplifierd.AmplifierdRepository
 import com.vela.app.data.db.SshNodeDao
 import com.vela.app.data.db.SshNodeEntity
 import com.vela.app.ssh.SshNodeRegistry
@@ -77,7 +78,8 @@ class SessionListViewModelTest {
         dao: FakeSshNodeDao = FakeSshNodeDao(),
     ): SessionListViewModel {
         val savedState = SavedStateHandle(mapOf("nodeId" to nodeId, "projectId" to projectId))
-        return SessionListViewModel(savedState, SshNodeRegistry(dao))
+        val registry = SshNodeRegistry(dao)
+        return SessionListViewModel(savedState, registry, AmplifierdRepository(registry))
     }
 
     // ── Tests ─────────────────────────────────────────────────────────────────
