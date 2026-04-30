@@ -75,7 +75,10 @@ package com.vela.app.ui.connectnode
 
         // Navigate back automatically when bootstrap completes and user closes sheet
         LaunchedEffect(bootstrapState.isComplete) {
-            // Navigation is triggered by onConnected() in sheet dismiss callbacks
+            if (bootstrapState.isComplete) {
+                viewModel.clearBootstrapState()
+                onConnected()
+            }
         }
 
         Scaffold(

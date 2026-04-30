@@ -114,7 +114,7 @@ open class NodeBootstrapper @Inject constructor(
     internal fun generateSettingsJsonForTest(bundle: BundleChoice, token: String) =
         generateSettingsJson(bundle, token)
 
-    internal fun generateLaunchdPlist(username: String, anthropicKey: String): String = """
+    internal fun generateLaunchdPlist(username: String, anthropicKey: String, homeDir: String): String = """
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -122,26 +122,26 @@ open class NodeBootstrapper @Inject constructor(
   <key>Label</key><string>com.vela.amplifierd</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/$username/.local/bin/amplifierd</string>
+    <string>$homeDir/.local/bin/amplifierd</string>
     <string>serve</string>
     <string>--host</string><string>0.0.0.0</string>
     <string>--port</string><string>8410</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>PATH</key><string>/Users/$username/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>PATH</key><string>$homeDir/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
     <key>ANTHROPIC_API_KEY</key><string>$anthropicKey</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>/Users/$username/.amplifierd/stdout.log</string>
-  <key>StandardErrorPath</key><string>/Users/$username/.amplifierd/stderr.log</string>
+  <key>StandardOutPath</key><string>$homeDir/.amplifierd/stdout.log</string>
+  <key>StandardErrorPath</key><string>$homeDir/.amplifierd/stderr.log</string>
 </dict>
 </plist>
     """.trimIndent()
 
-    internal fun generateLaunchdPlistForTest(username: String, anthropicKey: String) =
-        generateLaunchdPlist(username, anthropicKey)
+    internal fun generateLaunchdPlistForTest(username: String, anthropicKey: String, homeDir: String) =
+        generateLaunchdPlist(username, anthropicKey, homeDir)
 
     internal fun generateSystemdUnit(anthropicKey: String): String = """
 [Unit]
@@ -218,6 +218,14 @@ WantedBy=default.target
         }
         emit(BootstrapEvent.StepComplete(BootstrapStep.DETECT))
 
+        // Resolve actual home directory — don't assume /Users/$username or /home/$username
+        val homeDir = shell.exec("echo \$HOME") { }.stdout.trim().ifBlank {
+            when (platform) {
+                RemotePlatform.MACOS_ARM64, RemotePlatform.MACOS_X86 -> "/Users/$username"
+                RemotePlatform.LINUX_AMD64, RemotePlatform.LINUX_ARM64 -> "/home/$username"
+            }
+        }
+
         // Step 3: INSTALL_UV
         emit(BootstrapEvent.StepStart(BootstrapStep.INSTALL_UV))
         val uvR = shell.exec("which uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh")
@@ -251,8 +259,8 @@ WantedBy=default.target
             RemotePlatform.MACOS_ARM64, RemotePlatform.MACOS_X86 -> {
                 shell.exec("mkdir -p ~/Library/LaunchAgents")
                 shell.sftpWrite(
-                    "/Users/$username/Library/LaunchAgents/com.vela.amplifierd.plist",
-                    generateLaunchdPlist(username, anthropicKey),
+                    "$homeDir/Library/LaunchAgents/com.vela.amplifierd.plist",
+                    generateLaunchdPlist(username, anthropicKey, homeDir),
                 )
                 shell.exec("launchctl bootout gui/\$UID/com.vela.amplifierd 2>/dev/null || true")
                 shell.exec("launchctl bootstrap gui/\$UID ~/Library/LaunchAgents/com.vela.amplifierd.plist")
@@ -261,7 +269,7 @@ WantedBy=default.target
             RemotePlatform.LINUX_AMD64, RemotePlatform.LINUX_ARM64 -> {
                 shell.exec("mkdir -p ~/.config/systemd/user")
                 shell.sftpWrite(
-                    "/home/$username/.config/systemd/user/amplifierd.service",
+                    "$homeDir/.config/systemd/user/amplifierd.service",
                     generateSystemdUnit(anthropicKey),
                 )
                 shell.exec("loginctl enable-linger $username 2>/dev/null || true")

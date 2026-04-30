@@ -1,6 +1,7 @@
 package com.vela.app.ui.nodedetail
 
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import com.vela.app.ui.navigation.Routes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -135,6 +136,7 @@ private fun NewProjectPlaceholder(onTap: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .height(72.dp)
+            .clickable { onTap() }
             .border(
                 width = 1.dp,
                 color = VelaColors.StrokeEdge,
