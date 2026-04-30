@@ -55,4 +55,12 @@ class AppNavigationTest {
         assertThat(src).contains("HomeScreen(navController)")
         assertThat(src).doesNotContain("HomeScreenPlaceholder")
     }
+
+    @Test fun `AppNavigation sources NodeDetailScreen (not placeholder)`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/navigation/AppNavigation.kt"
+        ).readText()
+        assertThat(src).contains("NodeDetailScreen(navController)")
+        assertThat(src).doesNotContain("NodeDetailPlaceholder")
+    }
 }
