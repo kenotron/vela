@@ -120,4 +120,13 @@ class NodeTileColorTest {
         assertThat(telemetryLineFor(node)).contains("amplifierd")
         assertThat(telemetryLineFor(node)).contains("10.0.0.106")
     }
+
+    // ── Structural: verify composable exists ────────────────────────────────────
+
+    @Test fun `NodeTile source contains NodeTileItem composable`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/home/NodeTile.kt"
+        ).readText()
+        assertThat(src).contains("fun NodeTileItem")
+    }
 }
