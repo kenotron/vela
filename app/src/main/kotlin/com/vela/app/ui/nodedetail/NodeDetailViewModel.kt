@@ -59,6 +59,10 @@ class NodeDetailViewModel @Inject constructor(
         }
     }
 
+    suspend fun removeNode() {
+        registry.removeNode(nodeId)
+    }
+
     suspend fun createProject(name: String): Boolean {
         return try {
             val client = amplifierd.clientFor(nodeId) ?: return false

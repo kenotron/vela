@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -68,6 +69,42 @@ fun NodeDetailScreen(
     // "New project" dialog state
     var showNewProjectDialog by remember { mutableStateOf(false) }
     var newProjectName by remember { mutableStateOf("") }
+
+    // "Delete node" confirm dialog state
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            containerColor   = VelaColors.SurfacePeak,
+            title = {
+                Text("Remove node?", style = MaterialTheme.typography.titleLarge, color = VelaColors.TextPrimary)
+            },
+            text = {
+                Text(
+                    text  = "\"${node?.label}\" will be removed from Vela. The amplifierd daemon on the remote machine is not affected.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = VelaColors.TextSecondary,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteDialog = false
+                    coroutineScope.launch {
+                        viewModel.removeNode()
+                        navController.popBackStack()
+                    }
+                }) {
+                    Text("Remove", color = VelaColors.Error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel", color = VelaColors.TextSecondary)
+                }
+            },
+        )
+    }
 
     if (showNewProjectDialog) {
         AlertDialog(
@@ -129,7 +166,16 @@ fun NodeDetailScreen(
                         )
                     }
                 },
-                title  = {},
+                title   = {},
+                actions = {
+                    IconButton(onClick = { showDeleteDialog = true }) {
+                        Icon(
+                            imageVector        = Icons.Default.Delete,
+                            contentDescription = "Remove node",
+                            tint               = VelaColors.TextTertiary,
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = VelaColors.Abyss,
                 ),
