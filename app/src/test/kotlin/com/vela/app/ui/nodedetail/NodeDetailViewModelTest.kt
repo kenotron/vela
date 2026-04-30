@@ -107,4 +107,20 @@ class NodeDetailViewModelTest {
         )
         assertThat(vm.node.value?.label).isEqualTo("After")
     }
+
+    // ── Structural: verify composables exist ─────────────────────────────────────
+
+    @Test fun `NodeDetailScreen source file exists`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/nodedetail/NodeDetailScreen.kt"
+        ).readText()
+        assertThat(src).contains("fun NodeDetailScreen")
+    }
+
+    @Test fun `ProjectCard source file exists`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/nodedetail/ProjectCard.kt"
+        ).readText()
+        assertThat(src).contains("fun ProjectCard")
+    }
 }
