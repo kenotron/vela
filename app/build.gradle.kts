@@ -204,6 +204,11 @@
         testImplementation(libs.kotlinx.coroutines.test)
         testImplementation("org.json:json:20231013")
         testImplementation("org.mockito:mockito-core:5.4.0")
+        // Compose Color is a pure-Kotlin value class — toArgb() calls no Android APIs.
+        // Explicit testImplementation ensures ui-graphics lands on the JVM unit-test
+        // compile classpath (implementation-only deps can be filtered by AGP for JVM tests).
+        testImplementation(platform(libs.androidx.compose.bom))
+        testImplementation(libs.androidx.compose.ui.graphics)
 
         androidTestImplementation(libs.androidx.test.runner)
         androidTestImplementation(libs.androidx.test.rules)
