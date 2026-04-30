@@ -344,7 +344,8 @@ class NodeBootstrapperTest {
     }
 
     @Test
-    fun bootstrap_writesSettingsConfigToTempThenAtomicallyMoves() = runTest {
+    fun bootstrap_writesSettingsConfigViaExecWrite() = runTest {
+        // Bug 3: WRITE_CONFIG now uses exec-channel base64 write instead of sftpWrite.
         val shell = FakeRemoteShell()
         shell.responses["uname -sm"] = "Linux x86_64\n" to 0
         shell.responses["curl -fsS http://127.0.0.1:8410/health"] = "ok" to 0
@@ -363,18 +364,19 @@ class NodeBootstrapperTest {
             anthropicKey = "k",
         ).toList()
 
-        val sftpPaths = shell.sftpWrites.map { it.first }
-        assertThat(sftpPaths).contains(sftpPaths.first { it.startsWith("/tmp/amplifierd_settings_") })
-        val settingsContents = shell.sftpWrites.first { it.first.contains("amplifierd_settings_") }.second
-        assertThat(settingsContents).contains("\"superpowers\"")
-
-        assertThat(shell.commands.any {
-            it.contains("mkdir -p ~/.amplifierd") && it.contains("mv /tmp/amplifierd_settings_") && it.contains("~/.amplifierd/settings.json")
-        }).isTrue()
+        // No SFTP writes — file is written via exec channel only
+        assertThat(shell.sftpWrites).isEmpty()
+        // execWrite issues a command that base64-decodes content directly to the target path
+        val settingsCmd = shell.commands.firstOrNull {
+            it.contains("settings.json") && it.contains("base64 -d")
+        }
+        assertThat(settingsCmd).isNotNull()
+        assertThat(settingsCmd!!).contains("/home/u/.amplifierd/settings.json")
     }
 
     @Test
     fun bootstrap_linux_writesSystemdUnitAndRunsSystemctl() = runTest {
+        // Bug 3: service file is written via execWrite (exec channel + base64), not sftpWrite.
         val shell = FakeRemoteShell()
         shell.responses["uname -sm"] = "Linux x86_64\n" to 0
         shell.responses["curl -fsS http://127.0.0.1:8410/health"] = "ok" to 0
@@ -389,10 +391,14 @@ class NodeBootstrapperTest {
             bundle = BundleChoice.TOOLS_ONLY, anthropicKey = "k",
         ).toList()
 
-        val unitWrite = shell.sftpWrites.firstOrNull { it.first.endsWith("amplifierd.service") }
-        assertThat(unitWrite).isNotNull()
-        assertThat(unitWrite!!.first).isEqualTo("/home/alice/.config/systemd/user/amplifierd.service")
-        assertThat(unitWrite.second).contains("[Service]")
+        // No SFTP writes — file is written via exec channel
+        assertThat(shell.sftpWrites).isEmpty()
+        // execWrite command targets the correct service file path
+        val unitCmd = shell.commands.firstOrNull {
+            it.contains("amplifierd.service") && it.contains("base64 -d")
+        }
+        assertThat(unitCmd).isNotNull()
+        assertThat(unitCmd!!).contains("/home/alice/.config/systemd/user/amplifierd.service")
 
         assertThat(shell.commands.any { it.contains("systemctl --user daemon-reload") }).isTrue()
         assertThat(shell.commands.any { it.contains("systemctl --user enable --now amplifierd.service") }).isTrue()
@@ -400,6 +406,8 @@ class NodeBootstrapperTest {
 
     @Test
     fun bootstrap_macos_writesPlistAndRunsLaunchctl() = runTest {
+        // Bug 3: plist is written via execWrite (exec channel + base64), not sftpWrite.
+        // Bug 4: launchctl now uses $(id -u) instead of $UID, with GUI-domain fallback.
         val shell = FakeRemoteShell()
         shell.responses["uname -sm"] = "Darwin arm64\n" to 0
         shell.responses["curl -fsS http://127.0.0.1:8410/health"] = "ok" to 0
@@ -414,13 +422,18 @@ class NodeBootstrapperTest {
             bundle = BundleChoice.TOOLS_ONLY, anthropicKey = "k",
         ).toList()
 
-        val plistWrite = shell.sftpWrites.firstOrNull { it.first.endsWith("com.vela.amplifierd.plist") }
-        assertThat(plistWrite).isNotNull()
-        assertThat(plistWrite!!.first).isEqualTo("/Users/bob/Library/LaunchAgents/com.vela.amplifierd.plist")
-        assertThat(plistWrite.second).contains("<plist version=\"1.0\">")
+        // No SFTP writes — file is written via exec channel
+        assertThat(shell.sftpWrites).isEmpty()
+        // execWrite command targets the correct plist path
+        val plistCmd = shell.commands.firstOrNull {
+            it.contains("com.vela.amplifierd.plist") && it.contains("base64 -d")
+        }
+        assertThat(plistCmd).isNotNull()
+        assertThat(plistCmd!!).contains("/Users/bob/Library/LaunchAgents/com.vela.amplifierd.plist")
 
-        assertThat(shell.commands.any { it.contains("launchctl bootstrap gui/\$UID") }).isTrue()
-        assertThat(shell.commands.any { it.contains("launchctl kickstart -k gui/\$UID/com.vela.amplifierd") }).isTrue()
+        // Bug 4: commands use $(id -u) not $UID
+        assertThat(shell.commands.any { it.contains("launchctl bootstrap gui/\$(id -u)") }).isTrue()
+        assertThat(shell.commands.any { it.contains("launchctl kickstart -k gui/\$(id -u)/com.vela.amplifierd") }).isTrue()
     }
 
     // ── bootstrap() failure handling ──────────────────────────────────────────
@@ -567,6 +580,156 @@ class NodeBootstrapperTest {
 
         val complete = events.last() as BootstrapEvent.Complete
         assertThat(complete.url).isEqualTo("http://1.2.3.4:8410")
+    }
+
+    // ── Bug 1: reliable installed check via uv tool list ──────────────────────────────
+
+    @Test
+    fun bootstrap_skipsInstall_whenUvToolListReportsAmplifierd() = runTest {
+        // Bug 1: the check must use `uv tool list | grep -c '^amplifierd'` returning "1",
+        // NOT `amplifierd --version` (which always emits usage text to stdout via Click).
+        val shell = FakeRemoteShell()
+        shell.responses["uname -sm"] = "Linux x86_64\n" to 0
+        shell.responses["export PATH=\"\$HOME/.local/bin:\$PATH\" && uv tool list 2>/dev/null | grep -c '^amplifierd'"] =
+            "1\n" to 0
+        shell.responses["curl -fsS http://127.0.0.1:8410/health"] = "ok" to 0
+        shell.responses["tailscale ip -4 2>/dev/null"] = "" to 1
+
+        val sut = NodeBootstrapper(
+            keyManager = SshKeyManager(android.content.ContextWrapper(null)),
+            registry = FakeRegistry(),
+        )
+        val events = sut.bootstrapWithShell(
+            shell = shell, nodeId = "n", host = "h", username = "u",
+            bundle = BundleChoice.SUPERPOWERS, anthropicKey = "k",
+        ).toList()
+
+        // Install command must NOT be issued when already installed
+        val installCmd = sut.buildUvInstallCommandForTest(BundleChoice.SUPERPOWERS)
+        assertThat(shell.commands).doesNotContain(installCmd)
+        // "already installed" message must appear
+        val outputs = events.filterIsInstance<BootstrapEvent.Output>().map { it.line }
+        assertThat(outputs.any { "already installed" in it }).isTrue()
+    }
+
+    @Test
+    fun bootstrap_proceedsWithInstall_whenUvToolListReturnsZero() = runTest {
+        // Bug 1 counter-case: grep -c returning "0" means NOT installed — must install.
+        val shell = FakeRemoteShell()
+        shell.responses["uname -sm"] = "Linux x86_64\n" to 0
+        shell.responses["export PATH=\"\$HOME/.local/bin:\$PATH\" && uv tool list 2>/dev/null | grep -c '^amplifierd'"] =
+            "0\n" to 1   // grep -c returns exit 1 when count is 0
+        shell.responses["curl -fsS http://127.0.0.1:8410/health"] = "ok" to 0
+        shell.responses["tailscale ip -4 2>/dev/null"] = "" to 1
+
+        val sut = NodeBootstrapper(
+            keyManager = SshKeyManager(android.content.ContextWrapper(null)),
+            registry = FakeRegistry(),
+        )
+        sut.bootstrapWithShell(
+            shell = shell, nodeId = "n", host = "h", username = "u",
+            bundle = BundleChoice.SUPERPOWERS, anthropicKey = "k",
+        ).toList()
+
+        // Install command MUST be issued when not already installed
+        val installCmd = sut.buildUvInstallCommandForTest(BundleChoice.SUPERPOWERS)
+        assertThat(shell.commands).contains(installCmd)
+    }
+
+    // ── Bug 2: exception propagation from bootstrapWithShell ──────────────────────────
+
+    @Test
+    fun bootstrapWithShell_exceptionFromShell_propagatesToCaller() = runTest {
+        // Bug 2 documents: bootstrapWithShell() does NOT catch exceptions — they propagate
+        // up to bootstrap() where the fix (catch block) converts them to BootstrapEvent.Failed.
+        val throwingShell = object : RemoteShell {
+            override suspend fun exec(command: String): RemoteShell.Result =
+                when {
+                    "uname" in command -> RemoteShell.Result("Linux x86_64\n", 0)
+                    "echo" in command  -> RemoteShell.Result("", 0)
+                    "which uv" in command || "curl" in command -> RemoteShell.Result("", 0)
+                    "uv tool list" in command -> RemoteShell.Result("0\n", 1)
+                    "uv tool install" in command ->
+                        throw RuntimeException("SSH exec failed: channel reset by peer")
+                    else -> RemoteShell.Result("", 0)
+                }
+            override suspend fun sftpWrite(remotePath: String, contents: String) = Unit
+            override fun close() = Unit
+        }
+
+        val sut = NodeBootstrapper(
+            keyManager = SshKeyManager(android.content.ContextWrapper(null)),
+            registry = FakeRegistry(),
+        )
+        var caught: Throwable? = null
+        try {
+            sut.bootstrapWithShell(
+                shell = throwingShell, nodeId = "n", host = "h", username = "u",
+                bundle = BundleChoice.TOOLS_ONLY, anthropicKey = "k",
+            ).toList()
+        } catch (e: Exception) {
+            caught = e
+        }
+
+        // bootstrapWithShell propagates the exception; the public bootstrap() catches it.
+        assertThat(caught).isNotNull()
+        assertThat(caught!!.message).contains("channel reset by peer")
+    }
+
+    // ── Bug 4: macOS launchctl $(id -u) and fallback ──────────────────────────────────
+
+    @Test
+    fun bootstrap_macos_launchctlFallback_whenBootstrapFails() = runTest {
+        // Bug 4: when launchctl bootstrap exits non-zero (and not error 5), fall back to
+        // starting amplifierd directly in the background.
+        val shell = FakeRemoteShell()
+        shell.responses["uname -sm"] = "Darwin arm64\n" to 0
+        // Simulate launchd GUI domain unavailable (exit 1, no "Bootstrap failed: 5")
+        shell.responses["launchctl bootstrap gui/\$(id -u) ~/Library/LaunchAgents/com.vela.amplifierd.plist 2>&1"] =
+            "Bootstrap failed: 125" to 1
+        shell.responses["curl -fsS http://127.0.0.1:8410/health"] = "ok" to 0
+        shell.responses["tailscale ip -4 2>/dev/null"] = "" to 1
+
+        val sut = NodeBootstrapper(
+            keyManager = SshKeyManager(android.content.ContextWrapper(null)),
+            registry = FakeRegistry(),
+        )
+        val events = sut.bootstrapWithShell(
+            shell = shell, nodeId = "n", host = "h", username = "bob",
+            bundle = BundleChoice.TOOLS_ONLY, anthropicKey = "k",
+        ).toList()
+
+        // Fallback: should start amplifierd directly via nohup
+        assertThat(shell.commands.any { "nohup" in it && "amplifierd serve" in it }).isTrue()
+        // Warning output emitted
+        val outputs = events.filterIsInstance<BootstrapEvent.Output>().map { it.line }
+        assertThat(outputs.any { "launchd GUI domain unavailable" in it }).isTrue()
+        // kickstart must NOT be called in the fallback path
+        assertThat(shell.commands.none { "kickstart" in it }).isTrue()
+    }
+
+    @Test
+    fun bootstrap_macos_launchctlSucceeds_runsKickstart() = runTest {
+        // Bug 4: when launchctl bootstrap succeeds (exit 0), kickstart should still run.
+        val shell = FakeRemoteShell()
+        shell.responses["uname -sm"] = "Darwin arm64\n" to 0
+        shell.responses["curl -fsS http://127.0.0.1:8410/health"] = "ok" to 0
+        shell.responses["tailscale ip -4 2>/dev/null"] = "" to 1
+        // Default response (exit 0) for bootstrap → success path
+
+        val sut = NodeBootstrapper(
+            keyManager = SshKeyManager(android.content.ContextWrapper(null)),
+            registry = FakeRegistry(),
+        )
+        sut.bootstrapWithShell(
+            shell = shell, nodeId = "n", host = "h", username = "bob",
+            bundle = BundleChoice.TOOLS_ONLY, anthropicKey = "k",
+        ).toList()
+
+        // kickstart must be called on success
+        assertThat(shell.commands.any { "launchctl kickstart -k gui/\$(id -u)/com.vela.amplifierd" in it }).isTrue()
+        // nohup fallback must NOT be called
+        assertThat(shell.commands.none { "nohup" in it }).isTrue()
     }
 
     companion object {

@@ -215,6 +215,11 @@ WantedBy=default.target
         }
         try {
             bootstrapWithShell(shell, nodeId, host, username, bundle, anthropicKey).collect { emit(it) }
+        } catch (e: Exception) {
+            emit(BootstrapEvent.Failed(
+                step  = BootstrapStep.INSTALL_SERVICE,
+                error = "Bootstrap failed: ${e.message ?: e.javaClass.simpleName}",
+            ))
         } finally {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { shell.close() }
         }
@@ -267,9 +272,10 @@ WantedBy=default.target
         // Step 4: INSTALL_AMPLIFIERD
         // Skip the slow git-clone install if amplifierd is already present and works.
         emit(BootstrapEvent.StepStart(BootstrapStep.INSTALL_AMPLIFIERD))
-        val verCheck = shell.exec("export PATH=\"\$HOME/.local/bin:\$PATH\" && amplifierd --version 2>/dev/null | head -1")
-        if (verCheck.stdout.trim().isNotBlank()) {
-            emit(BootstrapEvent.Output("✓ amplifierd already installed (${verCheck.stdout.trim()}) — skipping reinstall"))
+        val verCheck = shell.exec("export PATH=\"\$HOME/.local/bin:\$PATH\" && uv tool list 2>/dev/null | grep -c '^amplifierd'")
+        val alreadyInstalled = verCheck.stdout.trim() == "1"
+        if (alreadyInstalled) {
+            emit(BootstrapEvent.Output("✓ amplifierd already installed — skipping reinstall"))
         } else {
             emit(BootstrapEvent.Output("Installing amplifierd (this may take a minute)…"))
             val ampR = shell.exec(buildUvInstallCommand(bundle))
@@ -281,11 +287,9 @@ WantedBy=default.target
         }
         emit(BootstrapEvent.StepComplete(BootstrapStep.INSTALL_AMPLIFIERD))
 
-        // Step 5: WRITE_CONFIG (atomic via /tmp)
+        // Step 5: WRITE_CONFIG
         emit(BootstrapEvent.StepStart(BootstrapStep.WRITE_CONFIG))
-        val tmpName = "/tmp/amplifierd_settings_${java.util.UUID.randomUUID()}.json"
-        shell.sftpWrite(tmpName, generateSettingsJson(bundle, token))
-        shell.exec("mkdir -p ~/.amplifierd && mv $tmpName ~/.amplifierd/settings.json")
+        execWrite(shell, "$homeDir/.amplifierd/settings.json", generateSettingsJson(bundle, token))
         emit(BootstrapEvent.StepComplete(BootstrapStep.WRITE_CONFIG))
 
         // Step 6: INSTALL_SERVICE — branches on platform
@@ -293,17 +297,28 @@ WantedBy=default.target
         when (platform) {
             RemotePlatform.MACOS_ARM64, RemotePlatform.MACOS_X86 -> {
                 shell.exec("mkdir -p ~/Library/LaunchAgents")
-                shell.sftpWrite(
+                execWrite(
+                    shell,
                     "$homeDir/Library/LaunchAgents/com.vela.amplifierd.plist",
                     generateLaunchdPlist(username, anthropicKey, homeDir),
                 )
-                shell.exec("launchctl bootout gui/\$UID/com.vela.amplifierd 2>/dev/null || true")
-                shell.exec("launchctl bootstrap gui/\$UID ~/Library/LaunchAgents/com.vela.amplifierd.plist")
-                shell.exec("launchctl kickstart -k gui/\$UID/com.vela.amplifierd")
+                // Stop any existing instance
+                shell.exec("launchctl bootout gui/\$(id -u)/com.vela.amplifierd 2>/dev/null || true")
+                shell.exec("pkill -f 'amplifierd serve' 2>/dev/null || true")
+                // Bootstrap via GUI domain (works when logged in via GUI or SSH with PAM)
+                val bootResult = shell.exec("launchctl bootstrap gui/\$(id -u) ~/Library/LaunchAgents/com.vela.amplifierd.plist 2>&1")
+                if (bootResult.exitCode != 0 && !bootResult.stdout.contains("Bootstrap failed: 5")) {
+                    // Fallback: start directly in background if launchd GUI domain unavailable
+                    emit(BootstrapEvent.Output("⚠ launchd GUI domain unavailable — starting amplifierd directly"))
+                    shell.exec("nohup \$HOME/.local/bin/amplifierd serve --host 0.0.0.0 --port 8410 > \$HOME/.amplifierd/stdout.log 2> \$HOME/.amplifierd/stderr.log &")
+                } else {
+                    shell.exec("launchctl kickstart -k gui/\$(id -u)/com.vela.amplifierd 2>/dev/null || true")
+                }
             }
             RemotePlatform.LINUX_AMD64, RemotePlatform.LINUX_ARM64 -> {
                 shell.exec("mkdir -p ~/.config/systemd/user")
-                shell.sftpWrite(
+                execWrite(
+                    shell,
                     "$homeDir/.config/systemd/user/amplifierd.service",
                     generateSystemdUnit(anthropicKey),
                 )
@@ -376,6 +391,11 @@ WantedBy=default.target
         }
         try {
             repairWithShell(shell, nodeId, host, username, existingToken).collect { emit(it) }
+        } catch (e: Exception) {
+            emit(BootstrapEvent.Failed(
+                step  = BootstrapStep.INSTALL_SERVICE,
+                error = "Bootstrap failed: ${e.message ?: e.javaClass.simpleName}",
+            ))
         } finally {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { shell.close() }
         }
@@ -474,9 +494,7 @@ WantedBy=default.target
 
         // Step 7: WRITE_CONFIG — use existingToken, NOT a new token
         emit(BootstrapEvent.StepStart(BootstrapStep.WRITE_CONFIG))
-        val tmpName = "/tmp/amplifierd_settings_${java.util.UUID.randomUUID()}.json"
-        shell.sftpWrite(tmpName, generateSettingsJson(bundleNames, existingToken))
-        shell.exec("mkdir -p ~/.amplifierd && mv $tmpName ~/.amplifierd/settings.json")
+        execWrite(shell, "$homeDir/.amplifierd/settings.json", generateSettingsJson(bundleNames, existingToken))
         emit(BootstrapEvent.StepComplete(BootstrapStep.WRITE_CONFIG))
 
         // Step 8: INSTALL_SERVICE — regenerate service file with discovered API key, then activate
@@ -484,7 +502,8 @@ WantedBy=default.target
         when (platform) {
             RemotePlatform.MACOS_ARM64, RemotePlatform.MACOS_X86 -> {
                 shell.exec("mkdir -p ~/Library/LaunchAgents")
-                shell.sftpWrite(
+                execWrite(
+                    shell,
                     "$homeDir/Library/LaunchAgents/com.vela.amplifierd.plist",
                     generateLaunchdPlist(username, anthropicKey, homeDir),
                 )
@@ -493,7 +512,8 @@ WantedBy=default.target
             }
             RemotePlatform.LINUX_AMD64, RemotePlatform.LINUX_ARM64 -> {
                 shell.exec("mkdir -p ~/.config/systemd/user")
-                shell.sftpWrite(
+                execWrite(
+                    shell,
                     "$homeDir/.config/systemd/user/amplifierd.service",
                     generateSystemdUnit(anthropicKey),
                 )
@@ -547,6 +567,17 @@ WantedBy=default.target
             connect(15_000)
         }
         return JschRemoteShell(session)
+    }
+
+    /**
+     * Write [content] to [remotePath] over the exec channel using base64 encoding.
+     * More reliable than SFTP — uses only the exec channel, works with any SSH server.
+     */
+    private suspend fun execWrite(shell: RemoteShell, remotePath: String, content: String) {
+        val encoded = java.util.Base64.getEncoder().encodeToString(content.toByteArray(Charsets.UTF_8))
+        val dir = remotePath.substringBeforeLast("/")
+        // base64 -d works on both macOS and Linux (GNU coreutils)
+        shell.exec("mkdir -p '$dir' && printf '%s' '$encoded' | base64 -d > '$remotePath'")
     }
 
     private fun friendlyConnectError(e: Exception, host: String, port: Int): String {
