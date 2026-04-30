@@ -91,4 +91,13 @@ class HomeViewModelTest {
         dao.nodeFlow.value = emptyList()
         assertThat(vm.nodes.value).isEmpty()
     }
+
+    // ── Structural: verify composable exists ────────────────────────────────────
+
+    @Test fun `HomeScreen source file exists with HomeScreen composable`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/home/HomeScreen.kt"
+        ).readText()
+        assertThat(src).contains("fun HomeScreen")
+    }
 }
