@@ -3,13 +3,15 @@ package com.vela.app.ui.navigation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.FabPosition
+import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.vela.app.ui.theme.VelaColors
 import androidx.navigation.NavController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -64,10 +66,20 @@ object Routes {
 @Composable
 fun VelaApp(modifier: Modifier = Modifier) {
     val navController = rememberNavController()
-    Box(modifier = modifier.fillMaxSize()) {
-        val voiceVm: VoiceOverlayViewModel    = hiltViewModel()
-        val approvalVm: ApprovalSheetViewModel = hiltViewModel()
-        val approvalReq by approvalVm.request.collectAsState()
+    val voiceVm: VoiceOverlayViewModel     = hiltViewModel()
+    val approvalVm: ApprovalSheetViewModel = hiltViewModel()
+    val approvalReq by approvalVm.request.collectAsState()
+
+    // Use Scaffold with the FAB so innerPadding includes FAB clearance automatically.
+    // Every screen receives this padding via the NavHost modifier — nothing ever
+    // disappears behind the Voice FAB.
+    Scaffold(
+        modifier               = modifier,
+        containerColor         = VelaColors.Abyss,
+        floatingActionButton   = { VoiceFab(voiceVm = voiceVm, isSessionRunning = false) },
+        floatingActionButtonPosition = FabPosition.End,
+    ) { innerPadding ->
+        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
 
         NavHost(
             navController    = navController,
@@ -98,15 +110,6 @@ fun VelaApp(modifier: Modifier = Modifier) {
             }
         }
 
-        // Persistent Voice FAB — always on top, always bottom-right.
-        VoiceFab(
-            voiceVm          = voiceVm,
-            isSessionRunning = false,
-            modifier         = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(20.dp),
-        )
-
         approvalReq?.let { req ->
             ApprovalGateSheet(
                 request   = req,
@@ -114,7 +117,8 @@ fun VelaApp(modifier: Modifier = Modifier) {
                 onDeny    = { approvalVm.deny() },
             )
         }
-    }
+        } // Box
+    } // Scaffold
 }
 
 

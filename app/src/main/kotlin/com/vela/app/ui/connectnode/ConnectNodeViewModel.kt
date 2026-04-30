@@ -54,16 +54,8 @@ class ConnectNodeViewModel @Inject constructor(
         // The real NodeBootstrapper's JschRemoteShell.exec() uses withContext(Dispatchers.IO)
         // internally, so blocking SSH work still stays off the UI thread in production.
         viewModelScope.launch {
-            registry.addNode(
-                SshNode(
-                    id       = nodeId,
-                    label    = f.host,
-                    hosts    = listOf(f.host),
-                    port     = f.port.toIntOrNull() ?: 22,
-                    username = f.username,
-                )
-            )
-            registry.updateBootstrapStatus(nodeId, BootstrapStatus.BOOTSTRAPPING)
+            // Add the node AFTER bootstrap succeeds (in the Complete handler below).
+            // Storing it first caused dangling SSH-type nodes when bootstrap failed.
             _bootstrapState.value = BootstrapUiState(isBootstrapping = true)
 
             bootstrapper.bootstrap(
@@ -89,8 +81,24 @@ class ConnectNodeViewModel @Inject constructor(
                                 logLines        = it.logLines + event.logs,
                             )
                         }
-                    is BootstrapEvent.Complete ->
+                    is BootstrapEvent.Complete -> {
+                        // Only persist the node after a successful bootstrap —
+                        // no dangling SSH-type rows when bootstrap fails.
+                        registry.addNode(
+                            SshNode(
+                                id       = nodeId,
+                                label    = f.host,
+                                hosts    = listOf(f.host),
+                                port     = f.port.toIntOrNull() ?: 22,
+                                username = f.username,
+                                type     = com.vela.app.ssh.NodeType.AMPLIFIERD,
+                                url      = event.url,
+                                token    = event.token,
+                                bootstrapStatus = BootstrapStatus.RUNNING,
+                            )
+                        )
                         _bootstrapState.update { it.copy(isBootstrapping = false, isComplete = true) }
+                    }
                 }
             }
         }

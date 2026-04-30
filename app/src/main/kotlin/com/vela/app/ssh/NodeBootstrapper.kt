@@ -219,7 +219,7 @@ WantedBy=default.target
         emit(BootstrapEvent.StepComplete(BootstrapStep.DETECT))
 
         // Resolve actual home directory — don't assume /Users/$username or /home/$username
-        val homeDir = shell.exec("echo \$HOME") { }.stdout.trim().ifBlank {
+        val homeDir = shell.exec("echo \$HOME").stdout.trim().ifBlank {
             when (platform) {
                 RemotePlatform.MACOS_ARM64, RemotePlatform.MACOS_X86 -> "/Users/$username"
                 RemotePlatform.LINUX_AMD64, RemotePlatform.LINUX_ARM64 -> "/home/$username"
