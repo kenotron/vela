@@ -14,6 +14,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
@@ -50,10 +51,7 @@ class ConnectNodeViewModel @Inject constructor(
     fun connect() {
         val f      = _form.value
         val nodeId = UUID.randomUUID().toString()
-        // No explicit Dispatchers.IO: viewModelScope uses Main (controllable in tests).
-        // The real NodeBootstrapper's JschRemoteShell.exec() uses withContext(Dispatchers.IO)
-        // internally, so blocking SSH work still stays off the UI thread in production.
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             // Add the node AFTER bootstrap succeeds (in the Complete handler below).
             // Storing it first caused dangling SSH-type nodes when bootstrap failed.
             _bootstrapState.value = BootstrapUiState(isBootstrapping = true)
