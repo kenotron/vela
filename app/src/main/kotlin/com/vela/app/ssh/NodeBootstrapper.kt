@@ -202,11 +202,21 @@ WantedBy=default.target
         bundle: BundleChoice,
         anthropicKey: String,
     ): kotlinx.coroutines.flow.Flow<BootstrapEvent> = kotlinx.coroutines.flow.flow {
-        val shell = openJschShell(host, port, username)
+        val shell = try {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                openJschShell(host, port, username)
+            }
+        } catch (e: Exception) {
+            emit(BootstrapEvent.Failed(
+                step  = BootstrapStep.CONNECT,
+                error = friendlyConnectError(e, host, port),
+            ))
+            return@flow
+        }
         try {
             bootstrapWithShell(shell, nodeId, host, username, bundle, anthropicKey).collect { emit(it) }
         } finally {
-            shell.close()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { shell.close() }
         }
     }
 
@@ -346,13 +356,21 @@ WantedBy=default.target
         username: String,
         existingToken: String,
     ): kotlinx.coroutines.flow.Flow<BootstrapEvent> = kotlinx.coroutines.flow.flow {
-        val shell = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            openJschShell(host, port, username)
+        val shell = try {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                openJschShell(host, port, username)
+            }
+        } catch (e: Exception) {
+            emit(BootstrapEvent.Failed(
+                step  = BootstrapStep.CONNECT,
+                error = friendlyConnectError(e, host, port),
+            ))
+            return@flow
         }
         try {
             repairWithShell(shell, nodeId, host, username, existingToken).collect { emit(it) }
         } finally {
-            shell.close()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { shell.close() }
         }
     }
 
@@ -522,6 +540,17 @@ WantedBy=default.target
             connect(15_000)
         }
         return JschRemoteShell(session)
+    }
+
+    private fun friendlyConnectError(e: Exception, host: String, port: Int): String {
+        val msg = e.message ?: e.javaClass.simpleName
+        return when {
+            "Auth fail" in msg           -> "SSH authentication failed. Did you paste the public key into ~/.ssh/authorized_keys on $host?"
+            "Connection refused" in msg  -> "Connection refused at $host:$port — is SSH running?"
+            "No route to host" in msg    -> "No route to $host — check the IP and your network connection."
+            "timeout" in msg.lowercase() -> "Connection timed out reaching $host:$port."
+            else                         -> "SSH connection failed: $msg"
+        }
     }
 
     companion object {

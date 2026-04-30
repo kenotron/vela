@@ -36,6 +36,14 @@ class ConnectNodeViewModel @Inject constructor(
 
     val publicKey: String get() = keyManager.getPublicKey()
 
+    // Recent hosts from previously connected nodes (up to 5, most recent first)
+    val recentHosts: List<String>
+        get() = registry.cache
+            .map { it.primaryHost }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .take(5)
+
     private val _form = MutableStateFlow(ConnectFormState())
     val form: StateFlow<ConnectFormState> = _form
 

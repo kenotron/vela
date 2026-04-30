@@ -10,7 +10,10 @@ package com.vela.app.ui.connectnode
     import androidx.compose.foundation.layout.fillMaxSize
     import androidx.compose.foundation.layout.fillMaxWidth
     import androidx.compose.foundation.layout.height
+    import androidx.compose.foundation.layout.imePadding
     import androidx.compose.foundation.layout.padding
+    import androidx.compose.foundation.lazy.LazyRow
+    import androidx.compose.foundation.lazy.items
     import androidx.compose.foundation.rememberScrollState
     import androidx.compose.foundation.shape.RoundedCornerShape
     import androidx.compose.foundation.text.KeyboardOptions
@@ -25,6 +28,8 @@ package com.vela.app.ui.connectnode
     import androidx.compose.material3.ExperimentalMaterial3Api
     import androidx.compose.material3.FilterChip
     import androidx.compose.material3.FilterChipDefaults
+    import androidx.compose.material3.SuggestionChip
+    import androidx.compose.material3.SuggestionChipDefaults
     import androidx.compose.material3.Icon
     import androidx.compose.material3.IconButton
     import androidx.compose.material3.MaterialTheme
@@ -107,6 +112,7 @@ package com.vela.app.ui.connectnode
                     .fillMaxSize()
                     .padding(innerPadding)
                     .verticalScroll(rememberScrollState())
+                    .imePadding()
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
@@ -144,6 +150,28 @@ package com.vela.app.ui.connectnode
                     colors        = fieldColors,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 )
+
+                val recentHosts = viewModel.recentHosts
+                if (recentHosts.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(recentHosts) { host ->
+                            SuggestionChip(
+                                onClick = { viewModel.updateHost(host) },
+                                label   = { Text(host, style = MaterialTheme.typography.labelMedium, color = VelaColors.TextSecondary) },
+                                shape   = RoundedCornerShape(8.dp),
+                                colors  = SuggestionChipDefaults.suggestionChipColors(
+                                    containerColor = VelaColors.SurfaceRaised,
+                                ),
+                                border  = SuggestionChipDefaults.suggestionChipBorder(
+                                    enabled             = true,
+                                    borderColor         = VelaColors.StrokeHair,
+                                    disabledBorderColor = VelaColors.StrokeHair,
+                                ),
+                            )
+                        }
+                    }
+                }
 
                 OutlinedTextField(
                     value         = form.port,
