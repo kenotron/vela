@@ -114,6 +114,7 @@
         implementation(libs.hilt.android)
         ksp(libs.hilt.android.compiler)
         implementation(libs.hilt.navigation.compose)
+        implementation(libs.androidx.navigation.compose)
 
         // WorkManager + Hilt integration for ProfileWorker
         implementation("androidx.work:work-runtime-ktx:2.9.1")
