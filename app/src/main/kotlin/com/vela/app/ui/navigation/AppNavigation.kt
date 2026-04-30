@@ -3,8 +3,6 @@ package com.vela.app.ui.navigation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -26,7 +24,6 @@ import com.vela.app.ui.nodeconfig.NodeConfigScreen
 import com.vela.app.ui.nodedetail.NodeDetailScreen
 import com.vela.app.ui.sessiondetail.SessionDetailScreen
 import com.vela.app.ui.sessionlist.SessionListScreen
-import com.vela.app.ui.theme.VelaColors
 import com.vela.app.ui.voice.VoiceFab
 import com.vela.app.ui.voice.VoiceOverlayViewModel
 
@@ -80,7 +77,7 @@ fun VelaApp(modifier: Modifier = Modifier) {
             composable(Routes.NODE_DETAIL)    { NodeDetailScreen(navController) }
             composable(Routes.SESSION_LIST)   { SessionListScreen(navController) }
             composable(Routes.SESSION_DETAIL) { SessionDetailScreen(navController) }
-            composable(Routes.COORDINATOR)    { CoordinatorPlaceholder(navController) }
+            composable(Routes.COORDINATOR)    { com.vela.app.ui.coordinator.CoordinatorScreen(navController) }
             composable(
                 route     = Routes.NODE_CONFIG,
                 arguments = listOf(
@@ -120,16 +117,7 @@ fun VelaApp(modifier: Modifier = Modifier) {
     }
 }
 
-// ── Placeholder screens
-// Each is a minimal Surface + Text so the NavHost graph compiles and the app
-// launches. Replaced screen-by-screen in Phases 2–6.
 
-@Composable
-private fun CoordinatorPlaceholder(navController: NavController) {
-    Surface(modifier = Modifier.fillMaxSize(), color = VelaColors.CoordBg) {
-        Text(text = "Coordinator", color = VelaColors.TextPrimary)
-    }
-}
 
 
 
