@@ -1,0 +1,87 @@
+package com.vela.app.ui.sessionlist
+
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import com.google.common.truth.Truth.assertThat
+import com.vela.app.ui.sessiondetail.SessionStatus
+import com.vela.app.ui.theme.VelaColors
+import org.junit.Test
+
+/**
+ * RED → GREEN: verifies the pure color-mapping logic for session card
+ * tonal backgrounds, status chip containers, and chip text colors.
+ *
+ * All functions under test are `internal` top-level functions in SessionCard.kt.
+ * JVM-only — no Compose rendering needed.
+ * androidx.compose.ui.graphics.Color is a Kotlin value class; no Android calls.
+ */
+class SessionCardColorTest {
+
+    // ── cardBackgroundFor ──────────────────────────────────────────────────────
+    // M3 tonal fills: color-mix(StatusContainer, SurfaceSub) per DESIGN.md §7.2
+    // Hardcoded approximations — see SessionCard.kt for exact hex rationale.
+
+    @Test fun `cardBackground for RUNNING is amber-tinted surface`() {
+        assertThat(cardBackgroundFor(SessionStatus.RUNNING).toArgb())
+            .isEqualTo(Color(0xFF1C1A0E).toArgb())
+    }
+
+    @Test fun `cardBackground for WAITING is violet-tinted surface`() {
+        assertThat(cardBackgroundFor(SessionStatus.WAITING).toArgb())
+            .isEqualTo(Color(0xFF1A1234).toArgb())
+    }
+
+    @Test fun `cardBackground for DONE is default SurfaceSub`() {
+        assertThat(cardBackgroundFor(SessionStatus.DONE).toArgb())
+            .isEqualTo(VelaColors.SurfaceSub.toArgb())
+    }
+
+    @Test fun `cardBackground for ERROR is coral-tinted surface`() {
+        assertThat(cardBackgroundFor(SessionStatus.ERROR).toArgb())
+            .isEqualTo(Color(0xFF1C1117).toArgb())
+    }
+
+    // ── chipContainerFor ──────────────────────────────────────────────────────
+
+    @Test fun `chipContainer for RUNNING is RunningContainer`() {
+        assertThat(chipContainerFor(SessionStatus.RUNNING).toArgb())
+            .isEqualTo(VelaColors.RunningContainer.toArgb())
+    }
+
+    @Test fun `chipContainer for WAITING is WaitingContainer`() {
+        assertThat(chipContainerFor(SessionStatus.WAITING).toArgb())
+            .isEqualTo(VelaColors.WaitingContainer.toArgb())
+    }
+
+    @Test fun `chipContainer for DONE is DoneContainer`() {
+        assertThat(chipContainerFor(SessionStatus.DONE).toArgb())
+            .isEqualTo(VelaColors.DoneContainer.toArgb())
+    }
+
+    @Test fun `chipContainer for ERROR is ErrorContainer`() {
+        assertThat(chipContainerFor(SessionStatus.ERROR).toArgb())
+            .isEqualTo(VelaColors.ErrorContainer.toArgb())
+    }
+
+    // ── chipOnContainerFor ────────────────────────────────────────────────────
+
+    @Test fun `chipOnContainer for RUNNING is RunningOnContainer`() {
+        assertThat(chipOnContainerFor(SessionStatus.RUNNING).toArgb())
+            .isEqualTo(VelaColors.RunningOnContainer.toArgb())
+    }
+
+    @Test fun `chipOnContainer for WAITING is WaitingOnContainer`() {
+        assertThat(chipOnContainerFor(SessionStatus.WAITING).toArgb())
+            .isEqualTo(VelaColors.WaitingOnContainer.toArgb())
+    }
+
+    @Test fun `chipOnContainer for DONE is DoneOnContainer`() {
+        assertThat(chipOnContainerFor(SessionStatus.DONE).toArgb())
+            .isEqualTo(VelaColors.DoneOnContainer.toArgb())
+    }
+
+    @Test fun `chipOnContainer for ERROR is ErrorOnContainer`() {
+        assertThat(chipOnContainerFor(SessionStatus.ERROR).toArgb())
+            .isEqualTo(VelaColors.ErrorOnContainer.toArgb())
+    }
+}
