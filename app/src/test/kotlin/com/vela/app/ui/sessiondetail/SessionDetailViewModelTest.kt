@@ -63,4 +63,27 @@ class SessionDetailViewModelTest {
         assertThat(toolCall.isDone).isTrue()
         assertThat(toolCall.isRunning).isFalse()
     }
+
+    // ── Structural: verify TurnItems composables exist ──────────────────────
+
+    @Test fun `TurnItems source contains UserTurnItem composable`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/sessiondetail/TurnItems.kt"
+        ).readText()
+        assertThat(src).contains("fun UserTurnItem")
+    }
+
+    @Test fun `TurnItems source contains AgentTurnItem composable`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/sessiondetail/TurnItems.kt"
+        ).readText()
+        assertThat(src).contains("fun AgentTurnItem")
+    }
+
+    @Test fun `TurnItems source contains ToolCallCard composable`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/sessiondetail/TurnItems.kt"
+        ).readText()
+        assertThat(src).contains("fun ToolCallCard")
+    }
 }
