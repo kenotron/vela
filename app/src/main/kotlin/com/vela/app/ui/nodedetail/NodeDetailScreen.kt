@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -31,6 +32,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,14 +42,16 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.vela.app.ssh.BootstrapStatus
 import com.vela.app.ssh.SshNode
+import com.vela.app.ui.navigation.Routes
 import com.vela.app.ui.theme.VelaColors
+import kotlinx.coroutines.launch
 
 /**
  * Node detail screen — projects list for a single SshNode.
  *
  * The hero block (node name at displayLarge / Instrument Serif 48sp) is the
  * design's signature moment. The rest of the screen is a list of project cards
- * (empty in Phase 2 — project data comes from the amplifierd HTTP API in Phase 3).
+ * loaded from the amplifierd HTTP API.
  *
  * Design spec: DESIGN.md §8 (Screen 2)
  */
@@ -58,6 +62,8 @@ fun NodeDetailScreen(
     viewModel: NodeDetailViewModel = hiltViewModel(),
 ) {
     val node by viewModel.node.collectAsState()
+    val projects by viewModel.projects.collectAsState()
+    val coroutineScope = rememberCoroutineScope()
 
     // "New project" dialog state
     var showNewProjectDialog by remember { mutableStateOf(false) }
@@ -91,8 +97,9 @@ fun NodeDetailScreen(
             },
             confirmButton = {
                 TextButton(
-                    onClick  = {
-                        // TODO (Phase A): call amplifierd POST /projects with newProjectName
+                    onClick = {
+                        val name = newProjectName
+                        coroutineScope.launch { viewModel.createProject(name) }
                         showNewProjectDialog = false
                         newProjectName = ""
                     },
@@ -140,7 +147,7 @@ fun NodeDetailScreen(
             verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
 
-            // ── Hero block ────────────────────────────────────────────────────
+            // ── Hero block ──────────────────────────────────────────────────────
             item(key = "hero") {
                 // Node name — Instrument Serif 48sp (displayLarge). This is the
                 // design's signature moment. (DESIGN.md §3, §8)
@@ -167,9 +174,19 @@ fun NodeDetailScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            // ── Project list ──────────────────────────────────────────────────
-            // Phase 2: no project data yet. A single "New project" add-card is shown.
-            // Phase 3 will inject a projects StateFlow and map it into ProjectCard items.
+            // ── Project list ────────────────────────────────────────────────────
+            items(projects, key = { it.id }) { project ->
+                ProjectCard(
+                    projectName = project.name,
+                    bundleTag   = "project",
+                    onTap       = {
+                        navController.navigate(
+                            Routes.sessionList(viewModel.nodeId, project.id)
+                        )
+                    },
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
 
             item(key = "new-project-placeholder") {
                 NewProjectPlaceholder(
@@ -180,11 +197,10 @@ fun NodeDetailScreen(
     }
 }
 
-// ── Private composables ───────────────────────────────────────────────────────
+// ── Private composables ─────────────────────────────────────────────────────
 
 /**
  * Dashed-border placeholder card for "New project".
- * Replaced in Phase 3 when real project creation is wired.
  */
 @Composable
 private fun NewProjectPlaceholder(onTap: () -> Unit) {
@@ -208,7 +224,7 @@ private fun NewProjectPlaceholder(onTap: () -> Unit) {
     }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────────────
 
 private fun buildNodeTelemetry(node: SshNode?): String {
     if (node == null) return ""

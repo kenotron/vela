@@ -20,6 +20,7 @@ import com.vela.app.hooks.StatusContextHook
     import com.vela.app.hooks.VaultEmbeddingHook
     import com.vela.app.hooks.VaultSyncHook
 import com.vela.app.events.EventBus
+import com.vela.app.amplifierd.AmplifierdRepository
 import com.vela.app.ssh.SshKeyManager
 import com.vela.app.ssh.SshNodeRegistry
 import com.vela.app.vault.SharedPrefsVaultSettings
@@ -98,6 +99,10 @@ object AppModule {
 
     @Provides @Singleton
     fun provideSshNodeRegistry(dao: SshNodeDao): SshNodeRegistry = SshNodeRegistry(dao)
+
+    @Provides @Singleton
+    fun provideAmplifierdRepository(registry: SshNodeRegistry): AmplifierdRepository =
+        AmplifierdRepository(registry)
 
     // NodeBootstrapper carries per-run state — NOT @Singleton.
     @Provides
