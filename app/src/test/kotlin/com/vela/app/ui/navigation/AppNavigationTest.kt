@@ -73,4 +73,12 @@ class AppNavigationTest {
         assertThat(src).contains("SessionListScreen(navController)")
         assertThat(src).doesNotContain("SessionListPlaceholder")
     }
+
+    @Test fun `AppNavigation sources SessionDetailScreen (not placeholder)`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/navigation/AppNavigation.kt"
+        ).readText()
+        assertThat(src).contains("SessionDetailScreen(navController)")
+        assertThat(src).doesNotContain("SessionDetailPlaceholder")
+    }
 }
