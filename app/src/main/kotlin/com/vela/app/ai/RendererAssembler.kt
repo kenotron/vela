@@ -78,7 +78,6 @@ class RendererAssembler @Inject constructor(
                 File(dir, "renderer.html").writeText(template)
 
                 // Extract semantic data via LLM — this is the data.json that Lit components will use
-                onPhase(3, "Extracting content…")
                 try {
                     val json = contentExtractor.extract(itemContent, topSkill)
                     if (json != null) {

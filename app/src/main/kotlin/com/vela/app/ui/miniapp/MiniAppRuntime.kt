@@ -467,6 +467,30 @@ fun MiniAppContainer(
         )
     }
 
+    // ── Fitness check: probe existing renderers when in Fallback state ────────
+    var isAnalysing by remember { mutableStateOf(rendererState is RendererState.Fallback) }
+
+    LaunchedEffect(isAnalysing) {
+        if (!isAnalysing) return@LaunchedEffect
+        val vault = viewModel.primaryVault()
+        val renderersDir = vault?.let { java.io.File(it.localPath, ".vela/renderers") }
+        val existingTypes = renderersDir
+            ?.listFiles()
+            ?.filter { it.isDirectory && java.io.File(it, "renderer.html").exists() }
+            ?.map { it.name }
+            ?: emptyList()
+        val fitness = viewModel.fitnessCheck(contentType, itemContent.take(400), existingTypes)
+        if (fitness.confidence >= 0.7f && fitness.match != null) {
+            val rendererFile = vault?.let {
+                java.io.File(it.localPath, ".vela/renderers/${fitness.match}/renderer.html")
+            }
+            if (rendererFile?.exists() == true) {
+                rendererState = RendererState.Ready(rendererFile)
+            }
+        }
+        isAnalysing = false
+    }
+
     // ── Branch on state ───────────────────────────────────────────────────────
     when (val s = rendererState) {
 
