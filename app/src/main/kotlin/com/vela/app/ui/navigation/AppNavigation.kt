@@ -23,6 +23,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.vela.app.ui.home.HomeScreen
 import com.vela.app.ui.nodedetail.NodeDetailScreen
+import com.vela.app.ui.sessionlist.SessionListScreen
 import com.vela.app.ui.theme.VelaColors
 
 // ── Routes
@@ -72,7 +73,7 @@ fun VelaApp(modifier: Modifier = Modifier) {
         ) {
             composable(Routes.HOME)           { HomeScreen(navController) }
             composable(Routes.NODE_DETAIL)    { NodeDetailScreen(navController) }
-            composable(Routes.SESSION_LIST)   { SessionListPlaceholder(navController) }
+            composable(Routes.SESSION_LIST)   { SessionListScreen(navController) }
             composable(Routes.SESSION_DETAIL) { SessionDetailPlaceholder(navController) }
             composable(Routes.COORDINATOR)    { CoordinatorPlaceholder(navController) }
             composable(Routes.NODE_CONFIG)    { NodeConfigPlaceholder(navController) }
@@ -92,13 +93,6 @@ fun VelaApp(modifier: Modifier = Modifier) {
 // ── Placeholder screens
 // Each is a minimal Surface + Text so the NavHost graph compiles and the app
 // launches. Replaced screen-by-screen in Phases 2–6.
-
-@Composable
-private fun SessionListPlaceholder(navController: NavController) {
-    Surface(modifier = Modifier.fillMaxSize(), color = VelaColors.Abyss) {
-        Text(text = "Session List", color = VelaColors.TextPrimary)
-    }
-}
 
 @Composable
 private fun SessionDetailPlaceholder(navController: NavController) {
