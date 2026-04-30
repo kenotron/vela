@@ -45,4 +45,14 @@ class AppNavigationTest {
     @Test fun `nodeConfig builds correct route`() {
         assertThat(Routes.nodeConfig("node-7")).isEqualTo("node/node-7/config")
     }
+
+    // ── Phase 2 wiring ──────────────────────────────────────────────────────────
+
+    @Test fun `AppNavigation sources HomeScreen (not placeholder)`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/navigation/AppNavigation.kt"
+        ).readText()
+        assertThat(src).contains("HomeScreen(navController)")
+        assertThat(src).doesNotContain("HomeScreenPlaceholder")
+    }
 }
