@@ -236,6 +236,18 @@ class SessionDetailViewModel @Inject constructor(
                         is StreamEvent.Done -> {
                             _statusMessage.value = null
                             _isStreaming.value = false
+                            // Refresh the just-completed turn from transcript to get tool results
+                            viewModelScope.launch(Dispatchers.IO) {
+                                try {
+                                    val node = registry.cache.find { it.id == nodeId } ?: return@launch
+                                    val client = amplifierd.clientForNode(node) ?: return@launch
+                                    val transcript = client.getTranscriptWithBlocks(sessionId)
+                                    if (transcript.isNotEmpty()) {
+                                        // Replace the turns list with transcript version (has tool results filled in)
+                                        _turns.value = transcript
+                                    }
+                                } catch (_: Exception) { /* non-fatal — live turns already visible */ }
+                            }
                         }
                         is StreamEvent.Error -> {
                             _statusMessage.value = event.message

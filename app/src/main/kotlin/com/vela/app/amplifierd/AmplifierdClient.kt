@@ -221,6 +221,121 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
     /**
      * POST /sessions/:id/approvals/:approvalId  body: {"approved":true|false}
      */
+    /**
+     * GET /sessions/:id/transcript — full parse including content blocks.
+     *
+     * Amplifier/Anthropic transcript format:
+     *   assistant message content: [{type:"thinking"}, {type:"text", text:""}, {type:"tool_use", id:"", name:"", input:{}}]
+     *   user message content (tool results): [{type:"tool_result", tool_use_id:"", content:"", is_error:false}]
+     *
+     * Tool results (user role with tool_result content) are matched to their ToolUse
+     * and folded into the same TurnContent as a ContentBlock.ToolResult.
+     * The intermediate user-role tool_result messages are NOT exposed as separate turns.
+     */
+    suspend fun getTranscriptWithBlocks(sessionId: String): List<com.vela.app.ui.sessiondetail.TurnContent> {
+        val response = JSONObject(get("/sessions/$sessionId/transcript"))
+        val messages = response.optJSONArray("messages") ?: return emptyList()
+        val result = mutableListOf<com.vela.app.ui.sessiondetail.TurnContent>()
+
+        var i = 0
+        while (i < messages.length()) {
+            val msg = messages.getJSONObject(i)
+            val role = msg.optString("role")
+
+            when (role) {
+                "user" -> {
+                    // Check if this is a tool_result message (intermediate) or a real user message
+                    val content = msg.opt("content")
+                    val isToolResult = content is JSONArray &&
+                        (0 until content.length()).any { j ->
+                            content.getJSONObject(j).optString("type") == "tool_result"
+                        }
+                    if (!isToolResult && content is String && content.isNotBlank()) {
+                        result.add(com.vela.app.ui.sessiondetail.TurnContent(text = content, isUser = true))
+                    }
+                    // tool_result messages are handled by folding into preceding assistant turn below
+                    i++
+                }
+                "assistant" -> {
+                    val contentArr = msg.opt("content")
+                    val blocks = mutableListOf<com.vela.app.ui.sessiondetail.ContentBlock>()
+                    var plainText = ""
+
+                    if (contentArr is JSONArray) {
+                        for (j in 0 until contentArr.length()) {
+                            val block = contentArr.getJSONObject(j)
+                            when (block.optString("type")) {
+                                "text" -> {
+                                    val t = block.optString("text", "")
+                                    if (t.isNotBlank()) {
+                                        blocks.add(com.vela.app.ui.sessiondetail.ContentBlock.Text(t))
+                                        if (plainText.isBlank()) plainText = t
+                                    }
+                                }
+                                "thinking" -> {
+                                    val t = block.optString("thinking", "")
+                                    if (t.isNotBlank()) blocks.add(com.vela.app.ui.sessiondetail.ContentBlock.Thinking(t))
+                                }
+                                "tool_use" -> {
+                                    blocks.add(com.vela.app.ui.sessiondetail.ContentBlock.ToolUse(
+                                        id        = block.optString("id"),
+                                        name      = block.optString("name"),
+                                        inputJson = block.optJSONObject("input")?.toString() ?: "{}",
+                                        isRunning = false, // from transcript — tool has completed
+                                    ))
+                                }
+                            }
+                        }
+                    } else if (contentArr is String) {
+                        plainText = contentArr
+                        if (contentArr.isNotBlank()) blocks.add(com.vela.app.ui.sessiondetail.ContentBlock.Text(contentArr))
+                    }
+
+                    // Peek at the next message(s) to collect tool results
+                    var k = i + 1
+                    while (k < messages.length()) {
+                        val next = messages.getJSONObject(k)
+                        if (next.optString("role") != "user") break
+                        val nextContent = next.opt("content")
+                        if (nextContent !is JSONArray) break
+                        var hasToolResult = false
+                        for (j in 0 until nextContent.length()) {
+                            val tr = nextContent.getJSONObject(j)
+                            if (tr.optString("type") == "tool_result") {
+                                hasToolResult = true
+                                val toolUseId = tr.optString("tool_use_id")
+                                val output = when (val c = tr.opt("content")) {
+                                    is String -> c
+                                    is JSONArray -> (0 until c.length()).joinToString("\n") { idx ->
+                                        val item = c.getJSONObject(idx)
+                                        if (item.optString("type") == "text") item.optString("text") else ""
+                                    }
+                                    else -> ""
+                                }
+                                blocks.add(com.vela.app.ui.sessiondetail.ContentBlock.ToolResult(
+                                    toolUseId = toolUseId,
+                                    output    = output,
+                                    isError   = tr.optBoolean("is_error", false),
+                                ))
+                            }
+                        }
+                        if (!hasToolResult) break
+                        k++
+                    }
+                    i = k // skip the consumed tool-result user messages
+
+                    result.add(com.vela.app.ui.sessiondetail.TurnContent(
+                        text          = plainText,
+                        isUser        = false,
+                        contentBlocks = blocks,
+                    ))
+                }
+                else -> i++
+            }
+        }
+        return result
+    }
+
     suspend fun approveSession(sessionId: String, approvalId: String, approved: Boolean) {
         val body = JSONObject().apply { put("approved", approved) }
         post("/sessions/$sessionId/approvals/$approvalId", body)

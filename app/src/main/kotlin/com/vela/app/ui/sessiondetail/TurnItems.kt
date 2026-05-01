@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -35,10 +36,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.vela.app.ui.theme.InstrumentSerifFamily
 import com.vela.app.ui.theme.MonoMedium
 import com.vela.app.ui.theme.VelaColors
@@ -117,12 +121,22 @@ fun AgentTurnItem(
                             val result = content.contentBlocks
                                 .filterIsInstance<ContentBlock.ToolResult>()
                                 .find { it.toolUseId == block.id }
-                            ToolCallBlock(
-                                name      = block.name,
-                                inputJson = block.inputJson,
-                                result    = result?.output,
-                                isError   = result?.isError ?: false,
-                            )
+                            // Delegate tool → indented subagent card
+                            if (block.name == "delegate" || block.name.contains("delegate", ignoreCase = true)) {
+                                DelegateBlock(
+                                    inputJson = block.inputJson,
+                                    result    = result?.output,
+                                    isRunning = block.isRunning,
+                                )
+                            } else {
+                                ToolCallBlock(
+                                    name      = block.name,
+                                    inputJson = block.inputJson,
+                                    result    = result?.output,
+                                    isError   = result?.isError ?: false,
+                                    isRunning = block.isRunning,
+                                )
+                            }
                         }
                         is ContentBlock.ToolResult -> { /* rendered via matching ToolUse block */ }
                     }
@@ -140,43 +154,51 @@ fun AgentTurnItem(
 }
 
 /**
- * Collapsible "Reasoning" block for assistant thinking content.
+ * Compact inline thinking strip — always visible, 2dp accent bar, max 3 lines with ellipsis.
  */
 @Composable
-fun ThinkingBlock(text: String) {
-    var expanded by remember { mutableStateOf(false) }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(VelaColors.SurfaceSub)
-            .clickable { expanded = !expanded }
-            .padding(12.dp)
+fun ThinkingBlock(text: String, modifier: Modifier = Modifier) {
+    if (text.isBlank()) return
+    Row(
+        modifier = modifier.fillMaxWidth().padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector        = Icons.Default.Psychology,
-                contentDescription = "Reasoning",
-                tint               = VelaColors.Accent,
-                modifier           = Modifier.size(16.dp),
-            )
-            Spacer(Modifier.width(6.dp))
-            Text("Reasoning", style = MaterialTheme.typography.labelSmall, color = VelaColors.Accent)
-            Spacer(Modifier.weight(1f))
-            Icon(
-                imageVector        = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                contentDescription = null,
-                tint               = VelaColors.TextTertiary,
-                modifier           = Modifier.size(16.dp),
-            )
-        }
-        if (expanded) {
-            Spacer(Modifier.height(8.dp))
+        // 2dp vertical accent bar
+        Box(
+            modifier = Modifier
+                .width(2.dp)
+                .heightIn(min = 16.dp)
+                .clip(RoundedCornerShape(1.dp))
+                .background(VelaColors.Accent.copy(alpha = 0.45f))
+                .align(Alignment.Top)
+                .padding(top = 2.dp),
+        )
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector        = Icons.Default.Psychology,
+                    contentDescription = null,
+                    tint               = VelaColors.Accent.copy(alpha = 0.6f),
+                    modifier           = Modifier.size(11.dp),
+                )
+                Spacer(Modifier.width(3.dp))
+                Text(
+                    text  = "thinking",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                    color = VelaColors.Accent.copy(alpha = 0.6f),
+                )
+            }
+            Spacer(Modifier.height(2.dp))
             Text(
-                text      = text,
-                style     = MaterialTheme.typography.bodySmall,
-                color     = VelaColors.TextSecondary,
-                fontStyle = FontStyle.Italic,
+                text     = text,
+                style    = MaterialTheme.typography.bodySmall.copy(
+                    fontSize   = 11.sp,
+                    fontStyle  = FontStyle.Italic,
+                    lineHeight = 15.sp,
+                ),
+                color    = VelaColors.TextTertiary,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -184,6 +206,7 @@ fun ThinkingBlock(text: String) {
 
 /**
  * Collapsible tool-call card with input JSON and optional result.
+ * Shows a spinner while the tool is in-flight (isRunning && result == null).
  */
 @Composable
 fun ToolCallBlock(
@@ -191,6 +214,7 @@ fun ToolCallBlock(
     inputJson: String,
     result: String? = null,
     isError: Boolean = false,
+    isRunning: Boolean = false,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Column(
@@ -217,6 +241,16 @@ fun ToolCallBlock(
                 color    = VelaColors.TextPrimary,
                 modifier = Modifier.weight(1f),
             )
+            // Running spinner — shown when tool is in-flight, before result arrives
+            if (isRunning && result == null) {
+                Spacer(Modifier.width(4.dp))
+                CircularProgressIndicator(
+                    modifier    = Modifier.size(12.dp),
+                    color       = VelaColors.Running,
+                    strokeWidth = 1.5.dp,
+                    progress    = { 0.25f },
+                )
+            }
             if (result != null) {
                 Icon(
                     imageVector        = if (isError) Icons.Default.Error else Icons.Default.CheckCircle,
@@ -226,12 +260,15 @@ fun ToolCallBlock(
                 )
                 Spacer(Modifier.width(4.dp))
             }
-            Icon(
-                imageVector        = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                contentDescription = null,
-                tint               = VelaColors.TextTertiary,
-                modifier           = Modifier.size(16.dp),
-            )
+            // Expand/collapse icon only shown when there is content to expand
+            if (!(isRunning && result == null)) {
+                Icon(
+                    imageVector        = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint               = VelaColors.TextTertiary,
+                    modifier           = Modifier.size(16.dp),
+                )
+            }
         }
         if (expanded) {
             Spacer(Modifier.height(8.dp))
@@ -256,6 +293,123 @@ fun ToolCallBlock(
                     text  = result,
                     style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                     color = if (isError) VelaColors.Error else VelaColors.TextSecondary,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Subagent delegation card — shown when the agent calls the `delegate` tool.
+ *
+ * Single-level indent regardless of nesting depth (sub-sub-agents are still
+ * rendered at the same indent level). Left border uses a distinct violet tint
+ * to visually separate from tool calls.
+ */
+@Composable
+fun DelegateBlock(
+    inputJson: String,
+    result: String? = null,
+    isRunning: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
+    // Parse agent name and instruction from the inputJson
+    val (agentName, instruction) = remember(inputJson) {
+        try {
+            val obj = org.json.JSONObject(inputJson)
+            val agent = obj.optString("agent", "sub-agent")
+            val instr = obj.optString("instruction", "").take(120).let {
+                if (it.length == 120) "$it…" else it
+            }
+            Pair(agent, instr)
+        } catch (_: Exception) {
+            Pair("sub-agent", inputJson.take(80))
+        }
+    }
+
+    var expanded by remember { mutableStateOf(false) }
+
+    Row(modifier = modifier.fillMaxWidth()) {
+        // Single left indent bar — violet/purple to distinguish from tool calls
+        Box(
+            modifier = Modifier
+                .width(3.dp)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(2.dp))
+                .background(VelaColors.Waiting.copy(alpha = 0.7f))
+                .align(Alignment.Top),
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            // Header row: icon + agent name + spinner/done
+            Row(
+                modifier          = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector        = Icons.Default.AccountTree,
+                    contentDescription = "Sub-agent",
+                    tint               = VelaColors.Waiting.copy(alpha = 0.8f),
+                    modifier           = Modifier.size(14.dp),
+                )
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    text     = agentName,
+                    style    = MaterialTheme.typography.labelMedium,
+                    color    = VelaColors.Waiting,
+                    modifier = Modifier.weight(1f),
+                )
+                if (isRunning && result == null) {
+                    CircularProgressIndicator(
+                        modifier    = Modifier.size(12.dp),
+                        color       = VelaColors.Waiting,
+                        strokeWidth = 1.5.dp,
+                        progress    = { 0.3f },
+                    )
+                } else if (result != null) {
+                    Icon(
+                        imageVector        = Icons.Default.CheckCircle,
+                        contentDescription = "Done",
+                        tint               = VelaColors.Done,
+                        modifier           = Modifier.size(13.dp),
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
+                Icon(
+                    imageVector        = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint               = VelaColors.TextTertiary,
+                    modifier           = Modifier.size(14.dp),
+                )
+            }
+
+            // Instruction preview (always visible, secondary text)
+            if (instruction.isNotBlank()) {
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    text     = instruction,
+                    style    = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                    color    = VelaColors.TextSecondary,
+                    maxLines = if (expanded) Int.MAX_VALUE else 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            // Expanded: full result
+            if (expanded && result != null) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text  = "Result:",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = VelaColors.TextTertiary,
+                )
+                Text(
+                    text  = result,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontSize   = 11.sp,
+                    ),
+                    color = VelaColors.TextSecondary,
                 )
             }
         }
