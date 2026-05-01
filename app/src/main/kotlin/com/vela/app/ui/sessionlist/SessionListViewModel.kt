@@ -23,7 +23,7 @@ import javax.inject.Inject
 /**
  * ViewModel for Screen 3: Project Detail — Sessions List.
  *
- * Loads sessions from the amplifierd HTTP API for the given node and project.
+ * Loads sessions from the vela plugin's project-scoped session store.
  * [activeSessions] surfaces RUNNING/WAITING sessions; [recentSessions] surfaces DONE/ERROR.
  */
 @HiltViewModel
@@ -65,25 +65,24 @@ class SessionListViewModel @Inject constructor(
     fun loadSessions() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // Use clientForNode to bypass the registry.cache race condition —
-                // the node StateFlow guarantees the node is loaded before we call this.
                 val client = amplifierd.clientForNode(node.value) ?: return@launch
-                val raw = client.getSessions(projectId)
-                _sessions.value = raw.map { s ->
+                val (active, recent) = client.getSessions(projectId)
+                val allSessions = (active + recent).map { s ->
                     SessionSummary(
-                        id          = s.sessionId,
-                        title       = s.sessionId.take(8),  // placeholder title
-                        status      = when (s.status) {
-                            "running" -> SessionStatus.RUNNING
-                            "waiting" -> SessionStatus.WAITING
-                            "error"   -> SessionStatus.ERROR
-                            else      -> SessionStatus.DONE
+                        id           = s.sessionId,
+                        title        = s.title.ifBlank { s.sessionId.take(8) },
+                        status       = when (s.status) {
+                            "running"   -> SessionStatus.RUNNING
+                            "waiting"   -> SessionStatus.WAITING
+                            "error"     -> SessionStatus.ERROR
+                            else        -> SessionStatus.DONE
                         },
-                        modelName    = s.bundleName,
+                        modelName    = s.bundleName.ifBlank { "amplifierd" },
                         stepCount    = 0,
-                        lastActiveMs = s.createdAt,
+                        lastActiveMs = s.lastActivity,
                     )
                 }
+                _sessions.value = allSessions
             } catch (e: Exception) {
                 Log.w(TAG, "loadSessions failed: ${e.message}")
             }
@@ -91,21 +90,21 @@ class SessionListViewModel @Inject constructor(
     }
 
     /** Workspace directory for this node — used as cwd when creating sessions. */
-        val workspaceDir: String
-            get() = registry.cache.find { it.id == nodeId }?.workspaceDir ?: "~"
+    val workspaceDir: String
+        get() = registry.cache.find { it.id == nodeId }?.workspaceDir ?: "~"
 
-        fun createSession() {
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    val nodeObj = registry.cache.find { it.id == nodeId } ?: return@launch
-                    val client = amplifierd.clientForNode(nodeObj) ?: return@launch
-                    client.createSession(projectId, nodeObj.workspaceDir)
-                    loadSessions() // refresh
-                } catch (e: Exception) { /* surface error later */ }
-            }
-        }
-
-        companion object {
-            private const val TAG = "SessionListVM"
+    fun createSession() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val nodeObj = registry.cache.find { it.id == nodeId } ?: return@launch
+                val client = amplifierd.clientForNode(nodeObj) ?: return@launch
+                client.createSession(projectId, nodeObj.workspaceDir)
+                loadSessions() // refresh
+            } catch (e: Exception) { /* surface error later */ }
         }
     }
+
+    companion object {
+        private const val TAG = "SessionListVM"
+    }
+}

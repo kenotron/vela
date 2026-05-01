@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import vela_plugin
+import vela_plugin.session_store as session_store_mod
 from vela_plugin import bundles
 
 
@@ -19,6 +20,7 @@ def app(tmp_path: Path, monkeypatch):
     amp.mkdir(parents=True)
     settings_file = amp / "settings.json"
     projects_file = amp / "projects.json"
+    sessions_file = amp / "vela-sessions.json"
 
     settings_file.write_text(json.dumps({
         "bundles": ["superpowers", "broken"],
@@ -27,6 +29,7 @@ def app(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr("vela_plugin.settings.DEFAULT_PATH", settings_file)
     monkeypatch.setattr("vela_plugin.projects.DEFAULT_PROJECTS_PATH", projects_file)
+    monkeypatch.setattr(session_store_mod, "_store_path", lambda: sessions_file)
     bundles._bundle_errors.clear()
 
     loaded: list[str] = []
@@ -36,20 +39,15 @@ def app(tmp_path: Path, monkeypatch):
             raise RuntimeError("repo unreachable")
         loaded.append(name)
 
-    sessions = [
-        {"id": "s-alpha", "metadata": {"project_id": "P_PLACEHOLDER"}},
-        {"id": "s-other", "metadata": {"project_id": "other"}},
-    ]
-
     state = types.SimpleNamespace(
         bundle_registry=types.SimpleNamespace(loaded=loaded, load=load),
-        session_manager=types.SimpleNamespace(list_sessions=lambda: sessions),
+        session_manager=types.SimpleNamespace(list_sessions=lambda: []),
         tool_registry=types.SimpleNamespace(list_tools=lambda: ["bash", "read_file"]),
     )
 
     fastapi_app = FastAPI()
     fastapi_app.include_router(vela_plugin.create_router(state))
-    yield fastapi_app, sessions
+    yield fastapi_app
     bundles._bundle_errors.clear()
 
 
@@ -60,7 +58,7 @@ def _auth(headers=None):
 
 
 def test_full_lifecycle(app):
-    fastapi_app, sessions = app
+    fastapi_app = app
     client = TestClient(fastapi_app)
 
     # 1. Auth: anonymous request rejected.
@@ -81,17 +79,25 @@ def test_full_lifecycle(app):
     ).json()
     pid = created["id"]
 
-    # 4. Wire a session to that project_id and re-list.
-    sessions[0]["metadata"]["project_id"] = pid
+    # 4. Create a vela session for the project, then list it.
+    new_session = client.post(
+        f"/projects/{pid}/sessions",
+        json={"title": "alpha"},
+        headers=_auth(),
+    ).json()
+    assert "session_id" in new_session
+
     project_sessions = client.get(f"/projects/{pid}/sessions", headers=_auth()).json()
-    assert [s["id"] for s in project_sessions] == ["s-alpha"]
+    assert project_sessions["total"] == 1
+    assert project_sessions["active"][0]["session_id"] == new_session["session_id"]
 
     # 5. List projects: returns the one we created.
     listed = client.get("/projects", headers=_auth()).json()
     assert [p["id"] for p in listed] == [pid]
 
-    # 6. Delete the project; sessions remain in the session manager.
+    # 6. Delete the project; sessions remain in the vela store.
     assert client.delete(f"/projects/{pid}", headers=_auth()).status_code == 200
     assert client.get("/projects", headers=_auth()).json() == []
-    # Session list is untouched.
-    assert len(sessions) == 2
+    # Sessions are still in the vela store (project deletion doesn't purge them).
+    after = client.get(f"/projects/{pid}/sessions", headers=_auth()).json()
+    assert after["total"] == 1

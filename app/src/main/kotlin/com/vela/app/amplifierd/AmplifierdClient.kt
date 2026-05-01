@@ -25,7 +25,7 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    // ── Private HTTP helpers ────────────────────────────────────────────────
+    // ── Private HTTP helpers ──────────────────────────────────────────────────
 
     private suspend fun get(path: String): String = withContext(Dispatchers.IO) {
         val req = Request.Builder()
@@ -51,7 +51,7 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
         }
     }
 
-    // ── Public API ──────────────────────────────────────────────────────────
+    // ── Public API ────────────────────────────────────────────────────────────
 
     /**
      * GET /capabilities
@@ -94,31 +94,44 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
 
     /**
      * GET /projects/:id/sessions
-     * [{"session_id":"uuid","project_id":"uuid","bundle_name":"superpowers",
-     *   "created_at":1234567890.0,"status":"done"}]
+     * {"active":[...],"recent":[...],"total":N}
+     * Returns Pair(active, recent) where active = running/waiting, recent = completed/error.
      */
-    suspend fun getSessions(projectId: String): List<AmplifierdSession> {
-        val arr = JSONArray(get("/projects/$projectId/sessions"))
-        return (0 until arr.length()).map { i ->
-            arr.getJSONObject(i).toSession()
+    suspend fun getSessions(projectId: String): Pair<List<AmplifierdSession>, List<AmplifierdSession>> {
+        val response = JSONObject(get("/projects/$projectId/sessions"))
+        fun parseList(key: String): List<AmplifierdSession> {
+            val arr = response.optJSONArray(key) ?: return emptyList()
+            return (0 until arr.length()).map { i ->
+                val obj = arr.getJSONObject(i)
+                AmplifierdSession(
+                    sessionId    = obj.getString("session_id"),
+                    projectId    = obj.getString("project_id"),
+                    status       = obj.optString("status", "completed"),
+                    title        = obj.optString("title", "").ifBlank { obj.getString("session_id").take(8) },
+                    createdAt    = obj.optLong("created_at", 0L),
+                    lastActivity = obj.optLong("last_activity", 0L),
+                    bundleName   = "",
+                )
+            }
         }
+        return Pair(parseList("active"), parseList("recent"))
     }
 
     /**
-         * POST /sessions  body: {"project_id":"uuid","working_directory":"~/workspace"}
-         * → {"session_id":"uuid"}
-         * Returns the new session ID.
-         */
-        suspend fun createSession(projectId: String, workspaceDir: String = "~"): String {
-            val body = JSONObject().apply {
-                put("project_id", projectId)
-                put("working_directory", workspaceDir)
-            }
-            val response = post("/sessions", body)
-            return JSONObject(response).getString("session_id")
+     * POST /projects/:id/sessions  body: {"working_directory":"~/workspace","title":""}
+     * → {"session_id":"uuid"}
+     * Returns the new session ID.
+     */
+    suspend fun createSession(projectId: String, workspaceDir: String = "~", title: String = ""): String {
+        val body = JSONObject().apply {
+            put("working_directory", workspaceDir)
+            put("title", title)
         }
+        val response = JSONObject(post("/projects/$projectId/sessions", body))
+        return response.getString("session_id")
+    }
 
-        /** GET /health → true if 200, false on any error or non-2xx. */
+    /** GET /health → true if 200, false on any error or non-2xx. */
     suspend fun health(): Boolean = try {
         withContext(Dispatchers.IO) {
             val req = Request.Builder()
@@ -131,21 +144,13 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
         false
     }
 
-    // ── JSON mapping helpers ────────────────────────────────────────────────
+    // ── JSON mapping helpers ──────────────────────────────────────────────────
 
     private fun JSONObject.toProject() = AmplifierdProject(
         id          = getString("id"),
         name        = getString("name"),
         description = optString("description", ""),
         createdAt   = optDouble("created_at", 0.0).toLong(),
-    )
-
-    private fun JSONObject.toSession() = AmplifierdSession(
-        sessionId  = getString("session_id"),
-        projectId  = getString("project_id"),
-        bundleName = optString("bundle_name", ""),
-        createdAt  = optDouble("created_at", 0.0).toLong(),
-        status     = optString("status", "done"),
     )
 
     private fun JSONArray?.toStringList(): List<String> {

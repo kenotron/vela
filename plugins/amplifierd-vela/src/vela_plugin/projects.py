@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException
 from pydantic import BaseModel
 
 
@@ -44,8 +44,11 @@ def _write_projects(path: Path, projects: list[dict[str, Any]]) -> None:
 
 def make_projects_router(
     state: Any,
-    projects_path: Path = DEFAULT_PROJECTS_PATH,
+    projects_path: Path | None = None,
 ) -> APIRouter:
+    # Resolve lazily so monkeypatching DEFAULT_PROJECTS_PATH works in tests.
+    if projects_path is None:
+        projects_path = DEFAULT_PROJECTS_PATH
     router = APIRouter(prefix="/projects")
 
     @router.post("", response_model=ProjectRecord)
@@ -66,14 +69,57 @@ def make_projects_router(
         return [ProjectRecord(**p) for p in _read_projects(projects_path)]
 
     @router.get("/{project_id}/sessions")
-    def list_project_sessions(project_id: str) -> list[dict[str, Any]]:
-        sessions = state.session_manager.list_sessions()
-        out: list[dict[str, Any]] = []
-        for s in sessions:
-            metadata = s.get("metadata") if isinstance(s, dict) else getattr(s, "metadata", None)
-            if isinstance(metadata, dict) and metadata.get("project_id") == project_id:
-                out.append(s)
-        return out
+    def list_project_sessions(project_id: str, limit: int = 20) -> dict[str, Any]:
+        """Return sessions for this project split into active and recent."""
+        from . import session_store
+
+        sessions = session_store.get_sessions(project_id)
+        now = time.time()
+        seven_days = 7 * 24 * 3600
+
+        active = [s for s in sessions if s.status in ("running", "waiting")]
+        recent = [
+            s
+            for s in sessions
+            if s.status in ("completed", "error", "cancelled")
+            and (s.last_activity == 0 or now - s.last_activity <= seven_days)
+        ][:limit]
+
+        return {
+            "active": [_session_dict(s) for s in active],
+            "recent": [_session_dict(s) for s in recent],
+            "total": len(sessions),
+        }
+
+    @router.post("/{project_id}/sessions")
+    def create_project_session(
+        project_id: str, body: dict[str, Any] = Body(default={})
+    ) -> dict[str, Any]:
+        """Create a new session linked to this project in the vela session store."""
+        from . import session_store
+
+        session_id = str(uuid.uuid4())
+        title = body.get("title", "")
+        working_dir = body.get("working_directory", "~")
+
+        session = session_store.VelaSession(
+            session_id=session_id,
+            project_id=project_id,
+            created_at=time.time(),
+            last_activity=time.time(),
+            status="running",
+            title=title,
+        )
+        session_store.add_session(session)
+
+        return {
+            "session_id": session_id,
+            "project_id": project_id,
+            "status": "running",
+            "title": title,
+            "working_directory": working_dir,
+            "created_at": session.created_at,
+        }
 
     @router.delete("/{project_id}")
     def delete_project(project_id: str) -> dict[str, str]:
@@ -85,3 +131,14 @@ def make_projects_router(
         return {"id": project_id, "status": "deleted"}
 
     return router
+
+
+def _session_dict(s: Any) -> dict[str, Any]:
+    return {
+        "session_id": s.session_id,
+        "project_id": s.project_id,
+        "status": s.status,
+        "title": s.title,
+        "created_at": s.created_at,
+        "last_activity": s.last_activity,
+    }

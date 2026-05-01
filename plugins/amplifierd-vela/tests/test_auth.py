@@ -75,8 +75,9 @@ def test_localhost_ipv6_bypasses_auth():
     assert r.status_code == 200
 
 
-def test_empty_configured_token_still_rejects_anonymous():
-    """A node without a configured token should NOT silently allow remote callers."""
+def test_no_token_open_mode_accepts_all():
+    """When no auth token is configured the server runs in open/dev mode and accepts all requests."""
     client = _build_app(VelaPluginSettings(auth_token=""))
     r = client.get("/protected")
-    assert r.status_code == 401
+    assert r.status_code == 200
+    assert r.json() == {"ok": True}

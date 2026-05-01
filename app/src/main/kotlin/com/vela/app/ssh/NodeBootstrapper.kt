@@ -311,7 +311,7 @@ WantedBy=default.target
                 if (bootResult.exitCode != 0 && !bootResult.stdout.contains("Bootstrap failed: 5")) {
                     // Fallback: start directly in background if launchd GUI domain unavailable
                     emit(BootstrapEvent.Output("⚠ launchd GUI domain unavailable — starting amplifierd directly"))
-                    shell.exec("nohup \$HOME/.local/bin/amplifierd serve --host 0.0.0.0 --port 8410 > \$HOME/.amplifierd/stdout.log 2> \$HOME/.amplifierd/stderr.log &")
+                    shell.exec("VELA_AUTH_TOKEN='$token' nohup \$HOME/.local/bin/amplifierd serve --host 0.0.0.0 --port 8410 > \$HOME/.amplifierd/stdout.log 2> \$HOME/.amplifierd/stderr.log &")
                 } else {
                     shell.exec("launchctl kickstart -k gui/\$(id -u)/com.vela.amplifierd 2>/dev/null || true")
                 }
@@ -613,6 +613,9 @@ WantedBy=default.target
                     error("SshNodeDao must not be accessed in NodeBootstrapper helper tests")
                 override suspend fun promoteToAmplifierd(
                     id: String, type: String, url: String, token: String, status: String,
+                ) = error("SshNodeDao must not be accessed in NodeBootstrapper helper tests")
+                override suspend fun updateConnection(
+                    id: String, label: String, hosts: String, port: Int, username: String, workspaceDir: String,
                 ) = error("SshNodeDao must not be accessed in NodeBootstrapper helper tests")
             }
     }

@@ -27,6 +27,18 @@ open class SshNodeRegistry @Inject constructor(private val dao: SshNodeDao) {
     suspend fun updateNode(node: SshNode) = dao.insert(node.toEntity())
     suspend fun removeNode(id: String)    = dao.delete(id)
 
+    /** Update editable connection fields (label, host, port, username, workspaceDir) in-place. */
+    suspend fun updateConnection(node: SshNode) {
+        dao.updateConnection(
+            id           = node.id,
+            label        = node.label,
+            hosts        = node.hosts.joinToString(","),
+            port         = node.port,
+            username     = node.username,
+            workspaceDir = node.workspaceDir,
+        )
+    }
+
     // ── Bootstrap-lifecycle writers ───────────────────────────────────────────
 
     /** Promote an SSH node to an amplifierd node in a single transaction. */
