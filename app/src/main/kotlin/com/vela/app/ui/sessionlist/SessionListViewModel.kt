@@ -85,19 +85,24 @@ class SessionListViewModel @Inject constructor(
                     client.getNativeSessions()
                 } catch (_: Exception) { emptyList() }
 
-                // 3. Merge and deduplicate by session_id (plugin record wins for title).
+                // 3. Merge: native status wins (it's ground truth from amplifierd),
+                //    plugin record wins for title. Sessions absent from native → DONE.
+                val nativeById = nativeSessions.associateBy { it.sessionId }
                 val seen = mutableSetOf<String>()
                 val merged = (pluginSessions + nativeSessions).filter { seen.add(it.sessionId) }
 
                 _sessions.value = merged.map { s ->
+                    // Real status from amplifierd; fall back to plugin status if not in native
+                    val realStatus = nativeById[s.sessionId]?.status ?: "completed"
                     SessionSummary(
                         id           = s.sessionId,
                         title        = s.title.ifBlank { s.sessionId.take(8) },
-                        status       = when (s.status) {
-                            "running"         -> SessionStatus.RUNNING
-                            "waiting"         -> SessionStatus.WAITING
-                            "error", "failed" -> SessionStatus.ERROR
-                            else              -> SessionStatus.DONE
+                        status       = when (realStatus) {
+                            "executing"        -> SessionStatus.RUNNING
+                            "idle"             -> SessionStatus.DONE   // idle = not currently executing
+                            "failed", "error"  -> SessionStatus.ERROR
+                            "completed"        -> SessionStatus.DONE
+                            else               -> SessionStatus.DONE
                         },
                         modelName    = s.bundleName.ifBlank { "amplifierd" },
                         stepCount    = 0,
