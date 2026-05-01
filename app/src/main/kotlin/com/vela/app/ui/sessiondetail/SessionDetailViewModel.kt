@@ -46,6 +46,8 @@ class SessionDetailViewModel @Inject constructor(
     val sessionId: String = checkNotNull(savedStateHandle["sessionId"])
     val nodeId: String    = savedStateHandle["nodeId"] ?: ""
 
+    val hasOpenAiKey: Boolean get() = apiKeyStore.openAiKey.isNotBlank()
+
     // ── Turn list ─────────────────────────────────────────────────────────────
 
     private val _turns = MutableStateFlow<List<TurnContent>>(emptyList())
@@ -181,8 +183,9 @@ class SessionDetailViewModel @Inject constructor(
                         is StreamEvent.Thinking -> {
                             _turns.update { turns ->
                                 turns.mapIndexed { i, t ->
-                                    if (i == assistantTurnIndex) t.copy(text = "…")
-                                    else t
+                                    if (i == assistantTurnIndex) t.copy(
+                                        contentBlocks = listOf(ContentBlock.Thinking("…"))
+                                    ) else t
                                 }
                             }
                         }
@@ -190,18 +193,18 @@ class SessionDetailViewModel @Inject constructor(
                             _turns.update { turns ->
                                 turns.mapIndexed { i, t ->
                                     if (i == assistantTurnIndex) {
-                                        val newText = if (t.text == "…" || t.text.isBlank()) event.text
-                                                      else t.text + "\n" + event.text
-                                        t.copy(text = newText)
+                                        val newBlocks = t.contentBlocks.filterNot { it is ContentBlock.Thinking } +
+                                            ContentBlock.Text(event.text)
+                                        t.copy(contentBlocks = newBlocks, text = event.text)
                                     } else t
                                 }
                             }
                         }
                         is StreamEvent.ToolUse -> {
-                            val tc = ToolCall(name = event.name, result = event.inputJson, isDone = true, isRunning = false)
+                            val block = ContentBlock.ToolUse(event.id, event.name, event.inputJson)
                             _turns.update { turns ->
                                 turns.mapIndexed { i, t ->
-                                    if (i == assistantTurnIndex) t.copy(toolCalls = t.toolCalls + tc)
+                                    if (i == assistantTurnIndex) t.copy(contentBlocks = t.contentBlocks + block)
                                     else t
                                 }
                             }

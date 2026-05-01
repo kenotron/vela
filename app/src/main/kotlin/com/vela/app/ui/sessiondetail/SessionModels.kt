@@ -27,6 +27,7 @@ data class TurnContent(
     val text: String,
     val toolCalls: List<ToolCall> = emptyList(),
     val isUser: Boolean,
+    val contentBlocks: List<ContentBlock> = emptyList(),
 )
 
 /**

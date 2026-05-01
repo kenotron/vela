@@ -221,6 +221,9 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
             val result = mutableListOf<AmplifierdSession>()
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
+                val sessionId    = obj.optString("session_id", "")
+                // Sub-agent sessions (delegate tool spawns) start with 0000000000 — never surface to user
+                if (sessionId.startsWith("0000000000")) continue
                 val rawStatus    = obj.optString("status", "completed")
                 val isActive     = rawStatus == "executing"
                 val lastMs       = parseIso(obj.optString("last_activity"))

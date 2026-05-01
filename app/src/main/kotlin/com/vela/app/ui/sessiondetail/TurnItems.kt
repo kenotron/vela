@@ -2,6 +2,7 @@ package com.vela.app.ui.sessiondetail
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,17 +10,33 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.vela.app.ui.theme.InstrumentSerifFamily
@@ -87,12 +104,160 @@ fun AgentTurnItem(
             modifier            = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(
-                text  = content.text,
-                style = MaterialTheme.typography.bodyLarge,
-                color = VelaColors.TextPrimary,
+            if (content.contentBlocks.isNotEmpty()) {
+                content.contentBlocks.forEach { block ->
+                    when (block) {
+                        is ContentBlock.Text    -> MarkdownText(
+                            markdown = block.markdown,
+                            color    = VelaColors.TextPrimary,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        is ContentBlock.Thinking -> ThinkingBlock(text = block.text)
+                        is ContentBlock.ToolUse  -> {
+                            val result = content.contentBlocks
+                                .filterIsInstance<ContentBlock.ToolResult>()
+                                .find { it.toolUseId == block.id }
+                            ToolCallBlock(
+                                name      = block.name,
+                                inputJson = block.inputJson,
+                                result    = result?.output,
+                                isError   = result?.isError ?: false,
+                            )
+                        }
+                        is ContentBlock.ToolResult -> { /* rendered via matching ToolUse block */ }
+                    }
+                }
+            } else {
+                MarkdownText(
+                    markdown = content.text,
+                    color    = VelaColors.TextPrimary,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                content.toolCalls.forEach { ToolCallCard(it) }
+            }
+        }
+    }
+}
+
+/**
+ * Collapsible "Reasoning" block for assistant thinking content.
+ */
+@Composable
+fun ThinkingBlock(text: String) {
+    var expanded by remember { mutableStateOf(false) }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(VelaColors.SurfaceSub)
+            .clickable { expanded = !expanded }
+            .padding(12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector        = Icons.Default.Psychology,
+                contentDescription = "Reasoning",
+                tint               = VelaColors.Accent,
+                modifier           = Modifier.size(16.dp),
             )
-            content.toolCalls.forEach { ToolCallCard(it) }
+            Spacer(Modifier.width(6.dp))
+            Text("Reasoning", style = MaterialTheme.typography.labelSmall, color = VelaColors.Accent)
+            Spacer(Modifier.weight(1f))
+            Icon(
+                imageVector        = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = null,
+                tint               = VelaColors.TextTertiary,
+                modifier           = Modifier.size(16.dp),
+            )
+        }
+        if (expanded) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text      = text,
+                style     = MaterialTheme.typography.bodySmall,
+                color     = VelaColors.TextSecondary,
+                fontStyle = FontStyle.Italic,
+            )
+        }
+    }
+}
+
+/**
+ * Collapsible tool-call card with input JSON and optional result.
+ */
+@Composable
+fun ToolCallBlock(
+    name: String,
+    inputJson: String,
+    result: String? = null,
+    isError: Boolean = false,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(VelaColors.SurfaceSub)
+            .padding(12.dp)
+    ) {
+        Row(
+            modifier          = Modifier.clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector        = Icons.Default.Terminal,
+                contentDescription = "Tool",
+                tint               = VelaColors.Accent,
+                modifier           = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text     = name,
+                style    = MaterialTheme.typography.labelMedium,
+                color    = VelaColors.TextPrimary,
+                modifier = Modifier.weight(1f),
+            )
+            if (result != null) {
+                Icon(
+                    imageVector        = if (isError) Icons.Default.Error else Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint               = if (isError) VelaColors.Error else VelaColors.Done,
+                    modifier           = Modifier.size(14.dp),
+                )
+                Spacer(Modifier.width(4.dp))
+            }
+            Icon(
+                imageVector        = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = null,
+                tint               = VelaColors.TextTertiary,
+                modifier           = Modifier.size(16.dp),
+            )
+        }
+        if (expanded) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text  = "Input:",
+                style = MaterialTheme.typography.labelSmall,
+                color = VelaColors.TextTertiary,
+            )
+            Text(
+                text  = inputJson,
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                color = VelaColors.TextSecondary,
+            )
+            if (result != null) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text  = "Result:",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = VelaColors.TextTertiary,
+                )
+                Text(
+                    text  = result,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    color = if (isError) VelaColors.Error else VelaColors.TextSecondary,
+                )
+            }
         }
     }
 }

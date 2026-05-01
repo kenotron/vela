@@ -71,6 +71,7 @@ package com.vela.app.ui.sessiondetail
         attachments: List<Uri> = emptyList(),
         onRemoveAttachment: (Uri) -> Unit = {},
         isLoading: Boolean,
+        hasOpenAiKey: Boolean = false,
         modifier: Modifier = Modifier,
     ) {
         val infiniteTransition = rememberInfiniteTransition(label = "recPulse")
@@ -87,8 +88,7 @@ package com.vela.app.ui.sessiondetail
         Column(
             modifier = modifier
                 .fillMaxWidth()
-                .background(VelaColors.SurfaceRaised)
-                .imePadding(),
+                .background(VelaColors.SurfaceRaised),
         ) {
             // ── Top hairline divider ──────────────────────────────────────────
             Box(
@@ -135,7 +135,7 @@ package com.vela.app.ui.sessiondetail
             Row(
                 modifier          = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 6.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
                 // Attach
@@ -186,22 +186,24 @@ package com.vela.app.ui.sessiondetail
 
                 Spacer(Modifier.width(4.dp))
 
-                // Voice button
-                IconButton(
-                    onClick = { if (isRecording) onVoiceStop() else onVoiceStart() },
-                ) {
-                    if (isRecording) {
-                        Icon(
-                            imageVector        = Icons.Default.Stop,
-                            contentDescription = "Stop recording",
-                            tint               = VelaColors.Error.copy(alpha = recordAlpha),
-                        )
-                    } else {
-                        Icon(
-                            imageVector        = Icons.Default.Mic,
-                            contentDescription = "Start recording",
-                            tint               = VelaColors.Accent,
-                        )
+                // Voice button — only shown when OpenAI key is configured
+                if (hasOpenAiKey) {
+                    IconButton(
+                        onClick = { if (isRecording) onVoiceStop() else onVoiceStart() },
+                    ) {
+                        if (isRecording) {
+                            Icon(
+                                imageVector        = Icons.Default.Stop,
+                                contentDescription = "Stop recording",
+                                tint               = VelaColors.Error.copy(alpha = recordAlpha),
+                            )
+                        } else {
+                            Icon(
+                                imageVector        = Icons.Default.Mic,
+                                contentDescription = "Start recording",
+                                tint               = VelaColors.Accent,
+                            )
+                        }
                     }
                 }
 
