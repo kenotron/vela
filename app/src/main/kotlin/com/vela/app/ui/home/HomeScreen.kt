@@ -109,7 +109,7 @@ fun HomeScreen(
                     start  = 16.dp,
                     end    = 16.dp,
                     top    = paddingValues.calculateTopPadding() + 16.dp,
-                    bottom = 96.dp, // clear the persistent Voice FAB
+                    bottom = 24.dp, // standard bottom padding
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
