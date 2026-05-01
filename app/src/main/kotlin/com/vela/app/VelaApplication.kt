@@ -1,6 +1,7 @@
 package com.vela.app
 
 import android.app.Application
+import com.vela.app.notifications.ApprovalNotificationHelper
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import com.vela.app.server.VelaMiniAppCleaner
@@ -26,6 +27,7 @@ class VelaApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        ApprovalNotificationHelper.createChannel(this)
         profileWorkerScheduler.schedule()
         miniAppCleaner.clearStaleRenderersIfNeeded()
         miniAppServer.start()

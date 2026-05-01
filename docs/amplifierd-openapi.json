@@ -1,0 +1,4376 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "amplifierd",
+        "description": "HTTP/SSE daemon for amplifier-core and amplifier-foundation",
+        "version": "0.1.0"
+    },
+    "paths": {
+        "/health": {
+            "get": {
+                "summary": "Health",
+                "description": "Return health status of the daemon.",
+                "operationId": "health_health_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HealthResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/info": {
+            "get": {
+                "summary": "Info",
+                "description": "Return daemon info: version, capabilities, module types.",
+                "operationId": "info_info_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/InfoResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/ready": {
+            "get": {
+                "summary": "Ready",
+                "description": "Return bundle readiness status for loading screen polling.",
+                "operationId": "ready_ready_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "additionalProperties": true,
+                                    "type": "object",
+                                    "title": "Response Ready Ready Get"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/ready/retry": {
+            "post": {
+                "summary": "Ready Retry",
+                "description": "Retry bundle prewarm after a failure.",
+                "operationId": "ready_retry_ready_retry_post",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "additionalProperties": true,
+                                    "type": "object",
+                                    "title": "Response Ready Retry Ready Retry Post"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions": {
+            "get": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "List Sessions",
+                "description": "List all sessions (active + historical).",
+                "operationId": "list_sessions_sessions_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SessionListResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Create Session",
+                "description": "Create a new session by loading and preparing a bundle.",
+                "operationId": "create_session_sessions_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreateSessionRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "additionalProperties": true,
+                                    "type": "object",
+                                    "title": "Response Create Session Sessions Post"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}": {
+            "get": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get Session",
+                "description": "Get detailed info for a single session.",
+                "operationId": "get_session_sessions__session_id__get",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SessionDetail"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Patch Session",
+                "description": "Patch session properties (working_dir, name).\n\nWorks for both live (in-memory) and disk-only (history) sessions.",
+                "operationId": "patch_session_sessions__session_id__patch",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchSessionRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Patch Session Sessions  Session Id  Patch"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Delete Session",
+                "description": "Destroy a session.",
+                "operationId": "delete_session_sessions__session_id__delete",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Successful Response"
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/execute": {
+            "post": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Execute",
+                "description": "Execute a prompt synchronously (blocks until complete).",
+                "operationId": "execute_sessions__session_id__execute_post",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExecuteRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ExecuteResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/execute/stream": {
+            "post": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Execute Stream",
+                "description": "Fire-and-forget streaming execution (returns immediately with correlation_id).",
+                "operationId": "execute_stream_sessions__session_id__execute_stream_post",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExecuteRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "202": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ExecuteStreamAccepted"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/cancel": {
+            "post": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Cancel Session",
+                "description": "Cancel the current execution.",
+                "operationId": "cancel_session_sessions__session_id__cancel_post",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CancelRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CancelResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/stale": {
+            "post": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Mark Stale",
+                "description": "Mark a session as stale.",
+                "operationId": "mark_stale_sessions__session_id__stale_post",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StaleResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/fork": {
+            "post": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Fork Session Endpoint",
+                "description": "Fork a session at a specific turn, returning the new session's metadata.",
+                "operationId": "fork_session_endpoint_sessions__session_id__fork_post",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ForkRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ForkResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/fork/preview": {
+            "get": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Fork Preview",
+                "description": "Preview what forking a session at a given turn would produce.",
+                "operationId": "fork_preview_sessions__session_id__fork_preview_get",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    },
+                    {
+                        "name": "turn",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "title": "Turn"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Fork Preview Sessions  Session Id  Fork Preview Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/turns": {
+            "get": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "List Turns",
+                "description": "List turn boundaries for a session derived from its context messages.",
+                "operationId": "list_turns_sessions__session_id__turns_get",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response List Turns Sessions  Session Id  Turns Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/lineage": {
+            "get": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Session Lineage",
+                "description": "Return the ancestor chain from the root session down to this session.",
+                "operationId": "session_lineage_sessions__session_id__lineage_get",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Session Lineage Sessions  Session Id  Lineage Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/forks": {
+            "get": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "List Forks",
+                "description": "List all direct child forks of a session (sessions whose parent_id matches).",
+                "operationId": "list_forks_sessions__session_id__forks_get",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response List Forks Sessions  Session Id  Forks Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/transcript": {
+            "get": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get Transcript",
+                "description": "Load conversation transcript for a session from transcript.jsonl.",
+                "operationId": "get_transcript_sessions__session_id__transcript_get",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Get Transcript Sessions  Session Id  Transcript Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/tree": {
+            "get": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Session Tree",
+                "description": "Build recursive session tree from this session.",
+                "operationId": "session_tree_sessions__session_id__tree_get",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SessionTreeNode"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/resume": {
+            "post": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Resume Session",
+                "description": "Resume a session from disk after server restart.",
+                "operationId": "resume_session_sessions__session_id__resume_post",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Resume Session Sessions  Session Id  Resume Post"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/tools": {
+            "get": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "List Tools",
+                "description": "List available tools for a session.",
+                "operationId": "list_tools_sessions__session_id__tools_get",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response List Tools Sessions  Session Id  Tools Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/modes": {
+            "get": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "List Modes",
+                "description": "List available modes and active mode for a session.",
+                "operationId": "list_modes_sessions__session_id__modes_get",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response List Modes Sessions  Session Id  Modes Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Set Mode",
+                "description": "Activate a mode by name, or deactivate (None).",
+                "operationId": "set_mode_sessions__session_id__modes_post",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SetModeRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Set Mode Sessions  Session Id  Modes Post"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/config": {
+            "get": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get Session Config",
+                "description": "Get the mount-plan config dict for a live session.",
+                "operationId": "get_session_config_sessions__session_id__config_get",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Get Session Config Sessions  Session Id  Config Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/metadata": {
+            "patch": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Update Metadata",
+                "description": "Update metadata for a session (active or inactive on disk).",
+                "operationId": "update_metadata_sessions__session_id__metadata_patch",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": true,
+                                "title": "Body"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Update Metadata Sessions  Session Id  Metadata Patch"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/events": {
+            "get": {
+                "tags": [
+                    "events"
+                ],
+                "summary": "Stream Events",
+                "description": "Stream real-time SSE events from the global EventBus.",
+                "operationId": "stream_events_events_get",
+                "parameters": [
+                    {
+                        "name": "session",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Session"
+                        }
+                    },
+                    {
+                        "name": "filter",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Filter"
+                        }
+                    },
+                    {
+                        "name": "preset",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Preset"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/approvals": {
+            "get": {
+                "tags": [
+                    "approvals"
+                ],
+                "summary": "List Approvals",
+                "description": "List pending approvals for a session.",
+                "operationId": "list_approvals_sessions__session_id__approvals_get",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response List Approvals Sessions  Session Id  Approvals Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/approvals/{request_id}": {
+            "post": {
+                "tags": [
+                    "approvals"
+                ],
+                "summary": "Respond To Approval",
+                "description": "Respond to a pending approval, resolving its asyncio.Future gate.",
+                "operationId": "respond_to_approval_sessions__session_id__approvals__request_id__post",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    },
+                    {
+                        "name": "request_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Request Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ApprovalResponse"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Respond To Approval Sessions  Session Id  Approvals  Request Id  Post"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/spawn": {
+            "post": {
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Spawn Agent",
+                "description": "Spawn a child agent session synchronously (blocks until instruction completes).",
+                "operationId": "spawn_agent_sessions__session_id__spawn_post",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SpawnRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SpawnResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/spawn/stream": {
+            "post": {
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Spawn Agent Stream",
+                "description": "Spawn a child agent session asynchronously (fire-and-forget, returns 202).",
+                "operationId": "spawn_agent_stream_sessions__session_id__spawn_stream_post",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SpawnRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "202": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SpawnResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/spawn/{child_id}/resume": {
+            "post": {
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Resume Child Agent",
+                "description": "Resume a previously spawned child agent session.",
+                "operationId": "resume_child_agent_sessions__session_id__spawn__child_id__resume_post",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    },
+                    {
+                        "name": "child_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Child Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SpawnResumeRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SpawnResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/agents": {
+            "get": {
+                "tags": [
+                    "agents"
+                ],
+                "summary": "List Agents",
+                "description": "List available agents from the bundle registry for the given session.",
+                "operationId": "list_agents_sessions__session_id__agents_get",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AgentListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/bundles": {
+            "get": {
+                "tags": [
+                    "bundles"
+                ],
+                "summary": "List Bundles",
+                "description": "List all registered bundles.",
+                "operationId": "list_bundles_bundles_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BundleListResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/bundles/register": {
+            "post": {
+                "tags": [
+                    "bundles"
+                ],
+                "summary": "Register Bundle",
+                "description": "Register a bundle name \u2192 URI mapping.",
+                "operationId": "register_bundle_bundles_register_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RegisterBundleRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BundleSummary"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/bundles/{name}": {
+            "delete": {
+                "tags": [
+                    "bundles"
+                ],
+                "summary": "Unregister Bundle",
+                "description": "Unregister a bundle by name.",
+                "operationId": "unregister_bundle_bundles__name__delete",
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Name"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Successful Response"
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/bundles/load": {
+            "post": {
+                "tags": [
+                    "bundles"
+                ],
+                "summary": "Load Bundle",
+                "description": "Load a bundle from a URI or registered name and return its details.",
+                "operationId": "load_bundle_bundles_load_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LoadBundleRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BundleDetail"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/bundles/prepare": {
+            "post": {
+                "tags": [
+                    "bundles"
+                ],
+                "summary": "Prepare Bundle",
+                "description": "Load and prepare a bundle for session creation (activates modules).",
+                "operationId": "prepare_bundle_bundles_prepare_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PrepareBundleRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BundleDetail"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/bundles/compose": {
+            "post": {
+                "tags": [
+                    "bundles"
+                ],
+                "summary": "Compose Bundles",
+                "description": "Load and compose multiple bundles into a single merged bundle.",
+                "operationId": "compose_bundles_bundles_compose_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ComposeBundlesRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BundleDetail"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/bundles/{name}/check-updates": {
+            "post": {
+                "tags": [
+                    "bundles"
+                ],
+                "summary": "Check Updates",
+                "description": "Check whether an update is available for a registered bundle.",
+                "operationId": "check_updates_bundles__name__check_updates_post",
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Name"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BundleUpdateCheck"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/bundles/{name}/update": {
+            "post": {
+                "tags": [
+                    "bundles"
+                ],
+                "summary": "Update Bundle",
+                "description": "Update a registered bundle to the latest version.",
+                "operationId": "update_bundle_bundles__name__update_post",
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Name"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BundleDetail"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/context/messages": {
+            "get": {
+                "tags": [
+                    "context"
+                ],
+                "summary": "Get Messages",
+                "description": "Get all conversation messages from a session's context.",
+                "operationId": "get_messages_sessions__session_id__context_messages_get",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/MessagesResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "context"
+                ],
+                "summary": "Add Message",
+                "description": "Inject a single message into a session's context.",
+                "operationId": "add_message_sessions__session_id__context_messages_post",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AddMessageRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/MessageItem"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "context"
+                ],
+                "summary": "Set Messages",
+                "description": "Replace all context messages for a session.",
+                "operationId": "set_messages_sessions__session_id__context_messages_put",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SetMessagesRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/MessagesResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "context"
+                ],
+                "summary": "Clear Messages",
+                "description": "Clear all context messages for a session.",
+                "operationId": "clear_messages_sessions__session_id__context_messages_delete",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Successful Response"
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/modules": {
+            "get": {
+                "tags": [
+                    "modules"
+                ],
+                "summary": "List Modules",
+                "description": "Discover all available modules from the global module coordinator.",
+                "operationId": "list_modules_modules_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ModuleListResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/modules/{module_id}": {
+            "get": {
+                "tags": [
+                    "modules"
+                ],
+                "summary": "Get Module",
+                "description": "Get details for a specific module by ID.",
+                "operationId": "get_module_modules__module_id__get",
+                "parameters": [
+                    {
+                        "name": "module_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Module Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ModuleSummary"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/modules/mount": {
+            "post": {
+                "tags": [
+                    "modules"
+                ],
+                "summary": "Mount Module",
+                "description": "Hot-mount a module into a live session.",
+                "operationId": "mount_module_sessions__session_id__modules_mount_post",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/MountModuleRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ModuleSummary"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/modules/unmount": {
+            "post": {
+                "tags": [
+                    "modules"
+                ],
+                "summary": "Unmount Module",
+                "description": "Unmount a module from a live session.",
+                "operationId": "unmount_module_sessions__session_id__modules_unmount_post",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UnmountModuleRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "204": {
+                        "description": "Successful Response"
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/{session_id}/modules": {
+            "get": {
+                "tags": [
+                    "modules"
+                ],
+                "summary": "List Session Modules",
+                "description": "List all modules mounted in a session.",
+                "operationId": "list_session_modules_sessions__session_id__modules_get",
+                "parameters": [
+                    {
+                        "name": "session_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Session Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ModuleListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/validate/mount-plan": {
+            "post": {
+                "tags": [
+                    "validation"
+                ],
+                "summary": "Validate Mount Plan",
+                "description": "Validate a mount plan configuration.",
+                "operationId": "validate_mount_plan_validate_mount_plan_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ValidateMountPlanRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/validate/module": {
+            "post": {
+                "tags": [
+                    "validation"
+                ],
+                "summary": "Validate Module",
+                "description": "Validate a module for protocol compliance.",
+                "operationId": "validate_module_validate_module_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ValidateModuleRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/validate/bundle": {
+            "post": {
+                "tags": [
+                    "validation"
+                ],
+                "summary": "Validate Bundle",
+                "description": "Validate a bundle for correctness.",
+                "operationId": "validate_bundle_validate_bundle_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ValidateBundleRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reload/bundles": {
+            "post": {
+                "tags": [
+                    "reload"
+                ],
+                "summary": "Reload Bundles",
+                "description": "Reload all registered bundles daemon-wide.",
+                "operationId": "reload_bundles_reload_bundles_post",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ReloadBundlesResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reload/status": {
+            "get": {
+                "tags": [
+                    "reload"
+                ],
+                "summary": "Reload Status",
+                "description": "Check which registered bundles have updates available.",
+                "operationId": "reload_status_reload_status_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ReloadStatusResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/projects": {
+            "get": {
+                "summary": "List Projects",
+                "operationId": "list_projects_projects_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/ProjectRecord"
+                                    },
+                                    "type": "array",
+                                    "title": "Response List Projects Projects Get"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "summary": "Create Project",
+                "operationId": "create_project_projects_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectCreate"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectRecord"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{project_id}/sessions": {
+            "get": {
+                "summary": "List Project Sessions",
+                "description": "Return sessions for this project split into active and recent.",
+                "operationId": "list_project_sessions_projects__project_id__sessions_get",
+                "parameters": [
+                    {
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Project Id"
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "default": 20,
+                            "title": "Limit"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response List Project Sessions Projects  Project Id  Sessions Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "summary": "Create Project Session",
+                "description": "Register a session with this project in the vela session store.\n\nIf the Vela app has already created a real amplifierd session and passes\nits session_id in the body, we just register it (no UUID generation).\nOtherwise we create a new UUID for a metadata-only entry.",
+                "operationId": "create_project_session_projects__project_id__sessions_post",
+                "parameters": [
+                    {
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Project Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": true,
+                                "default": {},
+                                "title": "Body"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Create Project Session Projects  Project Id  Sessions Post"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{project_id}": {
+            "delete": {
+                "summary": "Delete Project",
+                "operationId": "delete_project_projects__project_id__delete",
+                "parameters": [
+                    {
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Project Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    },
+                                    "title": "Response Delete Project Projects  Project Id  Delete"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/capabilities": {
+            "get": {
+                "summary": "Capabilities",
+                "operationId": "capabilities_capabilities_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "additionalProperties": true,
+                                    "type": "object",
+                                    "title": "Response Capabilities Capabilities Get"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "AddMessageRequest": {
+                "properties": {
+                    "role": {
+                        "type": "string",
+                        "title": "Role"
+                    },
+                    "content": {
+                        "title": "Content"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "role",
+                    "content"
+                ],
+                "title": "AddMessageRequest",
+                "description": "Request body for injecting a single message into context."
+            },
+            "AgentInfo": {
+                "properties": {
+                    "description": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Description"
+                    },
+                    "model_role": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Model Role"
+                    }
+                },
+                "type": "object",
+                "title": "AgentInfo",
+                "description": "Information about an available agent."
+            },
+            "AgentListResponse": {
+                "properties": {
+                    "agents": {
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/AgentInfo"
+                        },
+                        "type": "object",
+                        "title": "Agents"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "agents"
+                ],
+                "title": "AgentListResponse",
+                "description": "Response listing available agents."
+            },
+            "ApprovalResponse": {
+                "properties": {
+                    "approved": {
+                        "type": "boolean",
+                        "title": "Approved"
+                    },
+                    "message": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Message"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "approved"
+                ],
+                "title": "ApprovalResponse",
+                "description": "Request body for responding to an approval."
+            },
+            "BundleDetail": {
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "title": "Name"
+                    },
+                    "version": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Version"
+                    },
+                    "description": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Description"
+                    },
+                    "includes": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Includes"
+                    },
+                    "providers": {
+                        "anyOf": [
+                            {
+                                "items": {},
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Providers"
+                    },
+                    "tools": {
+                        "anyOf": [
+                            {
+                                "items": {},
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Tools"
+                    },
+                    "hooks": {
+                        "anyOf": [
+                            {
+                                "items": {},
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Hooks"
+                    },
+                    "agents": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Agents"
+                    },
+                    "context_files": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Context Files"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "name"
+                ],
+                "title": "BundleDetail",
+                "description": "Detailed bundle information."
+            },
+            "BundleListResponse": {
+                "properties": {
+                    "bundles": {
+                        "items": {
+                            "$ref": "#/components/schemas/BundleSummary"
+                        },
+                        "type": "array",
+                        "title": "Bundles"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "bundles"
+                ],
+                "title": "BundleListResponse",
+                "description": "Response listing bundles."
+            },
+            "BundleSummary": {
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "title": "Name"
+                    },
+                    "uri": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Uri"
+                    },
+                    "version": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Version"
+                    },
+                    "loaded_at": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Loaded At"
+                    },
+                    "has_updates": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Has Updates"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "name"
+                ],
+                "title": "BundleSummary",
+                "description": "Summary of a loaded bundle."
+            },
+            "BundleUpdateCheck": {
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "title": "Name"
+                    },
+                    "current_version": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Current Version"
+                    },
+                    "available_version": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Available Version"
+                    },
+                    "has_update": {
+                        "type": "boolean",
+                        "title": "Has Update"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "name",
+                    "has_update"
+                ],
+                "title": "BundleUpdateCheck",
+                "description": "Result of checking a bundle for updates."
+            },
+            "CancelRequest": {
+                "properties": {
+                    "immediate": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Immediate"
+                    }
+                },
+                "type": "object",
+                "title": "CancelRequest",
+                "description": "Request to cancel a running execution."
+            },
+            "CancelResponse": {
+                "properties": {
+                    "state": {
+                        "type": "string",
+                        "title": "State"
+                    },
+                    "running_tools": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Running Tools"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "state"
+                ],
+                "title": "CancelResponse",
+                "description": "Response from a cancel request."
+            },
+            "ComposeBundlesRequest": {
+                "properties": {
+                    "bundles": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "title": "Bundles"
+                    },
+                    "overrides": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Overrides"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "bundles"
+                ],
+                "title": "ComposeBundlesRequest",
+                "description": "Request to compose multiple bundles."
+            },
+            "CreateSessionRequest": {
+                "properties": {
+                    "bundle_name": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Bundle Name"
+                    },
+                    "bundle_uri": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Bundle Uri"
+                    },
+                    "session_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Session Id"
+                    },
+                    "parent_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Parent Id"
+                    },
+                    "working_dir": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Working Dir"
+                    },
+                    "config_overrides": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Config Overrides"
+                    }
+                },
+                "type": "object",
+                "title": "CreateSessionRequest",
+                "description": "Request to create a new session."
+            },
+            "ExecuteRequest": {
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "title": "Prompt"
+                    },
+                    "metadata": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Metadata"
+                    },
+                    "images": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Images"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "prompt"
+                ],
+                "title": "ExecuteRequest",
+                "description": "Request to execute a prompt in a session."
+            },
+            "ExecuteResponse": {
+                "properties": {
+                    "response": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Response"
+                    },
+                    "usage": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Usage"
+                    },
+                    "tool_calls": {
+                        "anyOf": [
+                            {
+                                "items": {},
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Tool Calls"
+                    },
+                    "finish_reason": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Finish Reason"
+                    }
+                },
+                "type": "object",
+                "title": "ExecuteResponse",
+                "description": "Response from a prompt execution."
+            },
+            "ExecuteStreamAccepted": {
+                "properties": {
+                    "correlation_id": {
+                        "type": "string",
+                        "title": "Correlation Id"
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "title": "Session Id"
+                    },
+                    "status": {
+                        "type": "string",
+                        "const": "accepted",
+                        "title": "Status",
+                        "default": "accepted"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "correlation_id",
+                    "session_id"
+                ],
+                "title": "ExecuteStreamAccepted",
+                "description": "Response when streaming execution is accepted."
+            },
+            "ForkRequest": {
+                "properties": {
+                    "turn": {
+                        "type": "integer",
+                        "title": "Turn"
+                    },
+                    "handle_orphaned_tools": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Handle Orphaned Tools"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "turn"
+                ],
+                "title": "ForkRequest",
+                "description": "Request to fork a session at a specific turn."
+            },
+            "ForkResponse": {
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "title": "Session Id"
+                    },
+                    "parent_id": {
+                        "type": "string",
+                        "title": "Parent Id"
+                    },
+                    "forked_from_turn": {
+                        "type": "integer",
+                        "title": "Forked From Turn"
+                    },
+                    "message_count": {
+                        "type": "integer",
+                        "title": "Message Count"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "session_id",
+                    "parent_id",
+                    "forked_from_turn",
+                    "message_count"
+                ],
+                "title": "ForkResponse",
+                "description": "Response from forking a session."
+            },
+            "HTTPValidationError": {
+                "properties": {
+                    "detail": {
+                        "items": {
+                            "$ref": "#/components/schemas/ValidationError"
+                        },
+                        "type": "array",
+                        "title": "Detail"
+                    }
+                },
+                "type": "object",
+                "title": "HTTPValidationError"
+            },
+            "HealthResponse": {
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "title": "Status"
+                    },
+                    "version": {
+                        "type": "string",
+                        "title": "Version"
+                    },
+                    "uptime_seconds": {
+                        "type": "number",
+                        "title": "Uptime Seconds"
+                    },
+                    "active_sessions": {
+                        "type": "integer",
+                        "title": "Active Sessions"
+                    },
+                    "rust_engine": {
+                        "type": "boolean",
+                        "title": "Rust Engine"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "status",
+                    "version",
+                    "uptime_seconds",
+                    "active_sessions",
+                    "rust_engine"
+                ],
+                "title": "HealthResponse",
+                "description": "Response model for GET /health."
+            },
+            "InfoResponse": {
+                "properties": {
+                    "version": {
+                        "type": "string",
+                        "title": "Version"
+                    },
+                    "amplifier_core_version": {
+                        "type": "string",
+                        "title": "Amplifier Core Version"
+                    },
+                    "rust_available": {
+                        "type": "boolean",
+                        "title": "Rust Available"
+                    },
+                    "capabilities": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "title": "Capabilities"
+                    },
+                    "module_types": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "title": "Module Types"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "version",
+                    "amplifier_core_version",
+                    "rust_available",
+                    "capabilities",
+                    "module_types"
+                ],
+                "title": "InfoResponse",
+                "description": "Response model for GET /info."
+            },
+            "LoadBundleRequest": {
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "title": "Source"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "source"
+                ],
+                "title": "LoadBundleRequest",
+                "description": "Request to load a bundle."
+            },
+            "MessageItem": {
+                "properties": {
+                    "role": {
+                        "type": "string",
+                        "title": "Role"
+                    },
+                    "content": {
+                        "title": "Content"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "role",
+                    "content"
+                ],
+                "title": "MessageItem",
+                "description": "A single conversation message."
+            },
+            "MessagesResponse": {
+                "properties": {
+                    "messages": {
+                        "items": {
+                            "$ref": "#/components/schemas/MessageItem"
+                        },
+                        "type": "array",
+                        "title": "Messages"
+                    },
+                    "total": {
+                        "type": "integer",
+                        "title": "Total"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "messages",
+                    "total"
+                ],
+                "title": "MessagesResponse",
+                "description": "Response containing a list of conversation messages."
+            },
+            "ModuleListResponse": {
+                "properties": {
+                    "modules": {
+                        "items": {
+                            "$ref": "#/components/schemas/ModuleSummary"
+                        },
+                        "type": "array",
+                        "title": "Modules"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "modules"
+                ],
+                "title": "ModuleListResponse",
+                "description": "Response listing modules."
+            },
+            "ModuleSummary": {
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "title": "Id"
+                    },
+                    "name": {
+                        "type": "string",
+                        "title": "Name"
+                    },
+                    "version": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Version"
+                    },
+                    "type": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Type"
+                    },
+                    "mount_point": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Mount Point"
+                    },
+                    "description": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Description"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "id",
+                    "name"
+                ],
+                "title": "ModuleSummary",
+                "description": "Summary of a mounted module."
+            },
+            "MountModuleRequest": {
+                "properties": {
+                    "module_id": {
+                        "type": "string",
+                        "title": "Module Id"
+                    },
+                    "config": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Config"
+                    },
+                    "source": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Source"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "module_id"
+                ],
+                "title": "MountModuleRequest",
+                "description": "Request to mount a module."
+            },
+            "PatchSessionRequest": {
+                "properties": {
+                    "working_dir": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Working Dir"
+                    },
+                    "name": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Name"
+                    }
+                },
+                "type": "object",
+                "title": "PatchSessionRequest",
+                "description": "Request to patch an existing session."
+            },
+            "PrepareBundleRequest": {
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "title": "Source"
+                    },
+                    "install_deps": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Install Deps"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "source"
+                ],
+                "title": "PrepareBundleRequest",
+                "description": "Request to prepare a bundle."
+            },
+            "ProjectCreate": {
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "title": "Name"
+                    },
+                    "description": {
+                        "type": "string",
+                        "title": "Description"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "name",
+                    "description"
+                ],
+                "title": "ProjectCreate"
+            },
+            "ProjectRecord": {
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "title": "Id"
+                    },
+                    "name": {
+                        "type": "string",
+                        "title": "Name"
+                    },
+                    "description": {
+                        "type": "string",
+                        "title": "Description"
+                    },
+                    "created_at": {
+                        "type": "number",
+                        "title": "Created At"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "id",
+                    "name",
+                    "description",
+                    "created_at"
+                ],
+                "title": "ProjectRecord"
+            },
+            "RegisterBundleRequest": {
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "title": "Name"
+                    },
+                    "uri": {
+                        "type": "string",
+                        "title": "Uri"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "name",
+                    "uri"
+                ],
+                "title": "RegisterBundleRequest",
+                "description": "Request to register a bundle."
+            },
+            "ReloadBundlesResponse": {
+                "properties": {
+                    "reloaded": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "title": "Reloaded"
+                    },
+                    "failed": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "title": "Failed"
+                    },
+                    "total": {
+                        "type": "integer",
+                        "title": "Total"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "reloaded",
+                    "failed",
+                    "total"
+                ],
+                "title": "ReloadBundlesResponse",
+                "description": "Response from reloading all registered bundles."
+            },
+            "ReloadStatusResponse": {
+                "properties": {
+                    "bundles": {
+                        "items": {
+                            "$ref": "#/components/schemas/BundleUpdateCheck"
+                        },
+                        "type": "array",
+                        "title": "Bundles"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "bundles"
+                ],
+                "title": "ReloadStatusResponse",
+                "description": "Response from checking reload/update status for all registered bundles."
+            },
+            "SessionDetail": {
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "title": "Session Id"
+                    },
+                    "status": {
+                        "type": "string",
+                        "title": "Status"
+                    },
+                    "bundle": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Bundle"
+                    },
+                    "created_at": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Created At"
+                    },
+                    "last_activity": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Last Activity"
+                    },
+                    "total_messages": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Total Messages"
+                    },
+                    "tool_invocations": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Tool Invocations"
+                    },
+                    "parent_session_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Parent Session Id"
+                    },
+                    "stale": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Stale"
+                    },
+                    "working_dir": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Working Dir"
+                    },
+                    "stats": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Stats"
+                    },
+                    "mounted_modules": {
+                        "anyOf": [
+                            {
+                                "items": {},
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Mounted Modules"
+                    },
+                    "capabilities": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Capabilities"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "session_id",
+                    "status"
+                ],
+                "title": "SessionDetail",
+                "description": "Detailed session info, extends SessionSummary."
+            },
+            "SessionListResponse": {
+                "properties": {
+                    "sessions": {
+                        "items": {
+                            "$ref": "#/components/schemas/SessionSummary"
+                        },
+                        "type": "array",
+                        "title": "Sessions"
+                    },
+                    "total": {
+                        "type": "integer",
+                        "title": "Total"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "sessions",
+                    "total"
+                ],
+                "title": "SessionListResponse",
+                "description": "Response listing sessions."
+            },
+            "SessionSummary": {
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "title": "Session Id"
+                    },
+                    "status": {
+                        "type": "string",
+                        "title": "Status"
+                    },
+                    "bundle": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Bundle"
+                    },
+                    "created_at": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Created At"
+                    },
+                    "last_activity": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Last Activity"
+                    },
+                    "total_messages": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Total Messages"
+                    },
+                    "tool_invocations": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Tool Invocations"
+                    },
+                    "parent_session_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Parent Session Id"
+                    },
+                    "stale": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Stale"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "session_id",
+                    "status"
+                ],
+                "title": "SessionSummary",
+                "description": "Summary of a session."
+            },
+            "SessionTreeNode": {
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "title": "Session Id"
+                    },
+                    "agent": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Agent"
+                    },
+                    "status": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Status"
+                    },
+                    "children": {
+                        "items": {
+                            "$ref": "#/components/schemas/SessionTreeNode"
+                        },
+                        "type": "array",
+                        "title": "Children",
+                        "default": []
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "session_id"
+                ],
+                "title": "SessionTreeNode",
+                "description": "Recursive tree node representing session hierarchy."
+            },
+            "SetMessagesRequest": {
+                "properties": {
+                    "messages": {
+                        "items": {
+                            "$ref": "#/components/schemas/MessageItem"
+                        },
+                        "type": "array",
+                        "title": "Messages"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "messages"
+                ],
+                "title": "SetMessagesRequest",
+                "description": "Request body for replacing all context messages."
+            },
+            "SetModeRequest": {
+                "properties": {
+                    "mode_name": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Mode Name"
+                    }
+                },
+                "type": "object",
+                "title": "SetModeRequest",
+                "description": "Request to set the active mode for a session."
+            },
+            "SpawnRequest": {
+                "properties": {
+                    "agent": {
+                        "type": "string",
+                        "title": "Agent"
+                    },
+                    "instruction": {
+                        "type": "string",
+                        "title": "Instruction"
+                    },
+                    "context_depth": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Context Depth"
+                    },
+                    "context_scope": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Context Scope"
+                    },
+                    "context_turns": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Context Turns"
+                    },
+                    "provider_preferences": {
+                        "anyOf": [
+                            {
+                                "items": {},
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Provider Preferences"
+                    },
+                    "model_role": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Model Role"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "agent",
+                    "instruction"
+                ],
+                "title": "SpawnRequest",
+                "description": "Request to spawn a sub-agent."
+            },
+            "SpawnResponse": {
+                "properties": {
+                    "output": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Output"
+                    },
+                    "session_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Session Id"
+                    },
+                    "status": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Status"
+                    },
+                    "turn_count": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Turn Count"
+                    },
+                    "metadata": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Metadata"
+                    }
+                },
+                "type": "object",
+                "title": "SpawnResponse",
+                "description": "Response from spawning an agent."
+            },
+            "SpawnResumeRequest": {
+                "properties": {
+                    "instruction": {
+                        "type": "string",
+                        "title": "Instruction"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "instruction"
+                ],
+                "title": "SpawnResumeRequest",
+                "description": "Request to resume a spawned agent."
+            },
+            "StaleResponse": {
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "title": "Session Id"
+                    },
+                    "stale": {
+                        "type": "boolean",
+                        "title": "Stale"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "session_id",
+                    "stale"
+                ],
+                "title": "StaleResponse",
+                "description": "Response from marking a session as stale."
+            },
+            "UnmountModuleRequest": {
+                "properties": {
+                    "mount_point": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Mount Point"
+                    },
+                    "name": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Name"
+                    }
+                },
+                "type": "object",
+                "title": "UnmountModuleRequest",
+                "description": "Request to unmount a module."
+            },
+            "ValidateBundleRequest": {
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "title": "Source"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "source"
+                ],
+                "title": "ValidateBundleRequest",
+                "description": "Request to validate a bundle source."
+            },
+            "ValidateModuleRequest": {
+                "properties": {
+                    "module_id": {
+                        "type": "string",
+                        "title": "Module Id"
+                    },
+                    "type": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Type"
+                    },
+                    "source": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Source"
+                    },
+                    "config": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Config"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "module_id"
+                ],
+                "title": "ValidateModuleRequest",
+                "description": "Request to validate a module."
+            },
+            "ValidateMountPlanRequest": {
+                "properties": {
+                    "mount_plan": {
+                        "additionalProperties": true,
+                        "type": "object",
+                        "title": "Mount Plan"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "mount_plan"
+                ],
+                "title": "ValidateMountPlanRequest",
+                "description": "Request to validate a mount plan."
+            },
+            "ValidationError": {
+                "properties": {
+                    "loc": {
+                        "items": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "integer"
+                                }
+                            ]
+                        },
+                        "type": "array",
+                        "title": "Location"
+                    },
+                    "msg": {
+                        "type": "string",
+                        "title": "Message"
+                    },
+                    "type": {
+                        "type": "string",
+                        "title": "Error Type"
+                    },
+                    "input": {
+                        "title": "Input"
+                    },
+                    "ctx": {
+                        "type": "object",
+                        "title": "Context"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "loc",
+                    "msg",
+                    "type"
+                ],
+                "title": "ValidationError"
+            },
+            "ValidationResponse": {
+                "properties": {
+                    "valid": {
+                        "type": "boolean",
+                        "title": "Valid"
+                    },
+                    "errors": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Errors"
+                    },
+                    "warnings": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Warnings"
+                    },
+                    "checks": {
+                        "anyOf": [
+                            {
+                                "items": {},
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Checks"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "valid"
+                ],
+                "title": "ValidationResponse",
+                "description": "Response from a validation operation."
+            }
+        }
+    }
+}

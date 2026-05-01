@@ -7,6 +7,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vela.app.amplifierd.AmplifierdRepository
+import com.vela.app.notifications.ApprovalNotificationHelper
 import com.vela.app.amplifierd.StreamEvent
 import com.vela.app.settings.ApiKeyStore
 import com.vela.app.ssh.SshNodeRegistry
@@ -235,6 +236,11 @@ class SessionDetailViewModel @Inject constructor(
 
                         is StreamEvent.ApprovalRequest -> {
                             _approvalRequest.value = Pair(event.id, event.question)
+                            // Post a system notification so the user is alerted even
+                            // when the app is backgrounded or the screen is off.
+                            com.vela.app.notifications.ApprovalNotificationHelper.notify(
+                                ctx, sessionId, event.question
+                            )
                         }
 
                         is StreamEvent.Done  -> { /* handled after loop */ }

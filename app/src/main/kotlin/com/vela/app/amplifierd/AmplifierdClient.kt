@@ -187,7 +187,57 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
         post("/sessions/$sessionId/approvals/$approvalId", body)
     }
 
-    /** GET /health → true if 200, false on any error or non-2xx. */
+    /**
+         * GET /sessions — returns native amplifierd sessions filtered by recency.
+         *
+         * Includes:
+         *  - All active sessions (status "running" or "waiting"), regardless of age.
+         *  - Sessions whose last_activity is within the last [sinceMs] millis (default 7 days).
+         *
+         * The native /sessions endpoint returns all sessions with no server-side filter, so we
+         * download the full list and filter client-side. Fields differ from the vela-plugin response:
+         *   "bundle"       → bundleName
+         *   "created_at"   → ISO-8601 string (not epoch Long)
+         *   "last_activity"→ ISO-8601 string (not epoch Long)
+         *   no "project_id" or "title"
+         */
+        suspend fun getNativeSessions(
+            sinceMs: Long = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000,
+        ): List<AmplifierdSession> {
+            val response = JSONObject(get("/sessions"))
+            val arr = response.optJSONArray("sessions") ?: return emptyList()
+            val result = mutableListOf<AmplifierdSession>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val status       = obj.optString("status", "completed")
+                val isActive     = status == "running" || status == "waiting"
+                val lastMs       = parseIso(obj.optString("last_activity"))
+                    ?: parseIso(obj.optString("created_at"))
+                    ?: 0L
+                // Exclude old completed/failed sessions outside the recency window
+                if (!isActive && lastMs in 1 until sinceMs) continue
+                result.add(AmplifierdSession(
+                    sessionId    = obj.getString("session_id"),
+                    projectId    = "",
+                    bundleName   = obj.optString("bundle", ""),
+                    createdAt    = parseIso(obj.optString("created_at")) ?: 0L,
+                    lastActivity = lastMs,
+                    status       = status,
+                    title        = "",
+                ))
+            }
+            return result
+        }
+
+        /** Parse an ISO-8601 datetime string (e.g. "2026-05-01T07:09:22.481012+00:00") to epoch millis. */
+        private fun parseIso(s: String): Long? {
+            if (s.isBlank()) return null
+            return try {
+                java.time.OffsetDateTime.parse(s).toInstant().toEpochMilli()
+            } catch (_: Exception) { null }
+        }
+
+        /** GET /health → true if 200, false on any error or non-2xx. */
     suspend fun health(): Boolean = try {
         withContext(Dispatchers.IO) {
             val req = Request.Builder()

@@ -86,9 +86,13 @@ class AmplifierdStreamClient(
         }
         Log.d(TAG, "Prompt submitted; correlationId=$correlationId")
 
-        // Step 2: Open the SSE event stream and filter by session_id / correlation_id
+        // Step 2: Open the SSE event stream scoped to this session.
+        // The ?session= param is critical: it tells amplifierd to:
+        //   a) deliver only events for this session (server-side filter), and
+        //   b) replay all past events from sequence 1 so we never miss tokens
+        //      emitted before the SSE connection was established (race-condition fix).
         val eventsRequest = Request.Builder()
-            .url("$baseUrl/events")
+            .url("$baseUrl/events?session=$sessionId")
             .header("x-amplifier-token", token)
             .header("Accept", "text/event-stream")
             .get()

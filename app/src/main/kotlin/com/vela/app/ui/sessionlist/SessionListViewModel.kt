@@ -72,23 +72,38 @@ class SessionListViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val client = amplifierd.clientForNode(node.value) ?: return@launch
-                val (active, recent) = client.getSessions(projectId)
-                val allSessions = (active + recent).map { s ->
+
+                // 1. Load project-tracked sessions from the vela plugin endpoint.
+                val pluginSessions: List<com.vela.app.amplifierd.AmplifierdSession> = try {
+                    val (active, recent) = client.getSessions(projectId)
+                    active + recent
+                } catch (_: Exception) { emptyList() }
+
+                // 2. Load recent sessions from amplifierd's native /sessions endpoint.
+                //    This surfaces sessions created from the CLI, other apps, etc.
+                val nativeSessions: List<com.vela.app.amplifierd.AmplifierdSession> = try {
+                    client.getNativeSessions()
+                } catch (_: Exception) { emptyList() }
+
+                // 3. Merge and deduplicate by session_id (plugin record wins for title).
+                val seen = mutableSetOf<String>()
+                val merged = (pluginSessions + nativeSessions).filter { seen.add(it.sessionId) }
+
+                _sessions.value = merged.map { s ->
                     SessionSummary(
                         id           = s.sessionId,
                         title        = s.title.ifBlank { s.sessionId.take(8) },
                         status       = when (s.status) {
-                            "running"   -> SessionStatus.RUNNING
-                            "waiting"   -> SessionStatus.WAITING
-                            "error"     -> SessionStatus.ERROR
-                            else        -> SessionStatus.DONE
+                            "running"         -> SessionStatus.RUNNING
+                            "waiting"         -> SessionStatus.WAITING
+                            "error", "failed" -> SessionStatus.ERROR
+                            else              -> SessionStatus.DONE
                         },
                         modelName    = s.bundleName.ifBlank { "amplifierd" },
                         stepCount    = 0,
                         lastActiveMs = s.lastActivity,
                     )
                 }
-                _sessions.value = allSessions
             } catch (e: Exception) {
                 Log.w(TAG, "loadSessions failed: ${e.message}")
             }
