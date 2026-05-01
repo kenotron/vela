@@ -87,12 +87,16 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
      * POST /projects  body: {"name":"Work","description":""}
      * → {"id":"uuid","name":"Work","description":"","created_at":1234567890.0}
      */
-    suspend fun createProject(name: String, description: String = ""): AmplifierdProject {
+    suspend fun createProject(name: String, description: String = "", workingDir: String = ""): AmplifierdProject {
         val body = JSONObject().apply {
             put("name", name)
             put("description", description)
+            if (workingDir.isNotBlank()) put("working_dir", workingDir)
         }
-        return JSONObject(post("/projects", body)).toProject()
+        val response = JSONObject(post("/projects", body))
+        val project = response.toProject()
+        // Fallback: if server didn't echo working_dir back yet, use what we sent
+        return if (project.workingDir.isBlank() && workingDir.isNotBlank()) project.copy(workingDir = workingDir) else project
     }
 
     /**
@@ -287,6 +291,7 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
         name        = getString("name"),
         description = optString("description", ""),
         createdAt   = optDouble("created_at", 0.0).toLong(),
+        workingDir  = optString("working_dir", ""),
     )
 
     private fun JSONArray?.toStringList(): List<String> {

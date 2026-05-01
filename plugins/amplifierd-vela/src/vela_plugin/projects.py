@@ -16,16 +16,12 @@ from pydantic import BaseModel
 DEFAULT_PROJECTS_PATH = Path.home() / ".amplifierd" / "projects.json"
 
 
-class ProjectCreate(BaseModel):
-    name: str
-    description: str
-
-
 class ProjectRecord(BaseModel):
     id: str
     name: str
     description: str
     created_at: float
+    working_dir: str = ""
 
 
 def _read_projects(path: Path) -> list[dict[str, Any]]:
@@ -52,12 +48,16 @@ def make_projects_router(
     router = APIRouter(prefix="/projects")
 
     @router.post("", response_model=ProjectRecord)
-    def create_project(body: ProjectCreate) -> ProjectRecord:
+    def create_project(body: dict = Body(default={})) -> ProjectRecord:
+        name = (body.get("name") or "").strip()
+        if not name:
+            raise HTTPException(status_code=422, detail="name is required")
         record = ProjectRecord(
             id=uuid.uuid4().hex,
-            name=body.name,
-            description=body.description,
+            name=name,
+            description=body.get("description", ""),
             created_at=time.time(),
+            working_dir=body.get("working_dir", ""),
         )
         projects = _read_projects(projects_path)
         projects.append(record.model_dump())

@@ -37,6 +37,8 @@ class SessionListViewModel @Inject constructor(
     val projectId: String   = checkNotNull(savedStateHandle["projectId"])
     /** Project name passed as a URL-encoded query parameter from NodeDetailScreen. */
     val projectName: String = savedStateHandle["projectName"] ?: ""
+    /** Working directory for this project — sessions are launched from this path. */
+    val workingDir: String  = savedStateHandle["workingDir"] ?: "~"
 
     /** Node domain object — used to build the AmplifierdClient without relying on registry.cache. */
     private val node = registry.allFlow()
@@ -115,16 +117,12 @@ class SessionListViewModel @Inject constructor(
         }
     }
 
-    /** Workspace directory for this node — used as cwd when creating sessions. */
-    val workspaceDir: String
-        get() = registry.cache.find { it.id == nodeId }?.workspaceDir ?: "~"
-
     fun createSession() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val nodeObj = registry.cache.find { it.id == nodeId } ?: return@launch
                 val client = amplifierd.clientForNode(nodeObj) ?: return@launch
-                val sessionId = client.createSession(projectId, nodeObj.workspaceDir)
+                val sessionId = client.createSession(projectId, workingDir, title = "")
                 _createdSessionId.value = sessionId
                 loadSessions() // refresh list
             } catch (e: Exception) {

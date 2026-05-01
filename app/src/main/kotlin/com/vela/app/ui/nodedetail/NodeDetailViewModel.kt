@@ -91,11 +91,19 @@ class NodeDetailViewModel @Inject constructor(
         registry.removeNode(nodeId)
     }
 
-    suspend fun createProject(name: String): Boolean {
+    val workspaceDir: String get() = node.value?.workspaceDir ?: "~"
+
+    suspend fun createProject(name: String, workingDir: String = ""): Boolean {
         return try {
-            val client = amplifierd.clientForNode(node.value) ?: return false
-            val project = client.createProject(name)
-            _projects.value = _projects.value + project
+            val n = node.value ?: return false
+            val client = amplifierd.clientForNode(n) ?: return false
+            val effectiveDir = workingDir.ifBlank {
+                val base = n.workspaceDir.trimEnd('/')
+                val slug = name.trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+                "$base/$slug"
+            }
+            val project = client.createProject(name, workingDir = effectiveDir)
+            _projects.update { it + project }
             true
         } catch (e: Exception) {
             android.util.Log.w("NodeDetailVM", "createProject failed: ${e.message}")

@@ -86,6 +86,7 @@ fun NodeDetailScreen(
     // "New project" dialog state
     var showNewProjectDialog by remember { mutableStateOf(false) }
     var newProjectName by remember { mutableStateOf("") }
+    var newProjectDir by remember { mutableStateOf("") }
 
     // "Delete node" confirm dialog state
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -133,7 +134,7 @@ fun NodeDetailScreen(
 
     if (showNewProjectDialog) {
         AlertDialog(
-            onDismissRequest = { showNewProjectDialog = false; newProjectName = "" },
+            onDismissRequest = { showNewProjectDialog = false; newProjectName = ""; newProjectDir = "" },
             containerColor   = VelaColors.SurfacePeak,
             title = {
                 Text(
@@ -143,28 +144,57 @@ fun NodeDetailScreen(
                 )
             },
             text = {
-                OutlinedTextField(
-                    value         = newProjectName,
-                    onValueChange = { newProjectName = it },
-                    placeholder   = { Text("Project name", color = VelaColors.TextTertiary) },
-                    singleLine    = true,
-                    colors        = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor   = VelaColors.Accent,
-                        unfocusedBorderColor = VelaColors.StrokeEdge,
-                        focusedTextColor     = VelaColors.TextPrimary,
-                        unfocusedTextColor   = VelaColors.TextPrimary,
-                        cursorColor          = VelaColors.Accent,
-                    ),
-                )
+                androidx.compose.foundation.layout.Column {
+                    OutlinedTextField(
+                        value         = newProjectName,
+                        onValueChange = { newValue ->
+                            val oldName = newProjectName
+                            newProjectName = newValue
+                            // Auto-fill dir from workspace + slug if user hasn't manually changed it
+                            if (newProjectDir.isEmpty() || newProjectDir == slugify(oldName, viewModel.workspaceDir)) {
+                                newProjectDir = slugify(newValue, viewModel.workspaceDir)
+                            }
+                        },
+                        placeholder   = { Text("Project name", color = VelaColors.TextTertiary) },
+                        singleLine    = true,
+                        colors        = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor   = VelaColors.Accent,
+                            unfocusedBorderColor = VelaColors.StrokeEdge,
+                            focusedTextColor     = VelaColors.TextPrimary,
+                            unfocusedTextColor   = VelaColors.TextPrimary,
+                            cursorColor          = VelaColors.Accent,
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value         = newProjectDir,
+                        onValueChange = { newProjectDir = it },
+                        label         = { Text("Working directory", color = VelaColors.TextSecondary) },
+                        placeholder   = { Text("~/workspace/my-project", color = VelaColors.TextTertiary) },
+                        supportingText = { Text("Sessions run from this directory", color = VelaColors.TextTertiary, fontSize = 11.sp) },
+                        singleLine    = true,
+                        colors        = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor   = VelaColors.Accent,
+                            unfocusedBorderColor = VelaColors.StrokeEdge,
+                            focusedTextColor     = VelaColors.TextPrimary,
+                            unfocusedTextColor   = VelaColors.TextPrimary,
+                            cursorColor          = VelaColors.Accent,
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        val name = newProjectName
+                        val name = newProjectName.trim()
+                        val dir  = newProjectDir.trim()
                         showNewProjectDialog = false
                         newProjectName = ""
+                        newProjectDir  = ""
                         coroutineScope.launch {
-                            val ok = viewModel.createProject(name)
+                            val ok = viewModel.createProject(name, dir)
                             if (!ok) {
                                 snackbarHostState.showSnackbar(
                                     "Couldn't create project — is the node reachable?"
@@ -178,7 +208,7 @@ fun NodeDetailScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showNewProjectDialog = false; newProjectName = "" }) {
+                TextButton(onClick = { showNewProjectDialog = false; newProjectName = ""; newProjectDir = "" }) {
                     Text("Cancel", color = VelaColors.TextSecondary)
                 }
             },
@@ -298,7 +328,7 @@ fun NodeDetailScreen(
                     bundleTag   = "project",
                     onTap       = {
                         navController.navigate(
-                            Routes.sessionList(viewModel.nodeId, project.id, project.name)
+                            Routes.sessionList(viewModel.nodeId, project.id, project.name, project.workingDir)
                         )
                     },
                 )
@@ -342,6 +372,16 @@ private fun NewProjectPlaceholder(onTap: () -> Unit) {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Build a default working directory path: slugify the name and append to the workspace root.
+ * e.g. slugify("My App", "~/workspace") → "~/workspace/my-app"
+ */
+private fun slugify(name: String, workspaceDir: String): String {
+    val slug = name.trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trimEnd('-').trimStart('-')
+    val base = workspaceDir.ifBlank { "~" }.trimEnd('/')
+    return if (slug.isEmpty()) base else "$base/$slug"
+}
 
 private fun buildNodeTelemetry(
     node: SshNode?,

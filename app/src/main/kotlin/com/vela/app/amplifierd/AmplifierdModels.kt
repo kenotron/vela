@@ -5,6 +5,7 @@ package com.vela.app.amplifierd
         val name: String,
         val description: String,
         val createdAt: Long,
+        val workingDir: String = "",
     )
 
     data class AmplifierdSession(

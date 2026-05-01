@@ -38,7 +38,7 @@ import com.vela.app.ui.settings.ApiKeySettingsScreen
 object Routes {
     const val HOME         = "home"
     const val NODE_DETAIL  = "node/{nodeId}"
-    const val SESSION_LIST = "node/{nodeId}/project/{projectId}?projectName={projectName}"
+    const val SESSION_LIST = "node/{nodeId}/project/{projectId}?projectName={projectName}&workingDir={workingDir}"
     // SESSION_DETAIL includes nodeId so SessionDetailViewModel can build the API client
     const val SESSION_DETAIL = "session/{nodeId}/{sessionId}"
     const val COORDINATOR  = "session/{sessionId}/coordinator"
@@ -47,8 +47,8 @@ object Routes {
     const val API_KEYS     = "api-keys"
 
     fun nodeDetail(nodeId: String)                                     = "node/$nodeId"
-    fun sessionList(nodeId: String, projectId: String, projectName: String = "") =
-        "node/$nodeId/project/$projectId?projectName=${android.net.Uri.encode(projectName)}"
+    fun sessionList(nodeId: String, projectId: String, projectName: String = "", workingDir: String = "~") =
+        "node/$nodeId/project/$projectId?projectName=${android.net.Uri.encode(projectName)}&workingDir=${android.net.Uri.encode(workingDir)}"
     fun sessionDetail(nodeId: String, sessionId: String)              = "session/$nodeId/$sessionId"
     fun coordinator(sessionId: String)                                 = "session/$sessionId/coordinator"
     fun nodeConfig(nodeId: String)                                     = "node/$nodeId/config"
@@ -89,6 +89,7 @@ fun VelaApp(modifier: Modifier = Modifier) {
                         navArgument("nodeId")      { type = NavType.StringType },
                         navArgument("projectId")   { type = NavType.StringType },
                         navArgument("projectName") { type = NavType.StringType; defaultValue = "" },
+                        navArgument("workingDir")  { type = NavType.StringType; defaultValue = "~" },
                     ),
                 ) { SessionListScreen(navController) }
 
