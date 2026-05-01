@@ -1,260 +1,244 @@
 # Vela — Agent Context
 
-> **Read this first.** This file is the source of truth for any AI agent working on this codebase.
-> Cross-reference with `docs/plans/2026-04-11-vela-design.md` for the long-range product vision.
+> **Read this first before making any changes.**
+> This file is the source of truth for any AI agent working on this codebase.
+> **EVIDENCE RULE: Don't invent API shapes, event names, or status values. Verify with curl or logcat first.**
 
 ---
 
 ## What Vela Is
 
-Vela is a **mobile-first AI orchestration hub**. Each family member runs Vela on their phone. The phone is the brain — orchestration, history, routing, and UI all live on-device. Intelligence and compute come from a network of remote Amplifier nodes (SSH-accessible machines) that run Claude.
-
-**Vela is the general. The nodes are the battalions.**
+Vela is a **mobile-first AI orchestration hub** (Android app). The phone is the UI and controller. Intelligence runs on remote amplifierd nodes (SSH-accessible machines). The app talks to amplifierd via HTTP + SSE.
 
 ---
 
-## Current Implementation State
+## Current Architecture (as of 2026-05)
 
-This is the Android app (Kotlin + Rust JNI). It is a working prototype that:
-
-- Talks directly to Anthropic's API via a Rust JNI bridge (amplifier-core)
-- Stores full conversation history in Room DB on-device
-- Renders tool call blocks interleaved with text in correct Anthropic content order
-- Can SSH into registered machines and run commands as AI tools
-- Manages multiple chat sessions locally
-
-The Amplifier node network, authorization fabric, and multi-user support are in the design doc (`docs/plans/`) but not yet implemented.
+```
+Phone (Android)                           Mac / Remote Node
+┌─────────────────────────────┐           ┌──────────────────────────────┐
+│ Vela App                    │           │ amplifierd daemon             │
+│                             │  HTTP     │  port 8410                   │
+│ SessionDetailViewModel  ────┼──────────►│  /sessions  (CRUD)           │
+│   ├─ sendMessage()          │  SSE      │  /events?session=ID (stream) │
+│   └─ AmplifierdStreamClient─┼──────────►│  /projects  (vela plugin)    │
+│                             │           │  /capabilities               │
+│ SshNodeRegistry (@Singleton)│           │                              │
+│   └─ cache: List<SshNode>   │           │  Uses Anthropic API          │
+│      url, token, workspaceDir           │  Key: from launchd plist env │
+└─────────────────────────────┘           └──────────────────────────────┘
+```
 
 ---
 
-## Architecture
+## Proven amplifierd SSE Event Vocabulary
 
-### Layer diagram
+**Verified by live curl on 2026-05-01 against `http://10.0.0.143:8410`**
 
+### Protocol (order matters)
+1. Open `GET /events?session={sessionId}` SSE stream **FIRST** — server replays from seq 1
+2. Then `POST /sessions/{id}/execute/stream` with `{"prompt": "..."}` — returns `{"correlation_id":"...","status":"accepted"}`
+3. Collect events from GET /events until `execution:end` or `orchestrator:complete`
+
+### Event sequence (successful turn)
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  UI Layer  (Compose)                                        │
-│                                                             │
-│  ConversationScreen ─── ConversationViewModel               │
-│  NodesScreen        ─── NodesViewModel                      │
-│                                                             │
-│  Reads: Room reactive Flows (StateFlow<List<TurnWithEvents>>│
-│  Writes: calls InferenceEngine.startTurn() only             │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ startTurn(convId, userMessage)
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│  InferenceEngine  (@Singleton, own CoroutineScope)          │
-│                                                             │
-│  CoroutineScope(SupervisorJob() + Dispatchers.IO)           │
-│  Lives as long as the process — NOT tied to any ViewModel   │
-│                                                             │
-│  Drives the agent loop:                                     │
-│    1. Creates Turn row in DB                                │
-│    2. Calls AmplifierSession.runTurn()                      │
-│    3. onToken  → flush to textBuffer, update streamingText  │
-│    4. onToolStart → flush textBuffer to TurnEvent (seq N)   │
-│                  → insert tool TurnEvent (seq N+1, running) │
-│    5. onToolEnd  → UPDATE tool TurnEvent in-place (done)    │
-│    6. End of turn → flush remaining text as TurnEvent       │
-│    7. UPDATE Turn status = complete                         │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ runTurn(historyJson, userInput, callbacks)
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│  AmplifierSession  (@Singleton, stateless)                  │
-│                                                             │
-│  Implements InferenceSession interface (testable)           │
-│  Owns NO history — callers pass historyJson from DB         │
-│  Owns NO coroutine scope — InferenceEngine owns lifecycle   │
-│                                                             │
-│  Calls AmplifierBridge.nativeRun() (Rust JNI)              │
-│  tokenWasEmitted flag guards against double-emit antipattern│
-└──────────────────────────┬──────────────────────────────────┘
-                           │ JNI
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Rust JNI Bridge  (amplifier-android crate)                 │
-│                                                             │
-│  orchestrator.rs — multi-turn agent loop (≤10 steps)        │
-│    end_turn:   emit_token(text) AND return text             │
-│                ↑ ALWAYS both — tokenWasEmitted flag needed  │
-│    tool_use:   emit_token(preamble) then executeTool()×N    │
-│                then loop (model sees tool results)          │
-│                                                             │
-│  provider.rs — POST /v1/messages (non-streaming)            │
-└─────────────────────────────────────────────────────────────┘
+id: 1  event: session:start      # lightweight, just session_id + timestamp
+id: 2  event: session:start      # full config dump (agents, hooks, providers, tools)
+id: 3  event: prompt:submit      # data.prompt = the submitted text
+id: 4  event: execution:start    # data.prompt = the submitted text
+id: 5  event: provider:request   # data.provider = "anthropic", data.iteration = 1
+id: 6  event: llm:request        # data.model, data.thinking_enabled, data.message_count
+id: 7  event: llm:response       # data.duration_ms, data.status = "ok", data.usage
+id: 8  event: content_block:start  # data.block_index = 0, data.block_type = "text"
+id: 9  event: content_block:end    # data.block = {"text": "hello", "type": "text"}
+                                   #             or {"id", "name", "input", "type": "tool_use"}
+                                   #             or {"thinking": "...", "type": "thinking"}
+id:10  event: execution:end
+id:11  event: orchestrator:complete  ← DONE signal
 ```
 
-### Database schema (Room, SQLite)
-
+### On provider failure (retries)
 ```
-conversations   (id, title, createdAt, updatedAt)
-  └── turns     (id, conversationId, userMessage, status, timestamp)
-       └── turn_events  (id, turnId, seq, type, ...)
-                         ORDER BY seq ASC — integer counter, NEVER timestamp
-
-ssh_nodes       (id, label, hosts, port, username, addedAt)
-                 hosts = comma-separated ordered list of IPs/hostnames
-                 SSH tool tries each in order until one connects
-
-messages        (legacy — user messages in old flat model, kept for migration)
+id: 7  event: provider:retry   # data.attempt, data.max_retries, data.error_message, data.delay
+                               # (repeated up to max_retries times, then execution:end with error)
 ```
 
-**`TurnWithEvents`** is the only unit the UI ever renders. Room `@Relation` joins turn + events in one query. `sortedEvents` sorts by `seq` in Kotlin (Room does not guarantee child order).
+### Event names that DO NOT EXIST in amplifierd (do not invent these)
+- ❌ `llm:chunk` — does NOT exist
+- ❌ `tool:start`, `tool_start`, `tool:result`, `tool_result`, `tool:done` — none exist
+- ❌ `[DONE]` — amplifierd does not use this SSE pattern
+- ❌ Native tool events are NOT in the SSE stream; tool details come via `content_block:end` with `block_type: "tool_use"`
 
-### Event ordering invariant
+### Response format
+- **There is NO per-token streaming event.** The full text arrives in one `content_block:end` event.
+- The `block.text` field in `content_block:end` contains the complete response.
+- Thinking blocks (`block_type: "thinking"`) exist — hide from user, don't render.
 
+### Session statuses (from `GET /sessions`)
 ```
-Within a turn, events have strictly increasing seq numbers:
-
-  seq=0  text   "I'll search for that..."  ← flushed when tool starts
-  seq=1  tool   search_web  running        ← inserted when tool starts
-  seq=1  tool   search_web  done           ← UPDATED in-place (same row, same seq)
-  seq=2  text   "Based on results..."      ← flushed at turn end
-
-Key: text that arrives BEFORE a tool call gets a lower seq than the tool.
-Key: tool updates are UPDATE not INSERT — same row, same position in UI.
-Key: seq is AtomicInteger.getAndIncrement() — never System.currentTimeMillis().
+"executing"  ← active, currently running LLM loop
+"idle"       ← session exists, no current execution (maps to "completed" in Vela UI)
+"failed"     ← error state
+"completed"  ← done
 ```
+**WRONG values (do not use):** `"running"`, `"waiting"` — these don't exist in amplifierd.
 
-### Streaming text
-
-`InferenceEngine._streamingText: MutableStateFlow<Map<String, String>>`
-
-- Maps `turnId → uncommitted in-flight text`
-- Entry is added as tokens arrive (`onToken`)
-- Entry is **removed** when text is flushed to a TurnEvent row
-- The streaming bubble in the UI shows this map entry — it naturally disappears when the text moves to DB
-- ViewModel exposes this StateFlow directly (no accumulation in ViewModel)
-
-### Tool system
-
+### Execute endpoint
 ```
-Tool interface:
-  name, displayName, icon, description, parameters
-  suspend fun execute(args: Map<String, Any>): String
-
-Registered tools (AppModule):
-  GetTimeTool, GetDateTool, GetBatteryTool    — device info
-  SearchWebTool, FetchUrlTool                  — web
-  ListSshNodesTool, SshCommandTool             — Vela node network
-
-SshCommandTool:
-  Uses device RSA-3072 key (SshKeyManager, stored in private SharedPrefs)
-  Tries each host in SshNode.hosts in order (TOFU, StrictHostKeyChecking=no)
-  Returns stdout + stderr + exit code
+POST /sessions/{id}/execute/stream
+Body: {"prompt": "the message"}   ← field is "prompt" NOT "message"
+Auth: x-amplifier-token header
+Returns immediately: {"correlation_id":"...", "session_id":"...", "status":"accepted"}
 ```
-
-### SSH node network
-
-```
-SshNode {
-  id, label,
-  hosts: List<String>,   // ordered — first is primary, rest are fallbacks
-  port, username
-}
-```
-
-Stored as comma-separated string in DB. `SshNodeRegistry.cache` is kept warm by `NodesViewModel`. The AI tool calls `findByLabel(name)` against the cache — no DB query at tool-call time.
 
 ---
 
-## Known Antipatterns (Avoided)
+## Known Plist Bug (Fixed 2026-05-01)
 
-These burned us during development. Don't reintroduce them.
+The `generateLaunchdPlist()` function in `NodeBootstrapper.kt` would embed the ANTHROPIC_API_KEY AND the VELA_AUTH_TOKEN concatenated with a newline in a single plist `<string>` tag if the inputs weren't trimmed. This made the Anthropic API key invalid, causing all sessions to fail with "Connection error." provider:retry events.
 
-| Antipattern | Where it bit us | Fix |
+**Fix:** `generateLaunchdPlist` now calls `.trim()` on both `anthropicKey` and `token` before interpolating.
+
+**The CORRECT key is in `~/.amplifier/keys.env` on the Mac.** The launchd plist at `~/Library/LaunchAgents/com.vela.amplifierd.plist` must have separate `<key>` entries for `ANTHROPIC_API_KEY` and `VELA_AUTH_TOKEN`.
+
+---
+
+## Room Database Schema (current)
+
+```
+ssh_nodes (id, label, hosts, port, username, type, url, token, bootstrapStatus, workspaceDir, addedAt)
+  type: AMPLIFIERD = node bootstrapped and running amplifierd
+  url: "http://10.x.x.x:8410" — used by AmplifierdClient and AmplifierdStreamClient
+  token: vela auth token — sent as x-amplifier-token header
+  workspaceDir: default "~" — base dir for all project sessions on this node
+
+DB version: 16
+Migrations: 1→2, ..., 15→16 (workspace_dir column added)
+```
+
+---
+
+## Key Classes (current, not the old Rust JNI architecture)
+
+```
+AmplifierdClient       — HTTP CRUD: GET/POST /sessions, /projects, /capabilities, /transcript
+AmplifierdStreamClient — SSE streaming: opens GET /events first, then POST /execute/stream
+AmplifierdRepository   — per-node client factory; reads node from SshNodeRegistry.cache
+SshNodeRegistry        — @Singleton; .cache: List<SshNode> populated by HomeViewModel
+SessionDetailViewModel — drives chat: sendMessage(), awaitNode(), turns StateFlow
+ApiKeyStore            — EncryptedSharedPreferences: OPENAI_API_KEY only (for Whisper)
+NodeBootstrapper       — SSH install of amplifierd: bootstrap() and repair() flows
+```
+
+### sendMessage() flow (SessionDetailViewModel)
+```
+sendMessage(message) called
+  → if streaming or blank: return early
+  → clearInputText() + clearAttachments()
+  → launch(Dispatchers.IO):
+      → _isStreaming = true
+      → append user TurnContent to _turns
+      → awaitNode() — polls registry.cache up to 5s (10× 500ms)
+      → streamClientForNode(node) — needs type=AMPLIFIERD and url non-blank
+      → append empty assistant TurnContent to _turns
+      → streamClient.stream(sessionId, message).collect { event → ... }
+          → Thinking → update assistant slot with "…"
+          → TextBlock → update assistant slot with block.text
+          → ToolUse → append ToolCall to assistant slot
+          → ProviderRetry → show statusMessage
+          → Done → _isStreaming = false
+          → Error → _isStreaming = false
+```
+
+---
+
+## Antipatterns Discovered (Never Reintroduce)
+
+| Antipattern | Symptom | Fix |
 |---|---|---|
-| **Double-emit: stream AND return value carry same text** | `orchestrator.rs` calls `emit_token()` AND returns the same string. Kotlin fallback `if (finalText.isNotEmpty()) onToken(finalText)` fired unconditionally → message appeared twice. | `tokenWasEmitted` flag — fallback only fires if no tokens arrived via callback |
-| **Flat message list with wall-clock timestamps for ordering** | `System.currentTimeMillis()` has ms resolution. Tool calls and assistant saves within the same turn got the same timestamp → `ORDER BY timestamp ASC` non-deterministic | `TurnEvent.seq` — `AtomicInteger` counter, never a timestamp |
-| **Dual rendering paths (live vs completed turn)** | Live turns showed events. Completed turns rendered with `events = emptyList()`. On turn completion `_activeTurnId = null` → everything disappeared | Single path: `TurnWithEvents` via Room `@Relation` — every turn always has its events |
-| **Inference lifecycle tied to ViewModel** | `viewModelScope.launch { session.runTurn().collect {} }` — inference cancelled when ViewModel cleared or user navigated away | `InferenceEngine` singleton with `CoroutineScope(SupervisorJob() + Dispatchers.IO)` — UI is a pure reader of DB |
-| **Stale StateFlow snapshot in tool callback** | `messages.value.lastOrNull { ... }` in `onToolEnd` — messages StateFlow not updated yet when callback fires → update never applied | Carry `(msgId, metaJson)` from `onToolStart` in `pendingToolIds` map. `onToolEnd` updates by known ID — no snapshot needed |
-| **Tool events always before text events** | Forced `ORDER BY seq ASC` with all tools first — wrong. Anthropic content array is `[text, tool_use, text]` | `flushText()` in `onToolStart` — accumulated text is committed as a TurnEvent (seq N) before the tool event (seq N+1) |
+| Wrong SSE event names | Chat shows nothing, no errors | Use ONLY the event vocabulary above |
+| POST before GET /events | Race condition, miss early events | Always open SSE stream FIRST |
+| `registry.cache` read without waiting | awaitNode returns null silently | Use awaitNode() with retry loop |
+| Plist API key with untrimmed trailing newline | "Connection error." retries forever | .trim() both key and token before interpolating |
+| `"running"/"waiting"` status strings | ACTIVE session list always empty | Use `"executing"` for active status comparison |
+| `"message"` field name in execute body | 422 from amplifierd | Use `"prompt"` field name |
+| SFTP writes for plist/config | Silent failures on some SSH configs | Use execWrite() (base64 via exec channel) |
+| `AmplifierdRepository.clientFor(nodeId)` cache race | Null client, silent no-op | Use `clientForNode(node: SshNode?)` — pass the already-loaded SshNode directly |
 
 ---
 
-## Key Interfaces
-
-```kotlin
-// Testable inference interface — AmplifierSession implements this
-interface InferenceSession {
-    fun isConfigured(): Boolean
-    suspend fun runTurn(
-        historyJson: String,
-        userInput: String,
-        onToolStart: (suspend (name: String, argsJson: String) -> String),  // returns stableId
-        onToolEnd:   (suspend (stableId: String, result: String) -> Unit),
-        onToken:     (suspend (token: String) -> Unit),
-    )
-}
-
-// Tool interface
-interface Tool {
-    val name: String
-    val displayName: String
-    val icon: String
-    val description: String
-    val parameters: List<ToolParameter>
-    suspend fun execute(args: Map<String, Any>): String
-}
-```
-
----
-
-## Test Harness
-
-Unit tests live in `app/src/test/kotlin/com/vela/app/engine/InferenceFlowTest.kt`.
-
-Run without a device:
-```bash
-./gradlew :app:testDebugUnitTest
-```
-
-Tests verify the event ordering invariants using a pure JVM simulation:
-- `preambleTextBeforeToolBySeq`
-- `textAndToolsInterleaveCorrectly`
-- `noToolsJustText`
-- `toolsUpdateInPlaceNeverDuplicated`
-- `eventsPersistAfterTurnCompletes`
-- `seqsAreStrictlyMonotonic`
-
-**Run the tests before deploying to the phone.** `adb install` should never be the first verification step.
-
----
-
-## Deployment
+## ADB Debugging Commands
 
 ```bash
-# Build (skips Rust rebuild — use without flag if Rust changed)
-./gradlew assembleDebug -x buildRustRelease
+# Connect
+adb connect 10.0.0.106:<port>
 
-# Run tests
-./gradlew :app:testDebugUnitTest
+# Get app PID (use this, not package-name grep which misses log lines)
+APP_PID=$(adb -s 10.0.0.106:<port> shell pidof com.vela.app | tr -d ' \r\n')
 
-# Connect to phone (get port from adb wireless debug settings)
-adb connect <phone-ip>:<port>
+# Watch ALL app logs by PID (most reliable)
+adb -s 10.0.0.106:<port> logcat --pid=$APP_PID
 
-# Install and launch
-adb -t <transport-id> install -r app/build/outputs/apk/debug/app-debug.apk
-adb -t <transport-id> shell am force-stop com.vela.app
-adb -t <transport-id> shell am start -n com.vela.app/.MainActivity
+# Screenshot (exec-out returns black if screen locked; use shell+pull instead)
+adb -s 10.0.0.106:<port> shell screencap /sdcard/vela.png
+adb -s 10.0.0.106:<port> pull /sdcard/vela.png /tmp/vela.png
+
+# Wake screen (needed before any screenshot)
+adb -s 10.0.0.106:<port> shell input keyevent KEYCODE_WAKEUP
+
+# Check if screen is locked
+adb -s 10.0.0.106:<port> shell dumpsys window | grep mDreamingLockscreen
+
+# SQLite DB inspection
+adb -s 10.0.0.106:<port> shell run-as com.vela.app \
+  sqlite3 /data/data/com.vela.app/databases/vela_database "SELECT * FROM ssh_nodes"
 ```
-
-Current phone: Pixel 10 Pro (`blazer`). Transport ID varies by network.
 
 ---
 
-## What's Not Built Yet
+## amplifierd Node Management
 
-From `docs/plans/2026-04-11-vela-design.md`:
+### Launchd plist location
+`~/Library/LaunchAgents/com.vela.amplifierd.plist`
 
-- A2UI typed event stream from Amplifier nodes (nodes push events, Vela renders them)
-- Authorization fabric (capability tokens, per-identity ACLs)
-- Multi-user support (family members, role-based delegation)
-- Android Foreground Service for inference (currently: app-scoped singleton survives backgrounding but not process death)
-- Streaming Anthropic API (currently: non-streaming `/v1/messages` — full response arrives at once)
-- Job registry and provable delegation (acceptance criteria, rubric-based completion)
-- Living profile (user preference model, learned corrections)
-- Scheduled/recurring tasks
+### Correct plist structure (no concatenation bugs)
+```xml
+<key>EnvironmentVariables</key>
+<dict>
+  <key>PATH</key><string>/Users/ken/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
+  <key>ANTHROPIC_API_KEY</key><string>sk-ant-api03-...</string>    ← one key ONLY per tag
+  <key>VELA_AUTH_TOKEN</key><string>cjpOWhq...</string>            ← separate tag
+</dict>
+```
+
+### Verify amplifierd is working
+```bash
+curl -s http://10.0.0.143:8410/health   # should return {"status":"healthy",...}
+curl -s -H "x-amplifier-token: TOKEN" http://10.0.0.143:8410/projects
+```
+
+### Reload after plist changes
+```bash
+launchctl bootout gui/$(id -u)/com.vela.amplifierd 2>/dev/null || true
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.vela.amplifierd.plist
+```
+
+---
+
+## Build and Deploy
+
+```bash
+# Build (skip tests for speed)
+cd /Users/ken/workspace/vela
+./gradlew assembleDebug -x test
+
+# Install
+adb -s 10.0.0.106:<port> install -r app/build/outputs/apk/debug/app-debug.apk
+
+# Launch
+adb -s 10.0.0.106:<port> shell am start --user 0 -n com.vela.app/.MainActivity
+```
+
+## Current Phone
+Pixel 10 Pro at 10.0.0.106, wireless debugging port changes each session.
+DB: version 16. App package: `com.vela.app`.

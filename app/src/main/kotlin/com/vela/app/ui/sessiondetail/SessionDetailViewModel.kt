@@ -146,7 +146,11 @@ class SessionDetailViewModel @Inject constructor(
     // ── Send message + SSE streaming ──────────────────────────────────────────
 
     fun sendMessage(message: String = _inputText.value, uris: List<Uri> = _attachments.value) {
-        if (_isStreaming.value || message.isBlank()) return
+        Log.d(TAG, "sendMessage: called with message='${message.take(40)}' isStreaming=${_isStreaming.value} blank=${message.isBlank()}")
+        if (_isStreaming.value || message.isBlank()) {
+            Log.d(TAG, "sendMessage: early return — streaming=${_isStreaming.value} blank=${message.isBlank()}")
+            return
+        }
         clearInputText()
         clearAttachments()
 
@@ -157,10 +161,16 @@ class SessionDetailViewModel @Inject constructor(
             // Add user turn
             val userTurn = TurnContent(text = message, isUser = true)
             _turns.update { it + userTurn }
-            val assistantTurnIndex = _turns.value.size // index where assistant turn will go
+            val assistantTurnIndex = _turns.value.size
+            Log.d(TAG, "sendMessage: user turn added, assistantTurnIndex=$assistantTurnIndex, nodeId=$nodeId, sessionId=$sessionId")
 
-            val node = awaitNode() ?: run { _isStreaming.value = false; return@launch }
-            val streamClient = amplifierd.streamClientForNode(node) ?: run { _isStreaming.value = false; return@launch }
+            val node = awaitNode()
+            Log.d(TAG, "sendMessage: awaitNode returned ${if (node != null) "node url=${node.url}" else "NULL — registry cache empty!"}")
+            if (node == null) { _isStreaming.value = false; return@launch }
+
+            val streamClient = amplifierd.streamClientForNode(node)
+            Log.d(TAG, "sendMessage: streamClient=${if (streamClient != null) "ok baseUrl=${node.url}" else "NULL — node type=${node.type}"}")
+            if (streamClient == null) { _isStreaming.value = false; return@launch }
 
             // Initialize empty assistant turn slot
             _turns.update { it + TurnContent(text = "", isUser = false) }
