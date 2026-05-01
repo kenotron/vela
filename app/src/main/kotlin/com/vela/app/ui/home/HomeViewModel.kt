@@ -8,6 +8,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
@@ -17,4 +18,12 @@ class HomeViewModel @Inject constructor(
 
     val nodes: StateFlow<List<SshNode>> = registry.allFlow()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    init {
+        // Keep the registry in-memory cache fresh so ConnectNodeViewModel
+        // can populate the "recent hosts" suggestion chips.
+        viewModelScope.launch {
+            nodes.collect { registry.updateCache(it) }
+        }
+    }
 }

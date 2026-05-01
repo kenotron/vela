@@ -1,9 +1,13 @@
 package com.vela.app.ui.voice
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
@@ -30,20 +34,35 @@ class VoiceOverlayViewModel @Inject constructor() : ViewModel() {
     private val _isRecording = MutableStateFlow(false)
     val isRecording: StateFlow<Boolean> = _isRecording
 
+    private var timerJob: Job? = null
+
     fun startRecording() {
         _isRecording.value = true
+        _elapsedMs.value = 0L
+        timerJob?.cancel()
+        timerJob = viewModelScope.launch {
+            val startMs = System.currentTimeMillis()
+            while (_isRecording.value) {
+                _elapsedMs.value = System.currentTimeMillis() - startMs
+                delay(100L)
+            }
+        }
     }
 
     fun stopRecording() {
         _isRecording.value = false
+        timerJob?.cancel()
+        timerJob = null
         _phase.value = VoicePhase.REVIEW
     }
 
     fun discard() {
+        _isRecording.value = false
+        timerJob?.cancel()
+        timerJob = null
         _phase.value = VoicePhase.RECORDING
         _transcript.value = ""
         _elapsedMs.value = 0L
-        _isRecording.value = false
     }
 
     companion object {

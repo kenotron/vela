@@ -160,25 +160,28 @@ package com.vela.app.ui.voice
             Spacer(Modifier.height(56.dp))
 
             // ── Node context tag (pill) ──────────────────────────────────────────────────
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(VelaColors.SurfaceRaised)
-                    .border(1.dp, VelaColors.StrokeEdge, RoundedCornerShape(50))
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment   = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Box(
+            // Only show the destination pill when a node is selected
+            if (nodeName.isNotBlank()) {
+                Row(
                     modifier = Modifier
-                        .size(6.dp)
-                        .background(VelaColors.Accent, CircleShape),
-                )
-                Text(
-                    text  = "→ $nodeName",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = VelaColors.TextPrimary,
-                )
+                        .clip(RoundedCornerShape(50))
+                        .background(VelaColors.SurfaceRaised)
+                        .border(1.dp, VelaColors.StrokeEdge, RoundedCornerShape(50))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment   = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .background(VelaColors.Accent, CircleShape),
+                    )
+                    Text(
+                        text  = "→ $nodeName",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = VelaColors.TextPrimary,
+                    )
+                }
             }
 
             Spacer(Modifier.weight(1f))

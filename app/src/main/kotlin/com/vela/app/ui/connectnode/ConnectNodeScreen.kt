@@ -282,6 +282,7 @@ package com.vela.app.ui.connectnode
                 // ── Connect button ────────────────────────────────────────────────
                 Button(
                     onClick  = { viewModel.connect() },
+                    enabled  = form.host.isNotBlank() && form.username.isNotBlank(),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp),
@@ -298,7 +299,7 @@ package com.vela.app.ui.connectnode
                     )
                 }
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(96.dp)) // clear Voice FAB
             }
 
             // ── Bootstrap progress sheet ──────────────────────────────────────────

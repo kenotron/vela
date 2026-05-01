@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -67,6 +68,17 @@ fun HomeScreen(
                     )
                 },
                 actions = {
+                    // "Connect a node" shortcut — shown when at least one node exists so
+                    // the user always has a path to add more nodes (not just the empty state).
+                    if (nodes.isNotEmpty()) {
+                        IconButton(onClick = { navController.navigate(Routes.CONNECT_NODE) }) {
+                            Icon(
+                                imageVector        = Icons.Default.Add,
+                                contentDescription = "Connect a node",
+                                tint               = VelaColors.Accent,
+                            )
+                        }
+                    }
                     // Settings gear — icon only, navigation wired in a later phase
                     IconButton(onClick = { /* Phase 3: navigate to settings */ }) {
                         Icon(

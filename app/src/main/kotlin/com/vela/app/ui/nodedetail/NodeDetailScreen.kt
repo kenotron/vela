@@ -29,6 +29,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -75,6 +77,9 @@ fun NodeDetailScreen(
     val projects by viewModel.projects.collectAsState()
     val repairState by viewModel.repairState.collectAsState()
     val coroutineScope = rememberCoroutineScope()
+
+    // Snackbar for transient error / success messages
+    val snackbarHostState = remember { SnackbarHostState() }
 
     // "New project" dialog state
     var showNewProjectDialog by remember { mutableStateOf(false) }
@@ -154,9 +159,16 @@ fun NodeDetailScreen(
                 TextButton(
                     onClick = {
                         val name = newProjectName
-                        coroutineScope.launch { viewModel.createProject(name) }
                         showNewProjectDialog = false
                         newProjectName = ""
+                        coroutineScope.launch {
+                            val ok = viewModel.createProject(name)
+                            if (!ok) {
+                                snackbarHostState.showSnackbar(
+                                    "Couldn't create project — is the node reachable?"
+                                )
+                            }
+                        }
                     },
                     enabled = newProjectName.isNotBlank(),
                 ) {
@@ -185,6 +197,7 @@ fun NodeDetailScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 navigationIcon = {
