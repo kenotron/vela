@@ -154,7 +154,7 @@ fun SessionDetailScreen(
             LazyColumn(
                 state           = listState,
                 modifier        = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding  = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+                contentPadding  = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 400.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 // Session title hero
