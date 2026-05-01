@@ -90,11 +90,12 @@ class SessionListViewModel @Inject constructor(
                     client.getNativeSessions()
                 } catch (_: Exception) { emptyList() }
 
-                // 3. Merge: native status wins (it's ground truth from amplifierd),
-                //    plugin record wins for title. Sessions absent from native → DONE.
+                // 3. Merge: native is ground truth. Drop plugin sessions not in native —
+                //    they no longer exist in amplifierd and would show "session not found".
                 val nativeById = nativeSessions.associateBy { it.sessionId }
                 val seen = mutableSetOf<String>()
-                val merged = (pluginSessions + nativeSessions).filter { seen.add(it.sessionId) }
+                val validPlugin = pluginSessions.filter { nativeById.containsKey(it.sessionId) }
+                val merged = (validPlugin + nativeSessions).filter { seen.add(it.sessionId) }
 
                 val summaries = merged.map { s ->
                     val realStatus = nativeById[s.sessionId]?.status ?: "completed"
