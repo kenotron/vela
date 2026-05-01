@@ -10,6 +10,7 @@ import com.vela.app.amplifierd.AmplifierdRepository
 import com.vela.app.notifications.ApprovalNotificationHelper
 import com.vela.app.amplifierd.StreamEvent
 import com.vela.app.settings.ApiKeyStore
+import com.vela.app.ssh.SshNode
 import com.vela.app.ssh.SshNodeRegistry
 import com.vela.app.voice.AudioRecorder
 import com.vela.app.voice.WhisperClient
@@ -54,6 +55,11 @@ class SessionDetailViewModel @Inject constructor(
 
     private val _isStreaming = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isStreaming
+
+    // ── Status message ────────────────────────────────────────────────────────
+
+    private val _statusMessage = MutableStateFlow<String?>(null)
+    val statusMessage: StateFlow<String?> = _statusMessage
 
     // ── Input text ────────────────────────────────────────────────────────────
 
@@ -146,115 +152,82 @@ class SessionDetailViewModel @Inject constructor(
 
         viewModelScope.launch(Dispatchers.IO) {
             _isStreaming.value = true
+            _statusMessage.value = null
 
-            // Add user turn immediately
-            _turns.update { it + TurnContent(text = message, isUser = true) }
+            // Add user turn
+            val userTurn = TurnContent(text = message, isUser = true)
+            _turns.update { it + userTurn }
+            val assistantTurnIndex = _turns.value.size // index where assistant turn will go
 
-            val node = registry.cache.find { it.id == nodeId }
-            if (node == null) {
-                _isStreaming.value = false
-                return@launch
-            }
-            val streamClient = amplifierd.streamClientForNode(node)
-            if (streamClient == null) {
-                _isStreaming.value = false
-                return@launch
-            }
+            val node = awaitNode() ?: run { _isStreaming.value = false; return@launch }
+            val streamClient = amplifierd.streamClientForNode(node) ?: run { _isStreaming.value = false; return@launch }
 
-            var currentAssistantText  = StringBuilder()
-            val currentToolCalls      = mutableListOf<ToolCall>()
-            var assistantTurnStarted  = false
+            // Initialize empty assistant turn slot
+            _turns.update { it + TurnContent(text = "", isUser = false) }
 
             try {
                 streamClient.stream(sessionId, message).collect { event ->
                     when (event) {
-                        is StreamEvent.Token -> {
-                            currentAssistantText.append(event.content)
-                            if (!assistantTurnStarted) {
-                                assistantTurnStarted = true
-                                _turns.update {
-                                    it + TurnContent(
-                                        text      = currentAssistantText.toString(),
-                                        isUser    = false,
-                                        toolCalls = currentToolCalls.toList(),
-                                    )
-                                }
-                            } else {
-                                _turns.update { turns ->
-                                    if (turns.isEmpty()) turns
-                                    else turns.dropLast(1) + turns.last().copy(
-                                        text = currentAssistantText.toString()
-                                    )
+                        is StreamEvent.Thinking -> {
+                            _turns.update { turns ->
+                                turns.mapIndexed { i, t ->
+                                    if (i == assistantTurnIndex) t.copy(text = "…")
+                                    else t
                                 }
                             }
                         }
-
-                        is StreamEvent.ToolStart -> {
-                            val tc = ToolCall(
-                                name      = event.name,
-                                result    = null,
-                                isDone    = false,
-                                isRunning = true,
-                                durationMs = null,
-                            )
-                            currentToolCalls.add(tc)
-                            if (!assistantTurnStarted) {
-                                assistantTurnStarted = true
-                                _turns.update {
-                                    it + TurnContent(
-                                        text      = currentAssistantText.toString(),
-                                        isUser    = false,
-                                        toolCalls = currentToolCalls.toList(),
-                                    )
-                                }
-                            } else {
-                                _turns.update { turns ->
-                                    if (turns.isEmpty()) turns
-                                    else turns.dropLast(1) + turns.last().copy(
-                                        toolCalls = currentToolCalls.toList()
-                                    )
+                        is StreamEvent.TextBlock -> {
+                            _turns.update { turns ->
+                                turns.mapIndexed { i, t ->
+                                    if (i == assistantTurnIndex) {
+                                        val newText = if (t.text == "…" || t.text.isBlank()) event.text
+                                                      else t.text + "\n" + event.text
+                                        t.copy(text = newText)
+                                    } else t
                                 }
                             }
                         }
-
-                        is StreamEvent.ToolResult -> {
-                            val idx = currentToolCalls.indexOfLast { !it.isDone }
-                            if (idx >= 0) {
-                                currentToolCalls[idx] = currentToolCalls[idx].copy(
-                                    result    = event.output.take(400),
-                                    isDone    = true,
-                                    isRunning = false,
-                                )
-                                _turns.update { turns ->
-                                    if (turns.isEmpty()) turns
-                                    else turns.dropLast(1) + turns.last().copy(
-                                        toolCalls = currentToolCalls.toList()
-                                    )
+                        is StreamEvent.ToolUse -> {
+                            val tc = ToolCall(name = event.name, result = event.inputJson, isDone = true, isRunning = false)
+                            _turns.update { turns ->
+                                turns.mapIndexed { i, t ->
+                                    if (i == assistantTurnIndex) t.copy(toolCalls = t.toolCalls + tc)
+                                    else t
                                 }
                             }
                         }
-
+                        is StreamEvent.ProviderRetry -> {
+                            _statusMessage.value = "Retrying (${event.attempt}/${event.maxRetries}): ${event.errorMessage}"
+                        }
                         is StreamEvent.ApprovalRequest -> {
                             _approvalRequest.value = Pair(event.id, event.question)
-                            // Post a system notification so the user is alerted even
-                            // when the app is backgrounded or the screen is off.
-                            com.vela.app.notifications.ApprovalNotificationHelper.notify(
-                                ctx, sessionId, event.question
-                            )
+                            ApprovalNotificationHelper.notify(ctx, sessionId, event.question)
                         }
-
-                        is StreamEvent.Done  -> { /* handled after loop */ }
+                        is StreamEvent.Done -> {
+                            _statusMessage.value = null
+                            _isStreaming.value = false
+                        }
                         is StreamEvent.Error -> {
-                            Log.w(TAG, "Stream error: ${event.message}")
+                            _statusMessage.value = event.message
+                            _isStreaming.value = false
                         }
                     }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Stream collection error: ${e.message}")
-            } finally {
+                _statusMessage.value = "Stream error: ${e.message}"
                 _isStreaming.value = false
             }
         }
+    }
+
+    private suspend fun awaitNode(): SshNode? {
+        // Wait up to 5 seconds for the registry cache to have this node
+        repeat(10) {
+            val node = registry.cache.find { it.id == nodeId }
+            if (node != null) return node
+            kotlinx.coroutines.delay(500)
+        }
+        return registry.cache.find { it.id == nodeId }
     }
 
     // ── Approval gate ─────────────────────────────────────────────────────────

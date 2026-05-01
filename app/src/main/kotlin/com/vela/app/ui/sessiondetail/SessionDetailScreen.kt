@@ -71,6 +71,7 @@ fun SessionDetailScreen(
     val attachments   by viewModel.attachments.collectAsStateWithLifecycle()
     val isRecording   by viewModel.isRecording.collectAsStateWithLifecycle()
     val approvalReq   by viewModel.approvalRequest.collectAsStateWithLifecycle()
+    val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
 
     val isRunning = isLoading || turns.any { !it.isUser && it.toolCalls.any { tc -> tc.isRunning } }
 
@@ -166,6 +167,21 @@ fun SessionDetailScreen(
             }
 
             // ── Session input bar ─────────────────────────────────────────
+            // ── Retry / status strip ─────────────────────────────────────────
+            statusMessage?.let { msg ->
+                Surface(
+                    color    = VelaColors.SurfaceRaised,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text     = msg,
+                        style    = MaterialTheme.typography.labelSmall,
+                        color    = VelaColors.Running,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    )
+                }
+            }
+
             SessionInputBar(
                 text               = inputText,
                 onTextChange       = viewModel::updateInputText,

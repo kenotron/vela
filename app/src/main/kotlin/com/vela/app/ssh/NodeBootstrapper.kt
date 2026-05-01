@@ -127,7 +127,10 @@ open class NodeBootstrapper @Inject constructor(
 """.trimIndent()
     }
 
-    internal fun generateLaunchdPlist(username: String, anthropicKey: String, homeDir: String, token: String): String = """
+    internal fun generateLaunchdPlist(username: String, anthropicKey: String, homeDir: String, token: String): String {
+        val cleanKey   = anthropicKey.trim()
+        val cleanToken = token.trim()
+        return """
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -143,8 +146,8 @@ open class NodeBootstrapper @Inject constructor(
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key><string>$homeDir/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
-    <key>ANTHROPIC_API_KEY</key><string>$anthropicKey</string>
-    <key>VELA_AUTH_TOKEN</key><string>$token</string>
+    <key>ANTHROPIC_API_KEY</key><string>$cleanKey</string>
+    <key>VELA_AUTH_TOKEN</key><string>$cleanToken</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -152,7 +155,8 @@ open class NodeBootstrapper @Inject constructor(
   <key>StandardErrorPath</key><string>$homeDir/.amplifierd/stderr.log</string>
 </dict>
 </plist>
-    """.trimIndent()
+        """.trimIndent()
+    }
 
     internal fun generateLaunchdPlistForTest(
         username: String,

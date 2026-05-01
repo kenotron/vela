@@ -209,8 +209,8 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
             val result = mutableListOf<AmplifierdSession>()
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
-                val status       = obj.optString("status", "completed")
-                val isActive     = status == "running" || status == "waiting"
+                val rawStatus    = obj.optString("status", "completed")
+                val isActive     = rawStatus == "executing"
                 val lastMs       = parseIso(obj.optString("last_activity"))
                     ?: parseIso(obj.optString("created_at"))
                     ?: 0L
@@ -222,7 +222,13 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
                     bundleName   = obj.optString("bundle", ""),
                     createdAt    = parseIso(obj.optString("created_at")) ?: 0L,
                     lastActivity = lastMs,
-                    status       = status,
+                    status       = when (rawStatus) {
+                        "executing" -> "running"
+                        "idle"      -> "completed"
+                        "failed"    -> "error"
+                        "completed" -> "completed"
+                        else        -> rawStatus
+                    },
                     title        = "",
                 ))
             }
