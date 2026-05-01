@@ -110,7 +110,13 @@ class NodeDetailViewModel @Inject constructor(
                             logLines        = it.logLines + event.logs,
                         )
                     }
-                    is BootstrapEvent.Complete     -> _repairState.update { it.copy(isBootstrapping = false, isComplete = true) }
+                    is BootstrapEvent.Complete     -> {
+                        // Sync the URL back to Room — Tailscale IP may have changed since first bootstrap
+                        n.copy(url = event.url).let { updated ->
+                            viewModelScope.launch(Dispatchers.IO) { registry.updateConnection(updated) }
+                        }
+                        _repairState.update { it.copy(isBootstrapping = false, isComplete = true) }
+                    }
                 }
             }
         }
