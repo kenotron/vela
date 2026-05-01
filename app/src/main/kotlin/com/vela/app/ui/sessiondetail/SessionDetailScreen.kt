@@ -154,7 +154,7 @@ fun SessionDetailScreen(
             LazyColumn(
                 state           = listState,
                 modifier        = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding  = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 400.dp),
+                contentPadding  = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 // Session title hero
@@ -182,7 +182,11 @@ fun SessionDetailScreen(
                     }
                 }
 
-                item { Spacer(Modifier.height(8.dp)) }
+                // Flex-filler spacer: takes up the full viewport height after all turns.
+                // This lets the last user message scroll all the way to the top —
+                // the same technique Claude/ChatGPT use (a spanning component that fills
+                // the remaining space between conversation content and the input bar).
+                item { Spacer(Modifier.fillParentMaxHeight()) }
             }
 
             // ── Session input bar ─────────────────────────────────────────
