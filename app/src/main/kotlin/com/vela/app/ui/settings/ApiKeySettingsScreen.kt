@@ -17,6 +17,7 @@ package com.vela.app.ui.settings
     import androidx.compose.material3.ExperimentalMaterial3Api
     import androidx.compose.material3.Icon
     import androidx.compose.material3.IconButton
+    import androidx.compose.material3.MaterialTheme
     import androidx.compose.material3.OutlinedTextField
     import androidx.compose.material3.OutlinedTextFieldDefaults
     import androidx.compose.material3.Scaffold
@@ -37,23 +38,14 @@ package com.vela.app.ui.settings
     import androidx.hilt.navigation.compose.hiltViewModel
     import com.vela.app.ui.theme.VelaColors
 
-    /**
-     * API Keys settings screen — stores Anthropic + OpenAI keys in EncryptedSharedPreferences.
-     *
-     * Accessible via the gear icon in HomeScreen. Both fields are masked by default
-     * with a show/hide toggle. SAVE persists to encrypted storage and navigates back.
-     */
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun ApiKeySettingsScreen(
         onNavigateBack: () -> Unit,
         viewModel: ApiKeySettingsViewModel = hiltViewModel(),
     ) {
-        val anthropicKey by viewModel.anthropicKey.collectAsState()
-        val openAiKey    by viewModel.openAiKey.collectAsState()
-
-        var showAnthropic by remember { mutableStateOf(false) }
-        var showOpenAi    by remember { mutableStateOf(false) }
+        val openAiKey by viewModel.openAiKey.collectAsState()
+        var showOpenAi by remember { mutableStateOf(false) }
 
         val fieldColors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor   = VelaColors.Accent,
@@ -92,31 +84,6 @@ package com.vela.app.ui.settings
                 Spacer(Modifier.height(16.dp))
 
                 OutlinedTextField(
-                    value         = anthropicKey,
-                    onValueChange = viewModel::updateAnthropic,
-                    label         = { Text("ANTHROPIC_API_KEY") },
-                    supportingText = { Text("Used for all nodes", color = VelaColors.TextTertiary) },
-                    modifier      = Modifier.fillMaxWidth(),
-                    singleLine    = true,
-                    visualTransformation = if (showAnthropic) VisualTransformation.None
-                                           else PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    trailingIcon  = {
-                        IconButton(onClick = { showAnthropic = !showAnthropic }) {
-                            Icon(
-                                imageVector = if (showAnthropic) Icons.Default.VisibilityOff
-                                              else Icons.Default.Visibility,
-                                contentDescription = if (showAnthropic) "Hide" else "Show",
-                                tint = VelaColors.TextTertiary,
-                            )
-                        }
-                    },
-                    colors = fieldColors,
-                )
-
-                Spacer(Modifier.height(20.dp))
-
-                OutlinedTextField(
                     value         = openAiKey,
                     onValueChange = viewModel::updateOpenAi,
                     label         = { Text("OPENAI_API_KEY") },
@@ -131,14 +98,23 @@ package com.vela.app.ui.settings
                     trailingIcon  = {
                         IconButton(onClick = { showOpenAi = !showOpenAi }) {
                             Icon(
-                                imageVector = if (showOpenAi) Icons.Default.VisibilityOff
-                                              else Icons.Default.Visibility,
+                                imageVector        = if (showOpenAi) Icons.Default.VisibilityOff
+                                                     else Icons.Default.Visibility,
                                 contentDescription = if (showOpenAi) "Hide" else "Show",
-                                tint = VelaColors.TextTertiary,
+                                tint               = VelaColors.TextTertiary,
                             )
                         }
                     },
                     colors = fieldColors,
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                Text(
+                    text  = "Your Anthropic API key lives on the node itself — enter it once in Connect a Node and it's stored in the service file on that machine.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = VelaColors.TextTertiary,
+                    modifier = Modifier.padding(horizontal = 4.dp),
                 )
 
                 Spacer(Modifier.height(32.dp))
