@@ -39,12 +39,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -175,11 +177,23 @@ fun SessionDetailScreen(
                     item { TypingIndicator() }
                 }
 
-                // Flex-filler spacer: takes up the full viewport height after all turns.
-                // This lets the last user message scroll all the way to the top —
-                // the same technique Claude/ChatGPT use (a spanning component that fills
-                // the remaining space between conversation content and the input bar).
-                item { Spacer(Modifier.fillParentMaxHeight()) }
+                // Dynamic flex-filler: viewport minus the measured height of the last
+                // user turn + last assistant turn. Shrinks as streaming content grows,
+                // ensuring the user message stays pinned at the top without trailing void.
+                item {
+                    val info = listState.layoutInfo
+                    val vh   = info.viewportEndOffset - info.viewportStartOffset
+                    val spacerPx by remember(info) {
+                        derivedStateOf {
+                            // Sum height of the 3 items just before this spacer
+                            val thisIdx   = info.totalItemsCount - 1
+                            val prevItems = info.visibleItemsInfo.filter { it.index in (thisIdx - 3) until thisIdx }
+                            val prevH     = prevItems.sumOf { it.size } + prevItems.size * 16 // 16px ≈ spacedBy(16.dp) in px
+                            maxOf(vh - prevH, 0)
+                        }
+                    }
+                    Spacer(Modifier.height(with(LocalDensity.current) { spacerPx.toDp() }))
+                }
             }
 
             // ── Session input bar ─────────────────────────────────────────
