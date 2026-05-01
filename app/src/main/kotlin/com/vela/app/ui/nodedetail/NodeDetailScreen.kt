@@ -287,7 +287,7 @@ fun NodeDetailScreen(
                     bundleTag   = "project",
                     onTap       = {
                         navController.navigate(
-                            Routes.sessionList(viewModel.nodeId, project.id)
+                            Routes.sessionList(viewModel.nodeId, project.id, project.name)
                         )
                     },
                 )

@@ -54,10 +54,13 @@ class NodeDetailViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             _isLoading.value = true
             try {
-                val client = amplifierd.clientFor(nodeId) ?: return@launch
+                // Use the node we already have in the StateFlow to build the client —
+                // this avoids the registry.cache race condition where the cache may not
+                // yet be populated when loadProjects() is first called.
+                val client = amplifierd.clientForNode(node.value) ?: return@launch
                 _projects.value = client.getProjects()
             } catch (e: Exception) {
-                // silently fail — node might not be reachable yet
+                android.util.Log.w("NodeDetailVM", "loadProjects failed: ${e.message}")
             } finally {
                 _isLoading.value = false
             }
@@ -70,11 +73,12 @@ class NodeDetailViewModel @Inject constructor(
 
     suspend fun createProject(name: String): Boolean {
         return try {
-            val client = amplifierd.clientFor(nodeId) ?: return false
+            val client = amplifierd.clientForNode(node.value) ?: return false
             val project = client.createProject(name)
             _projects.value = _projects.value + project
             true
         } catch (e: Exception) {
+            android.util.Log.w("NodeDetailVM", "createProject failed: ${e.message}")
             false
         }
     }

@@ -41,14 +41,15 @@ import com.vela.app.ui.voice.VoiceOverlayViewModel
 object Routes {
     const val HOME         = "home"
     const val NODE_DETAIL  = "node/{nodeId}"
-    const val SESSION_LIST = "node/{nodeId}/project/{projectId}"
+    const val SESSION_LIST = "node/{nodeId}/project/{projectId}?projectName={projectName}"
     const val SESSION_DETAIL = "session/{sessionId}"
     const val COORDINATOR  = "session/{sessionId}/coordinator"
     const val NODE_CONFIG  = "node/{nodeId}/config"
     const val CONNECT_NODE = "connect"
 
     fun nodeDetail(nodeId: String)                         = "node/$nodeId"
-    fun sessionList(nodeId: String, projectId: String)     = "node/$nodeId/project/$projectId"
+    fun sessionList(nodeId: String, projectId: String, projectName: String = "") =
+        "node/$nodeId/project/$projectId?projectName=${android.net.Uri.encode(projectName)}"
     fun sessionDetail(sessionId: String)                   = "session/$sessionId"
     fun coordinator(sessionId: String)                     = "session/$sessionId/coordinator"
     fun nodeConfig(nodeId: String)                         = "node/$nodeId/config"
@@ -87,7 +88,14 @@ fun VelaApp(modifier: Modifier = Modifier) {
         ) {
             composable(Routes.HOME)           { HomeScreen(navController) }
             composable(Routes.NODE_DETAIL)    { NodeDetailScreen(navController) }
-            composable(Routes.SESSION_LIST)   { SessionListScreen(navController) }
+            composable(
+                route     = Routes.SESSION_LIST,
+                arguments = listOf(
+                    navArgument("nodeId")      { type = NavType.StringType },
+                    navArgument("projectId")   { type = NavType.StringType },
+                    navArgument("projectName") { type = NavType.StringType; defaultValue = "" },
+                ),
+            ) { SessionListScreen(navController) }
             composable(Routes.SESSION_DETAIL) { SessionDetailScreen(navController) }
             composable(Routes.COORDINATOR)    { com.vela.app.ui.coordinator.CoordinatorScreen(navController) }
             composable(

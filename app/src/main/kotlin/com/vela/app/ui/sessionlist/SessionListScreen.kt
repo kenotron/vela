@@ -60,7 +60,7 @@ fun SessionListScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text  = "Project",  // Phase 3 placeholder — project name from API in Phase 4
+                        text  = viewModel.projectName.ifBlank { "Project" },
                         style = MaterialTheme.typography.titleLarge,
                         color = VelaColors.TextPrimary,
                     )

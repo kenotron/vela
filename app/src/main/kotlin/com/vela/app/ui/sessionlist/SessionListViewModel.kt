@@ -1,5 +1,6 @@
 package com.vela.app.ui.sessionlist
 
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -12,6 +13,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -30,8 +33,15 @@ class SessionListViewModel @Inject constructor(
     private val amplifierd: AmplifierdRepository,
 ) : ViewModel() {
 
-    val nodeId: String    = checkNotNull(savedStateHandle["nodeId"])
-    val projectId: String = checkNotNull(savedStateHandle["projectId"])
+    val nodeId: String      = checkNotNull(savedStateHandle["nodeId"])
+    val projectId: String   = checkNotNull(savedStateHandle["projectId"])
+    /** Project name passed as a URL-encoded query parameter from NodeDetailScreen. */
+    val projectName: String = savedStateHandle["projectName"] ?: ""
+
+    /** Node domain object — used to build the AmplifierdClient without relying on registry.cache. */
+    private val node = registry.allFlow()
+        .map { list -> list.find { it.id == nodeId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _sessions = MutableStateFlow<List<SessionSummary>>(emptyList())
 
@@ -45,12 +55,19 @@ class SessionListViewModel @Inject constructor(
         .map { list -> list.filter { it.status == SessionStatus.DONE || it.status == SessionStatus.ERROR } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    init { loadSessions() }
+    init {
+        viewModelScope.launch {
+            node.filterNotNull().first() // wait for node to load
+            loadSessions()
+        }
+    }
 
     fun loadSessions() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val client = amplifierd.clientFor(nodeId) ?: return@launch
+                // Use clientForNode to bypass the registry.cache race condition —
+                // the node StateFlow guarantees the node is loaded before we call this.
+                val client = amplifierd.clientForNode(node.value) ?: return@launch
                 val raw = client.getSessions(projectId)
                 _sessions.value = raw.map { s ->
                     SessionSummary(
@@ -67,7 +84,13 @@ class SessionListViewModel @Inject constructor(
                         lastActiveMs = s.createdAt,
                     )
                 }
-            } catch (e: Exception) { /* silently fail — node might not be reachable */ }
+            } catch (e: Exception) {
+                Log.w(TAG, "loadSessions failed: ${e.message}")
+            }
         }
+    }
+
+    companion object {
+        private const val TAG = "SessionListVM"
     }
 }
