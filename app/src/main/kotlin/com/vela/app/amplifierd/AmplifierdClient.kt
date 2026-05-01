@@ -161,6 +161,29 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
      * → {"session_id":"","messages":[{"role":"user","content":"..."},...],"transcript":[],...}
      * Parses the messages list into [TurnContent] objects for display in the session view.
      */
+    /**
+     * Lightweight preview fetch: reads just the first few messages of a session transcript.
+     * Returns Pair(firstUserMessage, lastUserMessage). Both are blank if session has no messages.
+     * Used by the session list to show meaningful titles without loading the full transcript.
+     */
+    suspend fun getSessionPreview(sessionId: String): Pair<String, String> {
+        return try {
+            val response = JSONObject(get("/sessions/$sessionId/transcript"))
+            val messages = response.optJSONArray("messages") ?: return Pair("", "")
+            val userMessages = (0 until messages.length()).mapNotNull { i ->
+                val msg = messages.getJSONObject(i)
+                if (msg.optString("role") != "user") return@mapNotNull null
+                when (val raw = msg.opt("content")) {
+                    is String -> raw.take(120).trim()
+                    else -> null
+                }
+            }.filter { it.isNotBlank() }
+            val first = userMessages.firstOrNull() ?: ""
+            val last  = userMessages.lastOrNull()?.takeIf { it != first } ?: ""
+            Pair(first, last)
+        } catch (_: Exception) { Pair("", "") }
+    }
+
     suspend fun getTranscript(sessionId: String): List<com.vela.app.ui.sessiondetail.TurnContent> {
         val response = JSONObject(get("/sessions/$sessionId/transcript"))
         val messages  = response.optJSONArray("messages") ?: return emptyList()

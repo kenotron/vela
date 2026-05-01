@@ -13,6 +13,10 @@ data class SessionSummary(
     val modelName: String,
     val stepCount: Int,
     val lastActiveMs: Long,
+    /** First user message (preview of what the session is about), loaded lazily from transcript. */
+    val preview: String = "",
+    /** Last user message — shown when session is RUNNING so you see what the AI is working on. */
+    val lastUserMessage: String = "",
 )
 
 enum class SessionStatus { RUNNING, WAITING, DONE, ERROR }

@@ -51,6 +51,9 @@ class SessionListViewModel @Inject constructor(
 
     fun consumeCreatedSession() { _createdSessionId.value = null }
 
+    /** In-memory cache of session transcript previews (first + last user message). */
+    private val previewCache = mutableMapOf<String, Pair<String, String>>()
+
     private val _sessions = MutableStateFlow<List<SessionSummary>>(emptyList())
 
     /** Sessions currently RUNNING or WAITING. */
@@ -93,17 +96,15 @@ class SessionListViewModel @Inject constructor(
                 val seen = mutableSetOf<String>()
                 val merged = (pluginSessions + nativeSessions).filter { seen.add(it.sessionId) }
 
-                _sessions.value = merged.map { s ->
-                    // Real status from amplifierd; fall back to plugin status if not in native
+                val summaries = merged.map { s ->
                     val realStatus = nativeById[s.sessionId]?.status ?: "completed"
                     SessionSummary(
                         id           = s.sessionId,
-                        title        = s.title.ifBlank { s.sessionId.take(8) },
+                        title        = s.title.ifBlank { "" },
                         status       = when (realStatus) {
                             "executing"        -> SessionStatus.RUNNING
-                            "idle"             -> SessionStatus.DONE   // idle = not currently executing
+                            "idle"             -> SessionStatus.DONE
                             "failed", "error"  -> SessionStatus.ERROR
-                            "completed"        -> SessionStatus.DONE
                             else               -> SessionStatus.DONE
                         },
                         modelName    = s.bundleName.ifBlank { "amplifierd" },
@@ -111,6 +112,28 @@ class SessionListViewModel @Inject constructor(
                         lastActiveMs = s.lastActivity,
                     )
                 }.sortedByDescending { it.lastActiveMs }
+
+                _sessions.value = summaries
+
+                // Lazy-load first+last user message preview from transcript for each session
+                summaries.take(20).forEach { summary ->
+                    if (previewCache.containsKey(summary.id)) {
+                        val (first, last) = previewCache[summary.id]!!
+                        _sessions.value = _sessions.value.map {
+                            if (it.id == summary.id) it.copy(preview = first, lastUserMessage = last) else it
+                        }
+                    } else {
+                        viewModelScope.launch(Dispatchers.IO) {
+                            try {
+                                val (first, last) = client.getSessionPreview(summary.id)
+                                previewCache[summary.id] = Pair(first, last)
+                                _sessions.value = _sessions.value.map {
+                                    if (it.id == summary.id) it.copy(preview = first, lastUserMessage = last) else it
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    }
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "loadSessions failed: ${e.message}")
             }

@@ -120,11 +120,11 @@ fun SessionCard(
         null
     }
 
-    // Use real session name if available; fall back to contextual date for hex IDs
-    val displayTitle = if (session.title.isNotBlank() && !session.title.matches(Regex("[0-9a-f]{8}"))) {
-        session.title
-    } else {
-        formatSessionDate(session.lastActiveMs)
+    // Priority: hooks-session-naming title → first user message preview → formatted date
+    val displayTitle = when {
+        session.title.isNotBlank() && !session.title.matches(Regex("[0-9a-f-]{8,}")) -> session.title
+        session.preview.isNotBlank()                                                  -> session.preview
+        else                                                                          -> formatSessionDate(session.lastActiveMs)
     }
 
     Surface(
@@ -174,6 +174,29 @@ fun SessionCard(
             }
 
             Spacer(Modifier.height(4.dp))
+
+            // ── Preview: first user message (what session is about) ───────────────
+            if (session.preview.isNotBlank() && session.preview != displayTitle) {
+                Text(
+                    text     = session.preview,
+                    style    = MaterialTheme.typography.bodySmall,
+                    color    = VelaColors.TextSecondary,
+                    maxLines = 2,
+                )
+                Spacer(Modifier.height(2.dp))
+            }
+
+            // ── Running: last user message = what AI is currently working on ──────────
+            if (isRunning && session.lastUserMessage.isNotBlank()
+                && session.lastUserMessage != session.preview) {
+                Text(
+                    text     = "↳ ${session.lastUserMessage}",
+                    style    = MaterialTheme.typography.bodySmall,
+                    color    = VelaColors.Running,
+                    maxLines = 1,
+                )
+                Spacer(Modifier.height(2.dp))
+            }
 
             // ── Date subtitle ──────────────────────────────────────────────────
             Text(
