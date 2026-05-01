@@ -1,5 +1,12 @@
 package com.vela.app.ui.sessiondetail
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.StartOffset
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -467,6 +474,55 @@ fun ToolCallCard(
                     color = VelaColors.TextTertiary,
                 )
             }
+        }
+    }
+}
+
+/**
+ * Pulsing three-dot typing indicator — shown while the agent is streaming.
+ * Each dot fades in and out with a staggered 200ms delay, creating a wave effect.
+ */
+@Composable
+fun TypingIndicator(modifier: Modifier = Modifier) {
+    val infiniteTransition = rememberInfiniteTransition(label = "typingIndicator")
+
+    @Composable
+    fun dot(delayMs: Int): Float {
+        val alpha by infiniteTransition.animateFloat(
+            initialValue  = 0.25f,
+            targetValue   = 1f,
+            animationSpec = infiniteRepeatable(
+                animation  = androidx.compose.animation.core.keyframes {
+                    durationMillis = 900
+                    0.25f at 0        with androidx.compose.animation.core.LinearEasing
+                    1.00f at 300      with androidx.compose.animation.core.LinearEasing
+                    0.25f at 600      with androidx.compose.animation.core.LinearEasing
+                    0.25f at 900      with androidx.compose.animation.core.LinearEasing
+                },
+                repeatMode    = androidx.compose.animation.core.RepeatMode.Restart,
+                initialStartOffset = androidx.compose.animation.core.StartOffset(delayMs),
+            ),
+            label = "dot$delayMs",
+        )
+        return alpha
+    }
+
+    val a0 = dot(0)
+    val a1 = dot(200)
+    val a2 = dot(400)
+
+    Row(
+        modifier            = modifier.padding(start = 4.dp, top = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment   = Alignment.CenterVertically,
+    ) {
+        listOf(a0, a1, a2).forEach { alpha ->
+            Box(
+                modifier = Modifier
+                    .size(7.dp)
+                    .clip(androidx.compose.foundation.shape.CircleShape)
+                    .background(VelaColors.Accent.copy(alpha = alpha)),
+            )
         }
     }
 }

@@ -170,16 +170,9 @@ fun SessionDetailScreen(
                     else             AgentTurnItem(content = turn)
                 }
 
-                // Breathing "..." indicator while streaming
+                // Pulsing three-dot typing indicator while streaming
                 if (isLoading) {
-                    item {
-                        Text(
-                            text  = "…",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = VelaColors.TextTertiary,
-                            modifier = Modifier.padding(start = 4.dp),
-                        )
-                    }
+                    item { TypingIndicator() }
                 }
 
                 // Flex-filler spacer: takes up the full viewport height after all turns.

@@ -142,7 +142,7 @@ class SessionDetailViewModel @Inject constructor(
         try {
             val node   = registry.cache.find { it.id == nodeId } ?: return
             val client = amplifierd.clientForNode(node) ?: return
-            val turns  = client.getTranscript(sessionId)
+            val turns  = client.getTranscriptWithBlocks(sessionId)
             if (turns.isNotEmpty()) {
                 _turns.value = turns
             }
