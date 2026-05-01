@@ -1,5 +1,6 @@
 package com.vela.app.amplifierd
 
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -9,34 +10,35 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
-import java.io.IOException
 import java.util.concurrent.TimeUnit
+
+private const val TAG = "AmplifierdStream"
 
 /** Typed events emitted by the amplifierd SSE stream. */
 sealed class StreamEvent {
-    /** Text content from a content_block:end with block_type "text". */
     data class TextBlock(val text: String, val blockIndex: Int = 0) : StreamEvent()
-    /** Tool call from content_block:end with block_type "tool_use". */
     data class ToolUse(val id: String, val name: String, val inputJson: String) : StreamEvent()
-    /** Provider retry notification — surface to UI so user knows LLM is retrying. */
     data class ProviderRetry(val attempt: Int, val maxRetries: Int, val errorMessage: String, val delaySecs: Double) : StreamEvent()
-    /** Approval required — user must respond before session continues. */
     data class ApprovalRequest(val id: String, val question: String, val context: String = "") : StreamEvent()
-    /** Session execution is in progress — show thinking indicator. */
     object Thinking : StreamEvent()
-    /** Session completed successfully. */
     object Done : StreamEvent()
-    /** Unrecoverable error. */
     data class Error(val message: String) : StreamEvent()
 }
 
 /**
  * Streams events from an amplifierd session.
  *
- * Protocol:
- * 1. Open GET /events?session={id} SSE stream FIRST (server replays from seq 1)
- * 2. POST /sessions/{id}/execute/stream to submit the prompt (returns 202 + correlation_id)
- * 3. Collect events from the SSE stream until execution:end or orchestrator:complete
+ * PROTOCOL (order matters — verified by live curl 2026-05-01):
+ * 1. Open GET /events?session={id} FIRST — server replays all past events from seq 1
+ * 2. POST /sessions/{id}/execute/stream — returns {correlation_id, status:"accepted"}
+ * 3. Filter incoming SSE events to ONLY those matching our correlation_id
+ *    (past events have a different correlation_id and must be skipped)
+ * 4. Collect until execution:end or orchestrator:complete with OUR correlation_id
+ *
+ * WHY correlation_id filtering is required:
+ * amplifierd replays ALL past events when you subscribe to GET /events. Without filtering,
+ * orchestrator:complete from a PREVIOUS turn fires immediately and we exit before the
+ * new execution's events arrive. Filtering by correlation_id solves this correctly.
  */
 class AmplifierdStreamClient(private val baseUrl: String, private val token: String) {
 
@@ -45,24 +47,27 @@ class AmplifierdStreamClient(private val baseUrl: String, private val token: Str
         .readTimeout(5, TimeUnit.MINUTES)
         .build()
 
-    fun stream(sessionId: String, message: String, lastEventId: String? = null): Flow<StreamEvent> = flow {
+    fun stream(sessionId: String, message: String): Flow<StreamEvent> = flow {
         withContext(Dispatchers.IO) {
-            // Step 1: Open SSE stream BEFORE posting the prompt (no race condition)
+            Log.d(TAG, "stream: opening SSE for session=$sessionId")
+
+            // Step 1: Open SSE stream BEFORE posting the prompt
             val eventsRequest = Request.Builder()
                 .url("$baseUrl/events?session=$sessionId")
                 .header("x-amplifier-token", token)
                 .header("Accept", "text/event-stream")
-                .apply { if (lastEventId != null) header("Last-Event-ID", lastEventId) }
                 .get()
                 .build()
 
-            val response = http.newCall(eventsRequest).execute()
-            if (!response.isSuccessful) {
-                emit(StreamEvent.Error("Events stream failed: HTTP ${response.code}"))
+            val sseResponse = http.newCall(eventsRequest).execute()
+            if (!sseResponse.isSuccessful) {
+                Log.e(TAG, "stream: GET /events failed HTTP ${sseResponse.code}")
+                emit(StreamEvent.Error("Events stream failed: HTTP ${sseResponse.code}"))
                 return@withContext
             }
+            Log.d(TAG, "stream: SSE connection open (${sseResponse.code})")
 
-            // Step 2: Submit the prompt asynchronously (fire-and-forget)
+            // Step 2: Submit the prompt — capture correlation_id to filter replayed past events
             val promptBody = JSONObject().apply { put("prompt", message) }
                 .toString().toRequestBody("application/json".toMediaType())
             val submitRequest = Request.Builder()
@@ -70,16 +75,30 @@ class AmplifierdStreamClient(private val baseUrl: String, private val token: Str
                 .header("x-amplifier-token", token)
                 .post(promptBody)
                 .build()
-            http.newCall(submitRequest).execute().use { /* just need 202, ignore body */ }
 
-            // Step 3: Read and parse SSE events
-            val source = response.body?.source() ?: run {
-                emit(StreamEvent.Error("Empty response body from events stream"))
+            val submitResponse = http.newCall(submitRequest).execute()
+            if (!submitResponse.isSuccessful) {
+                Log.e(TAG, "stream: POST execute failed HTTP ${submitResponse.code} — session may not exist")
+                sseResponse.close()
+                emit(StreamEvent.Error("Session not found or cannot accept prompts: HTTP ${submitResponse.code}"))
+                return@withContext
+            }
+
+            val submitBody = submitResponse.body?.string() ?: ""
+            val correlationId = try {
+                JSONObject(submitBody).optString("correlation_id", "")
+            } catch (e: Exception) { "" }
+            Log.d(TAG, "stream: execute accepted, correlation_id=$correlationId")
+
+            // Step 3: Read SSE events, filter to OUR correlation_id only
+            val source = sseResponse.body?.source() ?: run {
+                emit(StreamEvent.Error("Empty SSE response body"))
                 return@withContext
             }
 
             var currentEventName = ""
             var isDone = false
+            var eventCount = 0
 
             while (!isDone && !source.exhausted()) {
                 val line = source.readUtf8Line() ?: break
@@ -92,9 +111,20 @@ class AmplifierdStreamClient(private val baseUrl: String, private val token: Str
 
                         try {
                             val obj = JSONObject(dataStr)
-                            val dataObj = obj.optJSONObject("data") ?: JSONObject()
 
-                            val event = when (currentEventName) {
+                            // Filter out events from previous executions
+                            val eventCorrelId = obj.optString("correlation_id", "")
+                            if (correlationId.isNotEmpty() && eventCorrelId.isNotEmpty()
+                                && eventCorrelId != correlationId) {
+                                Log.v(TAG, "stream: skipping replayed event $currentEventName (correlId=$eventCorrelId)")
+                                continue
+                            }
+
+                            eventCount++
+                            Log.d(TAG, "stream: event[$eventCount] $currentEventName (correlId=$eventCorrelId)")
+
+                            val dataObj = obj.optJSONObject("data") ?: JSONObject()
+                            val event: StreamEvent? = when (currentEventName) {
                                 "execution:start" -> StreamEvent.Thinking
 
                                 "provider:retry" -> StreamEvent.ProviderRetry(
@@ -110,43 +140,46 @@ class AmplifierdStreamClient(private val baseUrl: String, private val token: Str
                                     when (block?.optString("type")) {
                                         "text" -> {
                                             val text = block.optString("text", "")
-                                            if (text.isNotBlank()) StreamEvent.TextBlock(text, blockIndex) else null
+                                            if (text.isNotBlank()) {
+                                                Log.d(TAG, "stream: TextBlock len=${text.length}")
+                                                StreamEvent.TextBlock(text, blockIndex)
+                                            } else null
                                         }
                                         "tool_use" -> StreamEvent.ToolUse(
                                             id        = block.optString("id", ""),
                                             name      = block.optString("name", ""),
                                             inputJson = block.optJSONObject("input")?.toString() ?: "{}",
                                         )
-                                        "thinking" -> null // hide internal thinking blocks
+                                        "thinking" -> null // hide internal thinking
                                         else -> null
                                     }
                                 }
 
                                 "execution:end", "orchestrator:complete" -> {
+                                    Log.d(TAG, "stream: Done from $currentEventName")
                                     emit(StreamEvent.Done)
                                     isDone = true
                                     null
                                 }
 
-                                // approval_request from hooks-approval if configured
-                                "approval:request", "approval_request" -> {
-                                    val approvalId = dataObj.optString("approval_id", dataObj.optString("id", ""))
-                                    val question   = dataObj.optString("question", "")
-                                    val context    = dataObj.optString("context", "")
-                                    StreamEvent.ApprovalRequest(approvalId, question, context)
-                                }
+                                "approval:request", "approval_request" -> StreamEvent.ApprovalRequest(
+                                    id       = dataObj.optString("approval_id", dataObj.optString("id", "")),
+                                    question = dataObj.optString("question", ""),
+                                    context  = dataObj.optString("context", ""),
+                                )
 
-                                else -> null // silently ignore session:start, llm:request, etc.
+                                else -> null
                             }
                             event?.let { emit(it) }
                         } catch (e: Exception) {
-                            // malformed event — log but don't crash
+                            Log.w(TAG, "stream: malformed event: ${e.message}")
                         }
                     }
-                    line.isBlank() -> currentEventName = "" // reset on blank separator line
+                    line.isBlank() -> currentEventName = ""
                 }
             }
 
+            Log.d(TAG, "stream: loop exited isDone=$isDone eventCount=$eventCount")
             if (!isDone) emit(StreamEvent.Done)
         }
     }
