@@ -4,7 +4,7 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.flowOn
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -39,6 +39,10 @@ sealed class StreamEvent {
  * amplifierd replays ALL past events when you subscribe to GET /events. Without filtering,
  * orchestrator:complete from a PREVIOUS turn fires immediately and we exit before the
  * new execution's events arrive. Filtering by correlation_id solves this correctly.
+ *
+ * WHY flowOn(Dispatchers.IO) not withContext:
+ * emit() inside withContext() inside flow {} violates Kotlin Flow invariants.
+ * flowOn() runs the entire upstream on IO without breaking the emission contract.
  */
 class AmplifierdStreamClient(private val baseUrl: String, private val token: String) {
 
@@ -48,139 +52,136 @@ class AmplifierdStreamClient(private val baseUrl: String, private val token: Str
         .build()
 
     fun stream(sessionId: String, message: String): Flow<StreamEvent> = flow {
-        withContext(Dispatchers.IO) {
-            Log.d(TAG, "stream: opening SSE for session=$sessionId")
+        Log.d(TAG, "stream: opening SSE for session=$sessionId")
 
-            // Step 1: Open SSE stream BEFORE posting the prompt
-            val eventsRequest = Request.Builder()
-                .url("$baseUrl/events?session=$sessionId")
-                .header("x-amplifier-token", token)
-                .header("Accept", "text/event-stream")
-                .get()
-                .build()
+        // Step 1: Open SSE stream BEFORE posting the prompt
+        val eventsRequest = Request.Builder()
+            .url("$baseUrl/events?session=$sessionId")
+            .header("x-amplifier-token", token)
+            .header("Accept", "text/event-stream")
+            .get()
+            .build()
 
-            val sseResponse = http.newCall(eventsRequest).execute()
-            if (!sseResponse.isSuccessful) {
-                Log.e(TAG, "stream: GET /events failed HTTP ${sseResponse.code}")
-                emit(StreamEvent.Error("Events stream failed: HTTP ${sseResponse.code}"))
-                return@withContext
-            }
-            Log.d(TAG, "stream: SSE connection open (${sseResponse.code})")
-
-            // Step 2: Submit the prompt — capture correlation_id to filter replayed past events
-            val promptBody = JSONObject().apply { put("prompt", message) }
-                .toString().toRequestBody("application/json".toMediaType())
-            val submitRequest = Request.Builder()
-                .url("$baseUrl/sessions/$sessionId/execute/stream")
-                .header("x-amplifier-token", token)
-                .post(promptBody)
-                .build()
-
-            val submitResponse = http.newCall(submitRequest).execute()
-            if (!submitResponse.isSuccessful) {
-                Log.e(TAG, "stream: POST execute failed HTTP ${submitResponse.code} — session may not exist")
-                sseResponse.close()
-                emit(StreamEvent.Error("Session not found or cannot accept prompts: HTTP ${submitResponse.code}"))
-                return@withContext
-            }
-
-            val submitBody = submitResponse.body?.string() ?: ""
-            val correlationId = try {
-                JSONObject(submitBody).optString("correlation_id", "")
-            } catch (e: Exception) { "" }
-            Log.d(TAG, "stream: execute accepted, correlation_id=$correlationId")
-
-            // Step 3: Read SSE events, filter to OUR correlation_id only
-            val source = sseResponse.body?.source() ?: run {
-                emit(StreamEvent.Error("Empty SSE response body"))
-                return@withContext
-            }
-
-            var currentEventName = ""
-            var isDone = false
-            var eventCount = 0
-
-            while (!isDone && !source.exhausted()) {
-                val line = source.readUtf8Line() ?: break
-
-                when {
-                    line.startsWith("event: ") -> currentEventName = line.removePrefix("event: ").trim()
-                    line.startsWith("data: ") -> {
-                        val dataStr = line.removePrefix("data: ").trim()
-                        if (dataStr == "[DONE]") { emit(StreamEvent.Done); isDone = true; break }
-
-                        try {
-                            val obj = JSONObject(dataStr)
-
-                            // Filter out events from previous executions
-                            val eventCorrelId = obj.optString("correlation_id", "")
-                            if (correlationId.isNotEmpty() && eventCorrelId.isNotEmpty()
-                                && eventCorrelId != correlationId) {
-                                Log.v(TAG, "stream: skipping replayed event $currentEventName (correlId=$eventCorrelId)")
-                                continue
-                            }
-
-                            eventCount++
-                            Log.d(TAG, "stream: event[$eventCount] $currentEventName (correlId=$eventCorrelId)")
-
-                            val dataObj = obj.optJSONObject("data") ?: JSONObject()
-                            val event: StreamEvent? = when (currentEventName) {
-                                "execution:start" -> StreamEvent.Thinking
-
-                                "provider:retry" -> StreamEvent.ProviderRetry(
-                                    attempt      = dataObj.optInt("attempt", 1),
-                                    maxRetries   = dataObj.optInt("max_retries", 5),
-                                    errorMessage = dataObj.optString("error_message", "Connection error"),
-                                    delaySecs    = dataObj.optDouble("delay", 0.0),
-                                )
-
-                                "content_block:end" -> {
-                                    val block = dataObj.optJSONObject("block")
-                                    val blockIndex = dataObj.optInt("block_index", 0)
-                                    when (block?.optString("type")) {
-                                        "text" -> {
-                                            val text = block.optString("text", "")
-                                            if (text.isNotBlank()) {
-                                                Log.d(TAG, "stream: TextBlock len=${text.length}")
-                                                StreamEvent.TextBlock(text, blockIndex)
-                                            } else null
-                                        }
-                                        "tool_use" -> StreamEvent.ToolUse(
-                                            id        = block.optString("id", ""),
-                                            name      = block.optString("name", ""),
-                                            inputJson = block.optJSONObject("input")?.toString() ?: "{}",
-                                        )
-                                        "thinking" -> null // hide internal thinking
-                                        else -> null
-                                    }
-                                }
-
-                                "execution:end", "orchestrator:complete" -> {
-                                    Log.d(TAG, "stream: Done from $currentEventName")
-                                    emit(StreamEvent.Done)
-                                    isDone = true
-                                    null
-                                }
-
-                                "approval:request", "approval_request" -> StreamEvent.ApprovalRequest(
-                                    id       = dataObj.optString("approval_id", dataObj.optString("id", "")),
-                                    question = dataObj.optString("question", ""),
-                                    context  = dataObj.optString("context", ""),
-                                )
-
-                                else -> null
-                            }
-                            event?.let { emit(it) }
-                        } catch (e: Exception) {
-                            Log.w(TAG, "stream: malformed event: ${e.message}")
-                        }
-                    }
-                    line.isBlank() -> currentEventName = ""
-                }
-            }
-
-            Log.d(TAG, "stream: loop exited isDone=$isDone eventCount=$eventCount")
-            if (!isDone) emit(StreamEvent.Done)
+        val sseResponse = http.newCall(eventsRequest).execute()
+        if (!sseResponse.isSuccessful) {
+            Log.e(TAG, "stream: GET /events failed HTTP ${sseResponse.code}")
+            emit(StreamEvent.Error("Events stream failed: HTTP ${sseResponse.code}"))
+            return@flow
         }
-    }
+        Log.d(TAG, "stream: SSE connection open (${sseResponse.code})")
+
+        // Step 2: Submit the prompt — capture correlation_id to filter replayed past events
+        val promptBody = JSONObject().apply { put("prompt", message) }
+            .toString().toRequestBody("application/json".toMediaType())
+        val submitRequest = Request.Builder()
+            .url("$baseUrl/sessions/$sessionId/execute/stream")
+            .header("x-amplifier-token", token)
+            .post(promptBody)
+            .build()
+
+        val submitResponse = http.newCall(submitRequest).execute()
+        if (!submitResponse.isSuccessful) {
+            Log.e(TAG, "stream: POST execute failed HTTP ${submitResponse.code}")
+            sseResponse.close()
+            emit(StreamEvent.Error("Session not found or cannot accept prompts: HTTP ${submitResponse.code}"))
+            return@flow
+        }
+
+        val correlationId = try {
+            JSONObject(submitResponse.body?.string() ?: "").optString("correlation_id", "")
+        } catch (e: Exception) { "" }
+        Log.d(TAG, "stream: execute accepted, correlation_id=$correlationId")
+
+        // Step 3: Read SSE events, filter to OUR correlation_id only
+        val source = sseResponse.body?.source() ?: run {
+            emit(StreamEvent.Error("Empty SSE response body"))
+            return@flow
+        }
+
+        var currentEventName = ""
+        var isDone = false
+        var eventCount = 0
+
+        while (!isDone && !source.exhausted()) {
+            val line = source.readUtf8Line() ?: break
+
+            when {
+                line.startsWith("event: ") -> currentEventName = line.removePrefix("event: ").trim()
+                line.startsWith("data: ") -> {
+                    val dataStr = line.removePrefix("data: ").trim()
+                    if (dataStr == "[DONE]") { emit(StreamEvent.Done); isDone = true; break }
+
+                    try {
+                        val obj = JSONObject(dataStr)
+
+                        // Filter out events from previous executions
+                        val eventCorrelId = obj.optString("correlation_id", "")
+                        if (correlationId.isNotEmpty() && eventCorrelId.isNotEmpty()
+                            && eventCorrelId != correlationId) {
+                            Log.v(TAG, "stream: skipping replayed event $currentEventName")
+                            continue
+                        }
+
+                        eventCount++
+                        Log.d(TAG, "stream: event[$eventCount] $currentEventName")
+
+                        val dataObj = obj.optJSONObject("data") ?: JSONObject()
+                        val event: StreamEvent? = when (currentEventName) {
+                            "execution:start" -> StreamEvent.Thinking
+
+                            "provider:retry" -> StreamEvent.ProviderRetry(
+                                attempt      = dataObj.optInt("attempt", 1),
+                                maxRetries   = dataObj.optInt("max_retries", 5),
+                                errorMessage = dataObj.optString("error_message", "Connection error"),
+                                delaySecs    = dataObj.optDouble("delay", 0.0),
+                            )
+
+                            "content_block:end" -> {
+                                val block = dataObj.optJSONObject("block")
+                                val blockIndex = dataObj.optInt("block_index", 0)
+                                when (block?.optString("type")) {
+                                    "text" -> {
+                                        val text = block.optString("text", "")
+                                        if (text.isNotBlank()) {
+                                            Log.d(TAG, "stream: TextBlock len=${text.length}")
+                                            StreamEvent.TextBlock(text, blockIndex)
+                                        } else null
+                                    }
+                                    "tool_use" -> StreamEvent.ToolUse(
+                                        id        = block.optString("id", ""),
+                                        name      = block.optString("name", ""),
+                                        inputJson = block.optJSONObject("input")?.toString() ?: "{}",
+                                    )
+                                    "thinking" -> null
+                                    else -> null
+                                }
+                            }
+
+                            "execution:end", "orchestrator:complete" -> {
+                                Log.d(TAG, "stream: Done from $currentEventName")
+                                emit(StreamEvent.Done)
+                                isDone = true
+                                null
+                            }
+
+                            "approval:request", "approval_request" -> StreamEvent.ApprovalRequest(
+                                id       = dataObj.optString("approval_id", dataObj.optString("id", "")),
+                                question = dataObj.optString("question", ""),
+                                context  = dataObj.optString("context", ""),
+                            )
+
+                            else -> null
+                        }
+                        event?.let { emit(it) }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "stream: parse error: ${e.message}")
+                    }
+                }
+                line.isBlank() -> currentEventName = ""
+            }
+        }
+
+        Log.d(TAG, "stream: loop exited isDone=$isDone eventCount=$eventCount")
+        if (!isDone) emit(StreamEvent.Done)
+    }.flowOn(Dispatchers.IO) // run the blocking OkHttp reads on IO without breaking emit() contract
 }

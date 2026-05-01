@@ -164,13 +164,25 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
         for (i in 0 until messages.length()) {
             val msg  = messages.getJSONObject(i)
             val role = msg.optString("role")
-            val text = when {
+            val text: String = when {
                 msg.has("content") && !msg.isNull("content") -> {
-                    val raw = msg.get("content")
-                    if (raw is String) raw else raw.toString()
+                    when (val raw = msg.get("content")) {
+                        is String -> raw  // user messages are plain strings
+                        is org.json.JSONArray -> {
+                            // Assistant messages are content block arrays:
+                            // [{"type":"thinking","thinking":"..."}, {"type":"text","text":"..."}]
+                            // Extract only "text" blocks, skip "thinking" blocks
+                            (0 until raw.length()).mapNotNull { i ->
+                                val block = raw.getJSONObject(i)
+                                if (block.optString("type") == "text") block.optString("text", null)
+                                else null
+                            }.joinToString("\n").ifBlank { null }
+                        }
+                        else -> null
+                    }
                 }
-                else -> continue
-            }
+                else -> null
+            } ?: continue
             when (role) {
                 "user"      -> result += com.vela.app.ui.sessiondetail.TurnContent(text = text, isUser = true)
                 "assistant" -> result += com.vela.app.ui.sessiondetail.TurnContent(text = text, isUser = false)
