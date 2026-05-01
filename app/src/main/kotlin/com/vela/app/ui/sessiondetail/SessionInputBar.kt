@@ -100,7 +100,7 @@ fun SessionInputBar(
             Box(
                 modifier         = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 80.dp, max = 200.dp)
+                    .heightIn(min = 44.dp, max = 200.dp)
                     .padding(top = 12.dp, start = 12.dp, end = 12.dp, bottom = 8.dp),
                 contentAlignment = Alignment.TopStart,
             ) {

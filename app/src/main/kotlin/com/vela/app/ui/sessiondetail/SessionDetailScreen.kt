@@ -38,9 +38,16 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -80,11 +87,15 @@ fun SessionDetailScreen(
 
     val ctx = LocalContext.current
     val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+    val keyboardController = LocalSoftwareKeyboardController.current
 
-    // Auto-scroll to bottom when new turns arrive
-    LaunchedEffect(turns.size) {
-        if (turns.isNotEmpty()) {
-            listState.animateScrollToItem(turns.size - 1)
+    // Scroll to bottom once on initial load so you land at the latest turn
+    var didInitialScroll by remember { mutableStateOf(false) }
+    LaunchedEffect(turns.isNotEmpty()) {
+        if (turns.isNotEmpty() && !didInitialScroll) {
+            listState.scrollToItem(turns.size)   // +1 accounts for the title hero item
+            didInitialScroll = true
         }
     }
 
@@ -194,7 +205,15 @@ fun SessionDetailScreen(
                 text               = inputText,
                 onTextChange       = viewModel::updateInputText,
                 onSend             = {
+                    // Capture where the user turn will land (+1 for title hero item)
+                    val userTurnIndex = turns.size + 1
+                    keyboardController?.hide()
                     viewModel.sendMessage()
+                    // Scroll so the new user message sits at the top of the viewport
+                    coroutineScope.launch {
+                        delay(80)
+                        listState.animateScrollToItem(userTurnIndex)
+                    }
                 },
                 onVoiceStart       = {
                     val granted = ContextCompat.checkSelfPermission(
