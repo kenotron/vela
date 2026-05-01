@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -51,8 +52,16 @@ fun SessionListScreen(
     navController: NavController,
     viewModel: SessionListViewModel = hiltViewModel(),
 ) {
-    val activeSessions by viewModel.activeSessions.collectAsStateWithLifecycle()
-    val recentSessions by viewModel.recentSessions.collectAsStateWithLifecycle()
+    val activeSessions    by viewModel.activeSessions.collectAsStateWithLifecycle()
+    val recentSessions    by viewModel.recentSessions.collectAsStateWithLifecycle()
+    val createdSessionId  by viewModel.createdSessionId.collectAsStateWithLifecycle()
+
+    // Navigate into the new session when createSession() completes
+    LaunchedEffect(createdSessionId) {
+        val sid = createdSessionId ?: return@LaunchedEffect
+        viewModel.consumeCreatedSession()
+        navController.navigate(com.vela.app.ui.navigation.Routes.sessionDetail(viewModel.nodeId, sid))
+    }
 
     Scaffold(
         containerColor = VelaColors.Abyss,
@@ -126,7 +135,7 @@ fun SessionListScreen(
                     SessionCard(
                         session = session,
                         onClick = {
-                            navController.navigate(Routes.sessionDetail(session.id))
+                            navController.navigate(Routes.sessionDetail(viewModel.nodeId, session.id))
                         },
                     )
                 }
@@ -152,7 +161,7 @@ fun SessionListScreen(
                     SessionCard(
                         session = session,
                         onClick = {
-                            navController.navigate(Routes.sessionDetail(session.id))
+                            navController.navigate(Routes.sessionDetail(viewModel.nodeId, session.id))
                         },
                     )
                 }

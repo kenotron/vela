@@ -77,6 +77,7 @@ fun NodeDetailScreen(
     val node by viewModel.node.collectAsState()
     val projects by viewModel.projects.collectAsState()
     val repairState by viewModel.repairState.collectAsState()
+    val capabilities by viewModel.capabilities.collectAsState()
     val coroutineScope = rememberCoroutineScope()
 
     // Snackbar for transient error / success messages
@@ -275,7 +276,7 @@ fun NodeDetailScreen(
                 Spacer(modifier = Modifier.height(12.dp))
                 // Telemetry meta — Inter 12sp, TextSecondary
                 Text(
-                    text  = buildNodeTelemetry(node),
+                    text  = buildNodeTelemetry(node, capabilities),
                     style = MaterialTheme.typography.labelMedium,
                     color = VelaColors.TextSecondary,
                 )
@@ -342,9 +343,13 @@ private fun NewProjectPlaceholder(onTap: () -> Unit) {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-private fun buildNodeTelemetry(node: SshNode?): String {
+private fun buildNodeTelemetry(
+    node: SshNode?,
+    capabilities: com.vela.app.amplifierd.AmplifierdCapabilities? = null,
+): String {
     if (node == null) return ""
-    val status = if (node.bootstrapStatus == BootstrapStatus.RUNNING) "online" else "offline"
+    val status    = if (node.bootstrapStatus == BootstrapStatus.RUNNING) "online" else "offline"
+    val sessions  = capabilities?.let { "${it.activeSessions} active" } ?: "0 active"
     val workspace = node.workspaceDir.ifBlank { "~" }
-        return "$status · 0 active sessions · $workspace"
+    return "$status · $sessions · $workspace"
 }

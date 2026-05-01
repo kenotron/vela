@@ -3,6 +3,7 @@ package com.vela.app.ui.nodedetail
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.vela.app.amplifierd.AmplifierdCapabilities
 import com.vela.app.amplifierd.AmplifierdProject
 import com.vela.app.amplifierd.AmplifierdRepository
 import com.vela.app.ssh.BootstrapEvent
@@ -12,6 +13,7 @@ import com.vela.app.ssh.SshNodeRegistry
 import com.vela.app.ui.nodes.BootstrapUiState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -43,10 +45,28 @@ class NodeDetailViewModel @Inject constructor(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading
 
+    // ── Live capabilities (Phase 8) ────────────────────────────────────────
+
+    private val _capabilities = MutableStateFlow<AmplifierdCapabilities?>(null)
+    val capabilities: StateFlow<AmplifierdCapabilities?> = _capabilities
+
     init {
         viewModelScope.launch {
             node.filterNotNull().first() // wait for node to load
             loadProjects()
+            startCapabilitiesPolling()
+        }
+    }
+
+    private fun startCapabilitiesPolling() {
+        viewModelScope.launch(Dispatchers.IO) {
+            while (true) {
+                try {
+                    val n = node.value ?: break
+                    _capabilities.value = amplifierd.clientForNode(n)?.getCapabilities()
+                } catch (_: Exception) { /* silent — node may be offline */ }
+                delay(30_000)
+            }
         }
     }
 
@@ -83,7 +103,7 @@ class NodeDetailViewModel @Inject constructor(
         }
     }
 
-    // ── Repair state ──────────────────────────────────────────────────────────────────────────────
+    // ── Repair state ──────────────────────────────────────────────────────
 
     private val _repairState = MutableStateFlow(BootstrapUiState())
     val repairState: StateFlow<BootstrapUiState> = _repairState

@@ -8,10 +8,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Repository that vends [AmplifierdClient] instances for live nodes.
- *
- * One client is created per call — no caching — so each call gets a fresh
- * client.  Callers that want to reuse a client should hold onto the result.
+ * Repository that vends [AmplifierdClient] and [AmplifierdStreamClient] instances.
  *
  * Returns null if the node does not exist, is not of type [NodeType.AMPLIFIERD],
  * or has a blank URL.
@@ -23,9 +20,7 @@ class AmplifierdRepository @Inject constructor(
     /**
      * Returns a client for the given [nodeId] by searching [SshNodeRegistry.cache].
      *
-     * ⚠ The cache is populated lazily by [HomeViewModel]; prefer [clientForNode]
-     * when the caller already holds the [SshNode] domain object (e.g. inside
-     * [NodeDetailViewModel] after the node StateFlow has emitted).
+     * Prefer [clientForNode] when the caller already holds the [SshNode] domain object.
      */
     fun clientFor(nodeId: String): AmplifierdClient? {
         val node = registry.cache.find { it.id == nodeId }
@@ -34,8 +29,7 @@ class AmplifierdRepository @Inject constructor(
 
     /**
      * Returns a client built directly from a known [SshNode], bypassing the
-     * in-memory cache.  Use this when the caller already has the node object —
-     * it eliminates the race condition where the cache may not yet be populated.
+     * in-memory cache. Use this when the caller already has the node object.
      */
     fun clientForNode(node: SshNode?): AmplifierdClient? {
         if (node == null) {
@@ -50,8 +44,17 @@ class AmplifierdRepository @Inject constructor(
             Log.w(TAG, "clientForNode: node '${node.label}' has blank URL")
             return null
         }
-        Log.d(TAG, "clientForNode: creating client for '${node.label}' → ${node.url}")
+        Log.d(TAG, "clientForNode: creating client for '${node.label}' -> ${node.url}")
         return AmplifierdClient(node.url, node.token)
+    }
+
+    /**
+     * Returns an SSE streaming client for [node], used for live session execution.
+     * Returns null for the same reasons as [clientForNode].
+     */
+    fun streamClientForNode(node: SshNode?): AmplifierdStreamClient? {
+        if (node == null || node.type != NodeType.AMPLIFIERD || node.url.isBlank()) return null
+        return AmplifierdStreamClient(node.url, node.token)
     }
 
     companion object {

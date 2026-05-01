@@ -129,7 +129,13 @@
         // Coroutines
         implementation(libs.kotlinx.coroutines.android)
 
-            // OkHttp — web tools
+            // Security — encrypted shared preferences for API keys
+        implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+        // Coil — async image loading for attachment previews
+        implementation("io.coil-kt:coil-compose:2.5.0")
+
+        // OkHttp — web tools
             implementation(libs.okhttp)
 
                 // SSH — modern JSch fork, Ed25519 + modern ciphers, pure Java (no Kotlin metadata issues)

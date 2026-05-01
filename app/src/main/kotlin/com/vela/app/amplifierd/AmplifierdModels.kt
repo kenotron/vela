@@ -23,5 +23,6 @@ package com.vela.app.amplifierd
         val amplifierdVersion: String,
         val activeBundles: List<String>,
         val availableTools: List<String>,
+        /** Number of currently active (running/waiting) sessions on this node. */
+        val activeSessions: Int = 0,
     )
-    

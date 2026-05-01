@@ -70,7 +70,8 @@ fun CoordinatorScreen(
                     BranchCard(
                         branch        = branch,
                         onViewSession = { branchSessionId ->
-                            navController.navigate(Routes.sessionDetail(branchSessionId))
+                            // nodeId not available in coordinator context — pass empty string
+                            navController.navigate(Routes.sessionDetail("", branchSessionId))
                         },
                     )
                     if (index < branches.lastIndex) {

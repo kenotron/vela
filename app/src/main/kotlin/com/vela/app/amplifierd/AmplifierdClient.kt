@@ -60,12 +60,15 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
      */
     suspend fun getCapabilities(): AmplifierdCapabilities {
         val json = JSONObject(get("/capabilities"))
+        // active_sessions: reported by amplifierd health endpoint as active_sessions
+        val activeSessions = json.optInt("active_sessions", 0)
         return AmplifierdCapabilities(
             hostname          = json.optString("hostname"),
             platform          = json.optString("platform"),
             amplifierdVersion = json.optString("amplifierd_version"),
             activeBundles     = json.optJSONArray("active_bundles").toStringList(),
             availableTools    = json.optJSONArray("available_tools").toStringList(),
+            activeSessions    = activeSessions,
         )
     }
 
@@ -118,17 +121,70 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
     }
 
     /**
-     * POST /projects/:id/sessions  body: {"working_directory":"~/workspace","title":""}
-     * → {"session_id":"uuid"}
+     * Create a real amplifierd session, then register it with the vela plugin.
+     *
+     * Step 1: POST /sessions → {"session_id":"uuid",...}
+     * Step 2: POST /projects/{id}/sessions with session_id so it appears in the project list.
+     *
      * Returns the new session ID.
      */
-    suspend fun createSession(projectId: String, workspaceDir: String = "~", title: String = ""): String {
-        val body = JSONObject().apply {
-            put("working_directory", workspaceDir)
-            put("title", title)
+    suspend fun createSession(
+        projectId: String,
+        workspaceDir: String = "~",
+        title: String = "",
+        bundle: String = "superpowers",
+    ): String {
+        // Create real amplifierd session
+        val sessionBody = JSONObject().apply { put("bundle", bundle) }
+        val sessionResp = JSONObject(post("/sessions", sessionBody))
+        val sessionId   = sessionResp.getString("session_id")
+
+        // Register with vela plugin for project tracking (non-fatal)
+        try {
+            val velaBody = JSONObject().apply {
+                put("session_id", sessionId)
+                put("working_directory", workspaceDir)
+                put("title", title.ifBlank { sessionId.take(8) })
+            }
+            post("/projects/$projectId/sessions", velaBody)
+        } catch (_: Exception) { /* non-fatal — vela plugin may not have updated yet */ }
+
+        return sessionId
+    }
+
+    /**
+     * GET /sessions/:id/transcript
+     * → {"session_id":"","messages":[{"role":"user","content":"..."},...],"transcript":[],...}
+     * Parses the messages list into [TurnContent] objects for display in the session view.
+     */
+    suspend fun getTranscript(sessionId: String): List<com.vela.app.ui.sessiondetail.TurnContent> {
+        val response = JSONObject(get("/sessions/$sessionId/transcript"))
+        val messages  = response.optJSONArray("messages") ?: return emptyList()
+        val result    = mutableListOf<com.vela.app.ui.sessiondetail.TurnContent>()
+        for (i in 0 until messages.length()) {
+            val msg  = messages.getJSONObject(i)
+            val role = msg.optString("role")
+            val text = when {
+                msg.has("content") && !msg.isNull("content") -> {
+                    val raw = msg.get("content")
+                    if (raw is String) raw else raw.toString()
+                }
+                else -> continue
+            }
+            when (role) {
+                "user"      -> result += com.vela.app.ui.sessiondetail.TurnContent(text = text, isUser = true)
+                "assistant" -> result += com.vela.app.ui.sessiondetail.TurnContent(text = text, isUser = false)
+            }
         }
-        val response = JSONObject(post("/projects/$projectId/sessions", body))
-        return response.getString("session_id")
+        return result
+    }
+
+    /**
+     * POST /sessions/:id/approvals/:approvalId  body: {"approved":true|false}
+     */
+    suspend fun approveSession(sessionId: String, approvalId: String, approved: Boolean) {
+        val body = JSONObject().apply { put("approved", approved) }
+        post("/sessions/$sessionId/approvals/$approvalId", body)
     }
 
     /** GET /health → true if 200, false on any error or non-2xx. */

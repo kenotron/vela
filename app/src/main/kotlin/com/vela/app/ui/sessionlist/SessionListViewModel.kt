@@ -43,6 +43,12 @@ class SessionListViewModel @Inject constructor(
         .map { list -> list.find { it.id == nodeId } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** Non-null immediately after [createSession] succeeds — consumed by the screen to navigate. */
+    private val _createdSessionId = MutableStateFlow<String?>(null)
+    val createdSessionId: StateFlow<String?> = _createdSessionId
+
+    fun consumeCreatedSession() { _createdSessionId.value = null }
+
     private val _sessions = MutableStateFlow<List<SessionSummary>>(emptyList())
 
     /** Sessions currently RUNNING or WAITING. */
@@ -98,9 +104,12 @@ class SessionListViewModel @Inject constructor(
             try {
                 val nodeObj = registry.cache.find { it.id == nodeId } ?: return@launch
                 val client = amplifierd.clientForNode(nodeObj) ?: return@launch
-                client.createSession(projectId, nodeObj.workspaceDir)
-                loadSessions() // refresh
-            } catch (e: Exception) { /* surface error later */ }
+                val sessionId = client.createSession(projectId, nodeObj.workspaceDir)
+                _createdSessionId.value = sessionId
+                loadSessions() // refresh list
+            } catch (e: Exception) {
+                Log.w(TAG, "createSession failed: ${e.message}")
+            }
         }
     }
 

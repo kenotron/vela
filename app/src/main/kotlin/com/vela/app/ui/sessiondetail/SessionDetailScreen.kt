@@ -1,5 +1,11 @@
 package com.vela.app.ui.sessiondetail
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -27,23 +34,30 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
+import com.vela.app.ui.approval.ApprovalGateSheet
+import com.vela.app.ui.approval.ApprovalSheetViewModel
 import com.vela.app.ui.theme.VelaColors
 
 /**
- * Screen 4: Session Detail — Turn History.
+ * Screen 4: Session Detail — Turn History + Session Input Bar.
  *
  * Design: DESIGN.md §8 (Screen 4)
  * Layout:
- *   - App bar: back + session title in titleLarge + running dot (8dp amber) if RUNNING
- *   - Title area: session name in displayMedium (Instrument Serif 36sp) + status pill
- *   - Turn list: LazyColumn of UserTurnItem / AgentTurnItem, 16dp spacing
+ *   - App bar: back + session title + running dot
+ *   - Session title hero area
+ *   - LazyColumn of user/agent turns (scrollable, auto-scrolls to bottom)
+ *   - SessionInputBar pinned at the bottom (keyboard-aware via imePadding)
+ *   - ApprovalGateSheet modal when approval is requested
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,10 +65,36 @@ fun SessionDetailScreen(
     navController: NavController,
     viewModel: SessionDetailViewModel = hiltViewModel(),
 ) {
-    val turns by viewModel.turns.collectAsStateWithLifecycle()
+    val turns         by viewModel.turns.collectAsStateWithLifecycle()
+    val isLoading     by viewModel.isLoading.collectAsStateWithLifecycle()
+    val inputText     by viewModel.inputText.collectAsStateWithLifecycle()
+    val attachments   by viewModel.attachments.collectAsStateWithLifecycle()
+    val isRecording   by viewModel.isRecording.collectAsStateWithLifecycle()
+    val approvalReq   by viewModel.approvalRequest.collectAsStateWithLifecycle()
 
-    // Derive session status from turn tool calls for placeholder display
-    val isRunning = turns.any { !it.isUser && it.toolCalls.any { tc -> tc.isRunning } }
+    val isRunning = isLoading || turns.any { !it.isUser && it.toolCalls.any { tc -> tc.isRunning } }
+
+    val ctx = LocalContext.current
+    val listState = rememberLazyListState()
+
+    // Auto-scroll to bottom when new turns arrive
+    LaunchedEffect(turns.size) {
+        if (turns.isNotEmpty()) {
+            listState.animateScrollToItem(turns.size - 1)
+        }
+    }
+
+    // Photo picker
+    val imagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? -> uri?.let { viewModel.addAttachment(it) } }
+
+    // Mic permission launcher
+    val recordLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) viewModel.startVoiceRecording()
+    }
 
     Scaffold(
         containerColor = VelaColors.Abyss,
@@ -62,7 +102,9 @@ fun SessionDetailScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text  = "Session",  // Placeholder — session title from API in future phase
+                        text  = turns.firstOrNull { it.isUser }?.text?.take(40)
+                            ?.let { if (it.length == 40) "$it…" else it }
+                            ?: "Session",
                         style = MaterialTheme.typography.titleLarge,
                         color = VelaColors.TextPrimary,
                     )
@@ -77,43 +119,90 @@ fun SessionDetailScreen(
                     }
                 },
                 actions = {
-                    // Running dot indicator: 8dp amber circle
-                    if (isRunning) {
-                        RunningDotIndicator()
-                    }
+                    if (isRunning) RunningDotIndicator()
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = VelaColors.Abyss,
-                ),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = VelaColors.Abyss),
             )
         },
     ) { innerPadding ->
-        LazyColumn(
-            modifier       = Modifier.fillMaxSize().padding(innerPadding),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
         ) {
-
-            // ── Session title hero area ──────────────────────────────────────
-            item {
-                SessionTitleArea(
-                    // Placeholder title — replace with real session.title in future phase
-                    title     = turns.firstOrNull { it.isUser }?.text?.take(60) ?: "Session",
-                    isRunning = isRunning,
-                )
-            }
-
-            // ── Turn list ────────────────────────────────────────────────────
-            items(turns) { turn ->
-                if (turn.isUser) {
-                    UserTurnItem(text = turn.text)
-                } else {
-                    AgentTurnItem(content = turn)
+            // ── Turn list ─────────────────────────────────────────────────
+            LazyColumn(
+                state           = listState,
+                modifier        = Modifier.weight(1f).fillMaxWidth(),
+                contentPadding  = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                // Session title hero
+                item {
+                    SessionTitleArea(
+                        title     = turns.firstOrNull { it.isUser }?.text?.take(60) ?: "New Session",
+                        isRunning = isRunning,
+                    )
                 }
+
+                items(turns) { turn ->
+                    if (turn.isUser) UserTurnItem(text = turn.text)
+                    else             AgentTurnItem(content = turn)
+                }
+
+                // Breathing "..." indicator while streaming
+                if (isLoading) {
+                    item {
+                        Text(
+                            text  = "…",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = VelaColors.TextTertiary,
+                            modifier = Modifier.padding(start = 4.dp),
+                        )
+                    }
+                }
+
+                item { Spacer(Modifier.height(8.dp)) }
             }
 
-            // Bottom padding to clear Voice FAB
-            item { Spacer(Modifier.height(80.dp)) }
+            // ── Session input bar ─────────────────────────────────────────
+            SessionInputBar(
+                text               = inputText,
+                onTextChange       = viewModel::updateInputText,
+                onSend             = {
+                    viewModel.sendMessage()
+                },
+                onVoiceStart       = {
+                    val granted = ContextCompat.checkSelfPermission(
+                        ctx, Manifest.permission.RECORD_AUDIO
+                    ) == PackageManager.PERMISSION_GRANTED
+                    if (granted) viewModel.startVoiceRecording()
+                    else recordLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                },
+                onVoiceStop        = viewModel::stopVoiceRecording,
+                isRecording        = isRecording,
+                onAttachImage      = {
+                    imagePicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                },
+                attachments        = attachments,
+                onRemoveAttachment = viewModel::removeAttachment,
+                isLoading          = isLoading,
+            )
+        }
+
+        // ── Approval gate modal sheet ─────────────────────────────────────
+        approvalReq?.let { (approvalId, question) ->
+            ApprovalGateSheet(
+                request   = ApprovalSheetViewModel.ApprovalRequest(
+                    sessionId   = approvalId,
+                    question    = question,
+                    contextText = null,
+                ),
+                onApprove = { viewModel.approveRequest(approvalId) },
+                onDeny    = { viewModel.denyRequest(approvalId) },
+            )
         }
     }
 }
@@ -122,8 +211,6 @@ fun SessionDetailScreen(
 
 /**
  * Session title area displayed below the app bar.
- * Title uses displayMedium (Instrument Serif 36sp) — the key serif moment on this screen.
- * Status pill: 8dp radius, 26dp height, Inter 10sp 700 uppercase.
  */
 @Composable
 private fun SessionTitleArea(
@@ -143,7 +230,6 @@ private fun SessionTitleArea(
             color = VelaColors.TextPrimary,
         )
 
-        // Status pill
         val (pillColor, pillText, pillTextColor) = if (isRunning) {
             Triple(VelaColors.RunningContainer, "RUNNING", VelaColors.RunningOnContainer)
         } else {
@@ -171,7 +257,6 @@ private fun SessionTitleArea(
 
 /**
  * Amber breathing dot shown in the app bar when session is RUNNING.
- * 8dp circle, VelaColors.Running fill.
  */
 @Composable
 private fun RunningDotIndicator(modifier: Modifier = Modifier) {

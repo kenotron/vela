@@ -79,8 +79,8 @@ fun HomeScreen(
                             )
                         }
                     }
-                    // Settings gear — icon only, navigation wired in a later phase
-                    IconButton(onClick = { /* Phase 3: navigate to settings */ }) {
+                    // Settings gear — navigates to API key settings screen
+                    IconButton(onClick = { navController.navigate(Routes.API_KEYS) }) {
                         Icon(
                             imageVector        = Icons.Default.Settings,
                             contentDescription = "Settings",
