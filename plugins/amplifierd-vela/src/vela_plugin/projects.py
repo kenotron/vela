@@ -95,10 +95,17 @@ def make_projects_router(
     def create_project_session(
         project_id: str, body: dict[str, Any] = Body(default={})
     ) -> dict[str, Any]:
-        """Create a new session linked to this project in the vela session store."""
+        """Register a session with this project in the vela session store.
+
+        If the Vela app has already created a real amplifierd session and passes
+        its session_id in the body, we just register it (no UUID generation).
+        Otherwise we create a new UUID for a metadata-only entry.
+        """
         from . import session_store
 
-        session_id = str(uuid.uuid4())
+        # Accept a pre-created session_id from the Vela Android app
+        existing_session_id = body.get("session_id", "")
+        session_id = existing_session_id if existing_session_id else str(uuid.uuid4())
         title = body.get("title", "")
         working_dir = body.get("working_directory", "~")
 
