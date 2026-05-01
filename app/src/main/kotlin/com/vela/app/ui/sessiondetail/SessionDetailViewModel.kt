@@ -236,17 +236,21 @@ class SessionDetailViewModel @Inject constructor(
                         is StreamEvent.Done -> {
                             _statusMessage.value = null
                             _isStreaming.value = false
-                            // Refresh the just-completed turn from transcript to get tool results
+                            // Fetch transcript to fill in tool results — but ONLY update the last
+                            // assistant turn's content blocks. Replacing the whole list resets the
+                            // scroll position (which is why the "400dp padding" appeared to vanish).
                             viewModelScope.launch(Dispatchers.IO) {
                                 try {
                                     val node = registry.cache.find { it.id == nodeId } ?: return@launch
                                     val client = amplifierd.clientForNode(node) ?: return@launch
                                     val transcript = client.getTranscriptWithBlocks(sessionId)
-                                    if (transcript.isNotEmpty()) {
-                                        // Replace the turns list with transcript version (has tool results filled in)
-                                        _turns.value = transcript
+                                    val lastAssistant = transcript.lastOrNull { !it.isUser } ?: return@launch
+                                    _turns.value = _turns.value.mapIndexed { i, t ->
+                                        if (i == _turns.value.lastIndex && !t.isUser)
+                                            t.copy(contentBlocks = lastAssistant.contentBlocks)
+                                        else t
                                     }
-                                } catch (_: Exception) { /* non-fatal — live turns already visible */ }
+                                } catch (_: Exception) { /* non-fatal — live streamed content stays */ }
                             }
                         }
                         is StreamEvent.Error -> {
