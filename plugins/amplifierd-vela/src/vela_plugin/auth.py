@@ -12,15 +12,17 @@ from typing import Awaitable, Callable
 
 from fastapi import HTTPException, Request
 
-from .settings import Settings
+from .settings import VelaPluginSettings
 
 
 _LOCAL_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 
-def make_require_token(settings: Settings) -> Callable[[Request], Awaitable[None]]:
-    """Build the FastAPI dependency bound to a specific ``Settings`` instance."""
-    expected = settings.vela.auth_token
+def make_require_token(
+    settings: VelaPluginSettings,
+) -> Callable[[Request], Awaitable[None]]:
+    """Build the FastAPI dependency bound to a specific ``VelaPluginSettings`` instance."""
+    expected = settings.auth_token
 
     async def require_token(request: Request) -> None:
         if request.url.path == "/health":

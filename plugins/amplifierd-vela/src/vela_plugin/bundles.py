@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from .settings import Settings
+from .settings import VelaPluginSettings
 
 
 logger = logging.getLogger(__name__)
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 _bundle_errors: list[str] = []
 
 
-def activate_bundles(state: Any, settings: Settings) -> None:
+def activate_bundles(state: Any, settings: VelaPluginSettings) -> None:
     """Load every bundle named in settings via ``state.bundle_registry.load``."""
     registry = getattr(state, "bundle_registry", None)
     if registry is None:

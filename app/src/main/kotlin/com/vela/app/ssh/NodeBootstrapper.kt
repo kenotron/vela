@@ -98,17 +98,16 @@ open class NodeBootstrapper @Inject constructor(
     internal fun detectPlatformForTest(unameOutput: String) = detectPlatform(unameOutput)
 
     internal fun generateSettingsJson(bundle: BundleChoice, token: String): String {
-        val bundles = org.json.JSONArray()
-        if (bundle.bundleName.isNotEmpty()) bundles.put(bundle.bundleName)
-        val vela = org.json.JSONObject().put("auth_token", token)
-        return org.json.JSONObject()
-            .put("host", "0.0.0.0")
-            .put("port", 8410)
-            .put("log_level", "info")
-            .put("bundles", bundles)
-            .put("disabled_plugins", org.json.JSONArray())
-            .put("vela", vela)
-            .toString(2)
+        // NOTE: Do NOT put bundles or vela here — DaemonSettings rejects them.
+        // bundles come from ~/.amplifier/settings.yaml (the user's amplifier config).
+        // The vela auth token is passed via VELA_AUTH_TOKEN environment variable instead.
+        return """
+{
+  "host": "0.0.0.0",
+  "port": 8410,
+  "log_level": "info"
+}
+""".trimIndent()
     }
 
     internal fun generateSettingsJsonForTest(bundle: BundleChoice, token: String) =
@@ -116,20 +115,19 @@ open class NodeBootstrapper @Inject constructor(
 
     /** Overload for repair flow: accepts an explicit list of bundle names instead of a [BundleChoice]. */
     private fun generateSettingsJson(bundleNames: List<String>, token: String): String {
-        val bundles = org.json.JSONArray()
-        bundleNames.forEach { bundles.put(it) }
-        val vela = org.json.JSONObject().put("auth_token", token)
-        return org.json.JSONObject()
-            .put("host", "0.0.0.0")
-            .put("port", 8410)
-            .put("log_level", "info")
-            .put("bundles", bundles)
-            .put("disabled_plugins", org.json.JSONArray())
-            .put("vela", vela)
-            .toString(2)
+        // NOTE: Do NOT put bundles or vela here — DaemonSettings rejects them.
+        // bundles come from ~/.amplifier/settings.yaml (the user's amplifier config).
+        // The vela auth token is passed via VELA_AUTH_TOKEN environment variable instead.
+        return """
+{
+  "host": "0.0.0.0",
+  "port": 8410,
+  "log_level": "info"
+}
+""".trimIndent()
     }
 
-    internal fun generateLaunchdPlist(username: String, anthropicKey: String, homeDir: String): String = """
+    internal fun generateLaunchdPlist(username: String, anthropicKey: String, homeDir: String, token: String): String = """
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -146,6 +144,7 @@ open class NodeBootstrapper @Inject constructor(
   <dict>
     <key>PATH</key><string>$homeDir/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
     <key>ANTHROPIC_API_KEY</key><string>$anthropicKey</string>
+    <key>VELA_AUTH_TOKEN</key><string>$token</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -159,9 +158,10 @@ open class NodeBootstrapper @Inject constructor(
         username: String,
         anthropicKey: String,
         homeDir: String = "/Users/$username",
-    ) = generateLaunchdPlist(username, anthropicKey, homeDir)
+        token: String = "",
+    ) = generateLaunchdPlist(username, anthropicKey, homeDir, token)
 
-    internal fun generateSystemdUnit(anthropicKey: String): String = """
+    internal fun generateSystemdUnit(anthropicKey: String, token: String): String = """
 [Unit]
 Description=Vela amplifierd daemon
 After=network-online.target
@@ -171,6 +171,7 @@ Type=simple
 ExecStart=%h/.local/bin/amplifierd serve --host 0.0.0.0 --port 8410
 Environment="PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="ANTHROPIC_API_KEY=$anthropicKey"
+Environment="VELA_AUTH_TOKEN=$token"
 Restart=on-failure
 RestartSec=3
 
@@ -178,7 +179,7 @@ RestartSec=3
 WantedBy=default.target
     """.trimIndent()
 
-    internal fun generateSystemdUnitForTest(anthropicKey: String) = generateSystemdUnit(anthropicKey)
+    internal fun generateSystemdUnitForTest(anthropicKey: String, token: String = "") = generateSystemdUnit(anthropicKey, token)
 
     internal fun buildUvInstallCommand(bundle: BundleChoice): String = buildString {
         append("export PATH=\"\$HOME/.local/bin:\$PATH\" && uv tool install")
@@ -300,7 +301,7 @@ WantedBy=default.target
                 execWrite(
                     shell,
                     "$homeDir/Library/LaunchAgents/com.vela.amplifierd.plist",
-                    generateLaunchdPlist(username, anthropicKey, homeDir),
+                    generateLaunchdPlist(username, anthropicKey, homeDir, token),
                 )
                 // Stop any existing instance
                 shell.exec("launchctl bootout gui/\$(id -u)/com.vela.amplifierd 2>/dev/null || true")
@@ -320,7 +321,7 @@ WantedBy=default.target
                 execWrite(
                     shell,
                     "$homeDir/.config/systemd/user/amplifierd.service",
-                    generateSystemdUnit(anthropicKey),
+                    generateSystemdUnit(anthropicKey, token),
                 )
                 shell.exec("loginctl enable-linger $username 2>/dev/null || true")
                 shell.exec("systemctl --user daemon-reload")
@@ -505,7 +506,7 @@ WantedBy=default.target
                 execWrite(
                     shell,
                     "$homeDir/Library/LaunchAgents/com.vela.amplifierd.plist",
-                    generateLaunchdPlist(username, anthropicKey, homeDir),
+                    generateLaunchdPlist(username, anthropicKey, homeDir, existingToken),
                 )
                 shell.exec("launchctl bootstrap gui/\$UID ~/Library/LaunchAgents/com.vela.amplifierd.plist")
                 shell.exec("launchctl kickstart -k gui/\$UID/com.vela.amplifierd")
@@ -515,7 +516,7 @@ WantedBy=default.target
                 execWrite(
                     shell,
                     "$homeDir/.config/systemd/user/amplifierd.service",
-                    generateSystemdUnit(anthropicKey),
+                    generateSystemdUnit(anthropicKey, existingToken),
                 )
                 shell.exec("systemctl --user daemon-reload")
                 shell.exec("systemctl --user enable --now amplifierd")

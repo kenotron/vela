@@ -104,7 +104,7 @@ class NodeBootstrapperTest {
     // ── generateSettingsJson ──────────────────────────────────────────────────
 
     @Test
-    fun generateSettingsJson_superpowers_includesAllRequiredFields() {
+    fun generateSettingsJson_containsRequiredMinimalFields() {
         val sut = NodeBootstrapper.testInstance()
 
         val json = sut.generateSettingsJsonForTest(BundleChoice.SUPERPOWERS, token = "TOKEN_ABC")
@@ -113,32 +113,52 @@ class NodeBootstrapperTest {
         assertThat(parsed.getString("host")).isEqualTo("0.0.0.0")
         assertThat(parsed.getInt("port")).isEqualTo(8410)
         assertThat(parsed.getString("log_level")).isEqualTo("info")
-        val bundles = parsed.getJSONArray("bundles")
-        assertThat(bundles.length()).isEqualTo(1)
-        assertThat(bundles.getString(0)).isEqualTo("superpowers")
-        assertThat(parsed.getJSONArray("disabled_plugins").length()).isEqualTo(0)
-        assertThat(parsed.getJSONObject("vela").getString("auth_token")).isEqualTo("TOKEN_ABC")
     }
 
     @Test
-    fun generateSettingsJson_toolsOnly_hasEmptyBundles() {
+    fun generateSettingsJson_doesNotContainBundlesOrVelaKeys() {
+        // Fix: DaemonSettings rejects 'bundles' (must be dict not list) and 'vela' (extra field).
+        // Bundles come from ~/.amplifier/settings.yaml; auth token via VELA_AUTH_TOKEN env var.
         val sut = NodeBootstrapper.testInstance()
 
-        val json = sut.generateSettingsJsonForTest(BundleChoice.TOOLS_ONLY, token = "T")
+        val json = sut.generateSettingsJsonForTest(BundleChoice.SUPERPOWERS, token = "TOKEN_ABC")
         val parsed = org.json.JSONObject(json)
 
-        assertThat(parsed.getJSONArray("bundles").length()).isEqualTo(0)
+        assertThat(parsed.has("bundles")).isFalse()
+        assertThat(parsed.has("vela")).isFalse()
+        assertThat(parsed.has("disabled_plugins")).isFalse()
     }
 
     @Test
-    fun generateSettingsJson_lifeos_hasLifeosBundle() {
+    fun generateSettingsJson_minimalFormatAppliesRegardlessOfBundle() {
         val sut = NodeBootstrapper.testInstance()
 
-        val json = sut.generateSettingsJsonForTest(BundleChoice.LIFEOS, token = "T")
-        val parsed = org.json.JSONObject(json)
-        val bundles = parsed.getJSONArray("bundles")
+        for (bundle in BundleChoice.values()) {
+            val json = sut.generateSettingsJsonForTest(bundle, token = "T")
+            val parsed = org.json.JSONObject(json)
+            assertThat(parsed.has("bundles")).isFalse()
+            assertThat(parsed.has("vela")).isFalse()
+        }
+    }
 
-        assertThat(bundles.getString(0)).isEqualTo("lifeos")
+    @Test
+    fun generateLaunchdPlist_containsVelaAuthToken() {
+        // Fix: auth token delivered via VELA_AUTH_TOKEN env var in the plist.
+        val sut = NodeBootstrapper.testInstance()
+
+        val plist = sut.generateLaunchdPlistForTest(username = "alice", anthropicKey = "sk-ant-XYZ", token = "mytoken123")
+
+        assertThat(plist).contains("<key>VELA_AUTH_TOKEN</key><string>mytoken123</string>")
+    }
+
+    @Test
+    fun generateSystemdUnit_containsVelaAuthToken() {
+        // Fix: auth token delivered via VELA_AUTH_TOKEN env var in the systemd unit.
+        val sut = NodeBootstrapper.testInstance()
+
+        val unit = sut.generateSystemdUnitForTest(anthropicKey = "sk-ant-XYZ", token = "mytoken123")
+
+        assertThat(unit).contains("Environment=\"VELA_AUTH_TOKEN=mytoken123\"")
     }
 
     // ── generateLaunchdPlist ──────────────────────────────────────────────────
