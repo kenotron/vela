@@ -104,7 +104,21 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
         }
     }
 
-    /** GET /health → true if 200, false on any error or non-2xx. */
+    /**
+         * POST /sessions  body: {"project_id":"uuid","working_directory":"~/workspace"}
+         * → {"session_id":"uuid"}
+         * Returns the new session ID.
+         */
+        suspend fun createSession(projectId: String, workspaceDir: String = "~"): String {
+            val body = JSONObject().apply {
+                put("project_id", projectId)
+                put("working_directory", workspaceDir)
+            }
+            val response = post("/sessions", body)
+            return JSONObject(response).getString("session_id")
+        }
+
+        /** GET /health → true if 200, false on any error or non-2xx. */
     suspend fun health(): Boolean = try {
         withContext(Dispatchers.IO) {
             val req = Request.Builder()

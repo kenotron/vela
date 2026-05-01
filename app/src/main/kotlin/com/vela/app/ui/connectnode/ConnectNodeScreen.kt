@@ -56,6 +56,7 @@ package com.vela.app.ui.connectnode
     import androidx.compose.ui.text.input.PasswordVisualTransformation
     import androidx.compose.ui.text.input.VisualTransformation
     import androidx.compose.ui.unit.dp
+    import androidx.compose.ui.unit.sp
     import androidx.hilt.navigation.compose.hiltViewModel
     import com.vela.app.ssh.BundleChoice
     import com.vela.app.ui.connectors.NodeBootstrapSheet
@@ -229,6 +230,31 @@ package com.vela.app.ui.connectnode
                     text  = "Paste this into ~/.ssh/authorized_keys on the node, then tap Continue.",
                     style = MaterialTheme.typography.bodySmall,
                     color = VelaColors.TextSecondary,
+                )
+
+                // ── Workspace directory ────────────────────────────────────────────────
+                Spacer(Modifier.height(16.dp))
+                OutlinedTextField(
+                    value         = form.workspaceDir,
+                    onValueChange = { viewModel.updateWorkspaceDir(it) },
+                    label         = { Text("Workspace directory", color = VelaColors.TextSecondary) },
+                    placeholder   = { Text("~/workspace", color = VelaColors.TextTertiary) },
+                    singleLine    = true,
+                    supportingText = {
+                        Text(
+                            "All projects on this node will run sessions here",
+                            color = VelaColors.TextTertiary,
+                            fontSize = 11.sp,
+                        )
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor   = VelaColors.Accent,
+                        unfocusedBorderColor = VelaColors.StrokeEdge,
+                        focusedTextColor     = VelaColors.TextPrimary,
+                        unfocusedTextColor   = VelaColors.TextPrimary,
+                        cursorColor          = VelaColors.Accent,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
                 )
 
                 // ── Bundle selection chips ────────────────────────────────────────

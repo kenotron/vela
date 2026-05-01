@@ -1,5 +1,6 @@
 package com.vela.app.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -20,4 +21,6 @@ data class SshNodeEntity(
     val token:    String = "",
     /** BootstrapStatus enum name; default "UNPROVISIONED" for existing rows. */
     val bootstrapStatus: String = "UNPROVISIONED",
+    /** Workspace directory used as cwd when amplifierd runs sessions. */
+    @ColumnInfo(name = "workspace_dir") val workspaceDir: String = "~",
 )

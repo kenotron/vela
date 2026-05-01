@@ -335,5 +335,6 @@ private fun NewProjectPlaceholder(onTap: () -> Unit) {
 private fun buildNodeTelemetry(node: SshNode?): String {
     if (node == null) return ""
     val status = if (node.bootstrapStatus == BootstrapStatus.RUNNING) "online" else "offline"
-    return "$status · 0 active sessions · connected"
+    val workspace = node.workspaceDir.ifBlank { "~" }
+        return "$status · 0 active sessions · $workspace"
 }

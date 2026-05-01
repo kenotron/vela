@@ -37,6 +37,8 @@ data class SshNode(
     val token:    String = "",
     /** Bootstrap lifecycle state. New SSH nodes default to UNPROVISIONED. */
     val bootstrapStatus: BootstrapStatus = BootstrapStatus.UNPROVISIONED,
+    /** Workspace directory used as cwd when amplifierd runs sessions on this node. */
+    val workspaceDir: String = "~",
 ) {
     val primaryHost: String get() = hosts.firstOrNull() ?: ""
 }

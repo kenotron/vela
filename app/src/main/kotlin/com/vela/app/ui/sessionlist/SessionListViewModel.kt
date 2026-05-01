@@ -90,7 +90,22 @@ class SessionListViewModel @Inject constructor(
         }
     }
 
-    companion object {
-        private const val TAG = "SessionListVM"
+    /** Workspace directory for this node — used as cwd when creating sessions. */
+        val workspaceDir: String
+            get() = registry.cache.find { it.id == nodeId }?.workspaceDir ?: "~"
+
+        fun createSession() {
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val nodeObj = registry.cache.find { it.id == nodeId } ?: return@launch
+                    val client = amplifierd.clientForNode(nodeObj) ?: return@launch
+                    client.createSession(projectId, nodeObj.workspaceDir)
+                    loadSessions() // refresh
+                } catch (e: Exception) { /* surface error later */ }
+            }
+        }
+
+        companion object {
+            private const val TAG = "SessionListVM"
+        }
     }
-}

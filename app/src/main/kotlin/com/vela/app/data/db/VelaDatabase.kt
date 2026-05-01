@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MiniAppRegistryEntity::class,
         MiniAppDocumentEntity::class,
     ],
-    version = 15,
+    version = 16,
     exportSchema = true,
 )
 abstract class VelaDatabase : RoomDatabase() {
@@ -32,6 +32,13 @@ abstract class VelaDatabase : RoomDatabase() {
     abstract fun gitHubIdentityDao(): GitHubIdentityDao
     abstract fun miniAppRegistryDao(): MiniAppRegistryDao
     abstract fun miniAppDocumentDao(): MiniAppDocumentDao
+}
+
+/** v15→v16: add workspace_dir column to ssh_nodes for per-node working directory. */
+val MIGRATION_15_16 = object : Migration(15, 16) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE ssh_nodes ADD COLUMN workspace_dir TEXT NOT NULL DEFAULT '~'")
+    }
 }
 
 /** v14→v15: add bootstrapStatus column to ssh_nodes for amplifierd bootstrap lifecycle. */

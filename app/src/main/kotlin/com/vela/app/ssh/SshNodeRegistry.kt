@@ -57,6 +57,7 @@ open class SshNodeRegistry @Inject constructor(private val dao: SshNodeDao) {
         url      = url,
         token    = token,
         bootstrapStatus = parseBootstrapStatus(bootstrapStatus),
+        workspaceDir    = workspaceDir,
     )
 
     private fun SshNode.toEntity() = SshNodeEntity(
@@ -70,6 +71,7 @@ open class SshNodeRegistry @Inject constructor(private val dao: SshNodeDao) {
         url      = url,
         token    = token,
         bootstrapStatus = bootstrapStatus.name,
+        workspaceDir    = workspaceDir,
     )
 
     /** Tolerant parse — unknown / corrupt strings fall back to UNPROVISIONED. */

@@ -25,6 +25,7 @@ data class ConnectFormState(
     val username:     String       = "",
     val bundle:       BundleChoice = BundleChoice.SUPERPOWERS,
     val anthropicKey: String       = "",
+    val workspaceDir: String       = "~",
 )
 
 @HiltViewModel
@@ -55,6 +56,7 @@ class ConnectNodeViewModel @Inject constructor(
     fun updateUsername(u: String)     { _form.update { it.copy(username = u) } }
     fun updateBundle(b: BundleChoice) { _form.update { it.copy(bundle = b) } }
     fun updateApiKey(k: String)       { _form.update { it.copy(anthropicKey = k) } }
+    fun updateWorkspaceDir(dir: String) { _form.update { it.copy(workspaceDir = dir) } }
 
     fun connect() {
         val f      = _form.value
@@ -101,6 +103,7 @@ class ConnectNodeViewModel @Inject constructor(
                                 url      = event.url,
                                 token    = event.token,
                                 bootstrapStatus = BootstrapStatus.RUNNING,
+                                workspaceDir    = f.workspaceDir.ifBlank { "~" },
                             )
                         )
                         _bootstrapState.update { it.copy(isBootstrapping = false, isComplete = true) }

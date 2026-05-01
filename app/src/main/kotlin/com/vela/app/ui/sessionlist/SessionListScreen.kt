@@ -89,7 +89,7 @@ fun SessionListScreen(
             // ── NEW SESSION button ──────────────────────────────────────────────
             item {
                 Button(
-                    onClick  = { /* TODO: create new session via amplifierd */ },
+                    onClick  = { viewModel.createSession() },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape    = RoundedCornerShape(26.dp),
                     colors   = ButtonDefaults.buttonColors(
