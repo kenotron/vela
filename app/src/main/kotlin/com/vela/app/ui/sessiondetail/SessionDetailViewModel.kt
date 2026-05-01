@@ -33,6 +33,7 @@ import javax.inject.Inject
  *  - Voice recording via AudioRecorder + Whisper transcription (Phase 3)
  *  - Image attachment state (Phase 4)
  *  - Approval request state (Phase 6)
+ *  - Capture session:named events and persist via vela plugin (Phase 8)
  */
 @HiltViewModel
 class SessionDetailViewModel @Inject constructor(
@@ -48,22 +49,27 @@ class SessionDetailViewModel @Inject constructor(
 
     val hasOpenAiKey: Boolean get() = apiKeyStore.openAiKey.isNotBlank()
 
-    // ── Turn list ─────────────────────────────────────────────────────────────
+    // ── Turn list ──────────────────────────────────────────────────────────────
 
     private val _turns = MutableStateFlow<List<TurnContent>>(emptyList())
     val turns: StateFlow<List<TurnContent>> = _turns
 
-    // ── Streaming / loading ───────────────────────────────────────────────────
+    // ── Streaming / loading ────────────────────────────────────────────────────
 
     private val _isStreaming = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isStreaming
 
-    // ── Status message ────────────────────────────────────────────────────────
+    // ── Session name (captured from session:named SSE event) ───────────────────
+
+    private val _sessionName = MutableStateFlow("")
+    val sessionName: StateFlow<String> = _sessionName
+
+    // ── Status message ─────────────────────────────────────────────────────────
 
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage: StateFlow<String?> = _statusMessage
 
-    // ── Input text ────────────────────────────────────────────────────────────
+    // ── Input text ─────────────────────────────────────────────────────────────
 
     private val _inputText = MutableStateFlow("")
     val inputText: StateFlow<String> = _inputText
@@ -71,7 +77,7 @@ class SessionDetailViewModel @Inject constructor(
     fun updateInputText(v: String) { _inputText.value = v }
     fun clearInputText() { _inputText.value = "" }
 
-    // ── Image attachments ─────────────────────────────────────────────────────
+    // ── Image attachments ──────────────────────────────────────────────────────
 
     private val _attachments = MutableStateFlow<List<Uri>>(emptyList())
     val attachments: StateFlow<List<Uri>> = _attachments
@@ -80,7 +86,7 @@ class SessionDetailViewModel @Inject constructor(
     fun removeAttachment(uri: Uri) { _attachments.update { it - uri } }
     fun clearAttachments() { _attachments.value = emptyList() }
 
-    // ── Approval request ──────────────────────────────────────────────────────
+    // ── Approval request ───────────────────────────────────────────────────────
 
     /** Pair of (approvalId, question). Non-null while waiting for user approval. */
     private val _approvalRequest = MutableStateFlow<Pair<String, String>?>(null)
@@ -88,7 +94,7 @@ class SessionDetailViewModel @Inject constructor(
 
     fun dismissApproval() { _approvalRequest.value = null }
 
-    // ── Voice recording ───────────────────────────────────────────────────────
+    // ── Voice recording ────────────────────────────────────────────────────────
 
     private val _isRecording = MutableStateFlow(false)
     val isRecording: StateFlow<Boolean> = _isRecording
@@ -122,7 +128,7 @@ class SessionDetailViewModel @Inject constructor(
         }
     }
 
-    // ── Init: load transcript ─────────────────────────────────────────────────
+    // ── Init: load transcript ──────────────────────────────────────────────────
 
     init {
         if (sessionId.isNotBlank() && nodeId.isNotBlank()) {
@@ -145,7 +151,7 @@ class SessionDetailViewModel @Inject constructor(
         }
     }
 
-    // ── Send message + SSE streaming ──────────────────────────────────────────
+    // ── Send message + SSE streaming ───────────────────────────────────────────
 
     fun sendMessage(message: String = _inputText.value, uris: List<Uri> = _attachments.value) {
         Log.d(TAG, "sendMessage: called with message='${message.take(40)}' isStreaming=${_isStreaming.value} blank=${message.isBlank()}")
@@ -216,6 +222,17 @@ class SessionDetailViewModel @Inject constructor(
                             _approvalRequest.value = Pair(event.id, event.question)
                             ApprovalNotificationHelper.notify(ctx, sessionId, event.question)
                         }
+                        is StreamEvent.Named -> {
+                            _sessionName.value = event.name
+                            // Persist the name via vela plugin (non-fatal if endpoint missing)
+                            viewModelScope.launch(Dispatchers.IO) {
+                                val n = registry.cache.find { it.id == nodeId } ?: return@launch
+                                val client = amplifierd.clientForNode(n) ?: return@launch
+                                try {
+                                    client.updateSessionName(sessionId, event.name)
+                                } catch (_: Exception) {}
+                            }
+                        }
                         is StreamEvent.Done -> {
                             _statusMessage.value = null
                             _isStreaming.value = false
@@ -243,7 +260,7 @@ class SessionDetailViewModel @Inject constructor(
         return registry.cache.find { it.id == nodeId }
     }
 
-    // ── Approval gate ─────────────────────────────────────────────────────────
+    // ── Approval gate ──────────────────────────────────────────────────────────
 
     fun approveRequest(approvalId: String) {
         viewModelScope.launch(Dispatchers.IO) {

@@ -108,7 +108,7 @@ class SessionListViewModel @Inject constructor(
                         stepCount    = 0,
                         lastActiveMs = s.lastActivity,
                     )
-                }
+                }.sortedByDescending { it.lastActiveMs }
             } catch (e: Exception) {
                 Log.w(TAG, "loadSessions failed: ${e.message}")
             }

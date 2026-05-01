@@ -73,6 +73,7 @@ fun SessionDetailScreen(
     val isRecording   by viewModel.isRecording.collectAsStateWithLifecycle()
     val approvalReq   by viewModel.approvalRequest.collectAsStateWithLifecycle()
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
+    val sessionName   by viewModel.sessionName.collectAsStateWithLifecycle()
 
     val isRunning = isLoading || turns.any { !it.isUser && it.toolCalls.any { tc -> tc.isRunning } }
 
@@ -104,9 +105,12 @@ fun SessionDetailScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text  = turns.firstOrNull { it.isUser }?.text?.take(40)
-                            ?.let { if (it.length == 40) "$it…" else it }
-                            ?: "Session",
+                        text  = when {
+                            sessionName.isNotBlank() -> sessionName
+                            else -> turns.firstOrNull { it.isUser }?.text?.take(40)
+                                ?.let { if (it.length == 40) "$it…" else it }
+                                ?: "Session"
+                        },
                         style = MaterialTheme.typography.titleLarge,
                         color = VelaColors.TextPrimary,
                     )

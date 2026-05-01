@@ -20,6 +20,8 @@ sealed class StreamEvent {
     data class ToolUse(val id: String, val name: String, val inputJson: String) : StreamEvent()
     data class ProviderRetry(val attempt: Int, val maxRetries: Int, val errorMessage: String, val delaySecs: Double) : StreamEvent()
     data class ApprovalRequest(val id: String, val question: String, val context: String = "") : StreamEvent()
+    /** Session was given a name by hooks-session-naming after sufficient turns. */
+    data class Named(val name: String) : StreamEvent()
     object Thinking : StreamEvent()
     object Done : StreamEvent()
     data class Error(val message: String) : StreamEvent()
@@ -169,6 +171,11 @@ class AmplifierdStreamClient(private val baseUrl: String, private val token: Str
                                 question = dataObj.optString("question", ""),
                                 context  = dataObj.optString("context", ""),
                             )
+
+                            "session:named", "hooks:session-naming:complete" -> {
+                                val name = dataObj.optString("name", dataObj.optString("session_name", ""))
+                                if (name.isNotBlank()) StreamEvent.Named(name) else null
+                            }
 
                             else -> null
                         }

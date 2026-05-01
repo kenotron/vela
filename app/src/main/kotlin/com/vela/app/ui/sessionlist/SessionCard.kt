@@ -34,13 +34,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vela.app.ui.sessiondetail.SessionStatus
 import com.vela.app.ui.sessiondetail.SessionSummary
-import com.vela.app.ui.theme.MonoMedium
 import com.vela.app.ui.theme.VelaColors
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 
-// ── Pure color-mapping logic ──────────────────────────────────────────────────
+// ── Pure color-mapping logic ───────────────────────────────────────────────────
 // All functions are `internal` so the test source set can access them.
 
 /**
@@ -48,11 +45,7 @@ import java.util.Locale
  *
  * Each value is a hardcoded approximation of:
  *   color-mix(StatusContainer × weight%, SurfaceSub)
- * per DESIGN.md §7.2. Computed in sRGB; exact hex values are:
- *   RUNNING  ≈ color-mix(RunningContainer 42%, SurfaceSub)
- *   WAITING  ≈ color-mix(WaitingContainer 48%, SurfaceSub)
- *   DONE     = SurfaceSub (no tint)
- *   ERROR    ≈ color-mix(ErrorContainer 52%, SurfaceSub)
+ * per DESIGN.md §7.2.
  */
 internal fun cardBackgroundFor(status: SessionStatus): Color = when (status) {
     SessionStatus.RUNNING -> Color(0xFF1C1A0E)
@@ -77,7 +70,7 @@ internal fun chipOnContainerFor(status: SessionStatus): Color = when (status) {
     SessionStatus.ERROR   -> VelaColors.ErrorOnContainer
 }
 
-// ── Composable ────────────────────────────────────────────────────────────────
+// ── Composable ─────────────────────────────────────────────────────────────────
 
 /**
  * Session card for Screen 3 — Project Detail (Sessions List).
@@ -127,6 +120,13 @@ fun SessionCard(
         null
     }
 
+    // Use real session name if available; fall back to contextual date for hex IDs
+    val displayTitle = if (session.title.isNotBlank() && !session.title.matches(Regex("[0-9a-f]{8}"))) {
+        session.title
+    } else {
+        formatSessionDate(session.lastActiveMs)
+    }
+
     Surface(
         onClick  = onClick,
         modifier = modifier
@@ -156,7 +156,7 @@ fun SessionCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text     = session.title,
+                    text     = displayTitle,
                     style    = MaterialTheme.typography.titleLarge,
                     color    = VelaColors.TextPrimary,
                     maxLines = 2,
@@ -173,25 +173,14 @@ fun SessionCard(
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(4.dp))
 
-            // ── Meta row: model name + step count ─────────────────────────────
-            Row(
-                modifier          = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    text  = session.modelName,
-                    style = MonoMedium.copy(fontSize = 11.sp),
-                    color = VelaColors.TextTertiary,
-                )
-                Text(
-                    text  = "${session.stepCount} steps",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = VelaColors.TextTertiary,
-                )
-            }
+            // ── Date subtitle ──────────────────────────────────────────────────
+            Text(
+                text  = formatSessionDate(session.lastActiveMs),
+                style = MaterialTheme.typography.bodySmall,
+                color = VelaColors.TextTertiary,
+            )
 
             Spacer(Modifier.height(10.dp))
 
@@ -218,13 +207,6 @@ fun SessionCard(
                         )
                     }
                 }
-
-                // Timestamp (bottom-right)
-                Text(
-                    text  = formatTimestamp(session.lastActiveMs),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = VelaColors.TextTertiary,
-                )
             }
 
             // ── Waiting: "▶ Decide" affordance ────────────────────────────────
@@ -240,5 +222,28 @@ fun SessionCard(
     }
 }
 
-private fun formatTimestamp(ms: Long): String =
-    SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(ms))
+/**
+ * Format epoch millis as a human-readable relative date string.
+ * e.g. "Just now", "5m ago", "Today at 3:22 PM", "Yesterday at 10:00 AM", "Apr 28"
+ */
+internal fun formatSessionDate(epochMs: Long): String {
+    if (epochMs == 0L) return "Unknown"
+    val now = System.currentTimeMillis()
+    val diff = now - epochMs
+    return when {
+        diff < 60_000L      -> "Just now"
+        diff < 3_600_000L   -> "${diff / 60_000}m ago"
+        diff < 86_400_000L  -> {
+            val sdf = java.text.SimpleDateFormat("h:mm a", Locale.getDefault())
+            "Today at ${sdf.format(java.util.Date(epochMs))}"
+        }
+        diff < 172_800_000L -> {
+            val sdf = java.text.SimpleDateFormat("h:mm a", Locale.getDefault())
+            "Yesterday at ${sdf.format(java.util.Date(epochMs))}"
+        }
+        else -> {
+            val sdf = java.text.SimpleDateFormat("MMM d", Locale.getDefault())
+            sdf.format(java.util.Date(epochMs))
+        }
+    }
+}

@@ -111,8 +111,8 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
                     projectId    = obj.getString("project_id"),
                     status       = obj.optString("status", "completed"),
                     title        = obj.optString("title", "").ifBlank { obj.getString("session_id").take(8) },
-                    createdAt    = obj.optLong("created_at", 0L),
-                    lastActivity = obj.optLong("last_activity", 0L),
+                    createdAt    = parseIso(obj.optString("created_at")),
+                    lastActivity = parseIso(obj.optString("last_activity")),
                     bundleName   = "",
                 )
             }
@@ -200,6 +200,15 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
     }
 
     /**
+     * POST /sessions/:id/name  body: {"name":"..."}
+     * Updates the session name via the vela plugin. Fails silently if endpoint not available.
+     */
+    suspend fun updateSessionName(sessionId: String, name: String) {
+        val body = JSONObject().apply { put("name", name) }
+        post("/sessions/$sessionId/name", body)
+    }
+
+    /**
          * GET /sessions — returns native amplifierd sessions filtered by recency.
          *
          * Includes:
@@ -226,16 +235,15 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
                 if (sessionId.startsWith("0000000000")) continue
                 val rawStatus    = obj.optString("status", "completed")
                 val isActive     = rawStatus == "executing"
-                val lastMs       = parseIso(obj.optString("last_activity"))
-                    ?: parseIso(obj.optString("created_at"))
-                    ?: 0L
+                val activityMs   = parseIso(obj.optString("last_activity"))
+                val lastMs       = if (activityMs != 0L) activityMs else parseIso(obj.optString("created_at"))
                 // Exclude old completed/failed sessions outside the recency window
                 if (!isActive && lastMs in 1 until sinceMs) continue
                 result.add(AmplifierdSession(
                     sessionId    = obj.getString("session_id"),
                     projectId    = "",
                     bundleName   = obj.optString("bundle", ""),
-                    createdAt    = parseIso(obj.optString("created_at")) ?: 0L,
+                    createdAt    = parseIso(obj.optString("created_at")),
                     lastActivity = lastMs,
                     status       = when (rawStatus) {
                         "executing" -> "running"
@@ -250,12 +258,13 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
             return result
         }
 
-        /** Parse an ISO-8601 datetime string (e.g. "2026-05-01T07:09:22.481012+00:00") to epoch millis. */
-        private fun parseIso(s: String): Long? {
-            if (s.isBlank()) return null
+        /** Parse an ISO-8601 datetime string (e.g. "2026-05-01T07:09:22.481012+00:00") to epoch millis.
+         *  Returns 0L for blank/null input or any parse failure. */
+        private fun parseIso(s: String?): Long {
+            if (s.isNullOrBlank()) return 0L
             return try {
                 java.time.OffsetDateTime.parse(s).toInstant().toEpochMilli()
-            } catch (_: Exception) { null }
+            } catch (e: Exception) { 0L }
         }
 
         /** GET /health → true if 200, false on any error or non-2xx. */
