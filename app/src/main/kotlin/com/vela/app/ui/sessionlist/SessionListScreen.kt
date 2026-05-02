@@ -52,8 +52,7 @@ fun SessionListScreen(
     navController: NavController,
     viewModel: SessionListViewModel = hiltViewModel(),
 ) {
-    val activeSessions    by viewModel.activeSessions.collectAsStateWithLifecycle()
-    val recentSessions    by viewModel.recentSessions.collectAsStateWithLifecycle()
+    val allSessions       by viewModel.allSessions.collectAsStateWithLifecycle()
     val createdSessionId  by viewModel.createdSessionId.collectAsStateWithLifecycle()
 
     // Navigate into the new session when createSession() completes
@@ -115,49 +114,18 @@ fun SessionListScreen(
                 }
             }
 
-            // ── ACTIVE section ─────────────────────────────────────────────────
-            item {
-                Spacer(Modifier.height(8.dp))
-                SectionEyebrow("ACTIVE")
-            }
-
-            if (activeSessions.isEmpty()) {
+            // ── All sessions, sorted by last activity ────────────────────────────────
+            if (allSessions.isEmpty()) {
                 item {
                     Text(
-                        text  = "No active sessions",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = VelaColors.TextTertiary,
-                        modifier = Modifier.padding(vertical = 8.dp),
+                        text     = "No sessions yet. Tap NEW SESSION to start one.",
+                        style    = MaterialTheme.typography.bodyMedium,
+                        color    = VelaColors.TextTertiary,
+                        modifier = Modifier.padding(vertical = 24.dp),
                     )
                 }
             } else {
-                items(activeSessions, key = { it.id }) { session ->
-                    SessionCard(
-                        session = session,
-                        onClick = {
-                            navController.navigate(Routes.sessionDetail(viewModel.nodeId, session.id))
-                        },
-                    )
-                }
-            }
-
-            // ── RECENT section ─────────────────────────────────────────────────
-            item {
-                Spacer(Modifier.height(8.dp))
-                SectionEyebrow("RECENT")
-            }
-
-            if (recentSessions.isEmpty()) {
-                item {
-                    Text(
-                        text  = "No recent sessions",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = VelaColors.TextTertiary,
-                        modifier = Modifier.padding(vertical = 8.dp),
-                    )
-                }
-            } else {
-                items(recentSessions, key = { it.id }) { session ->
+                items(allSessions, key = { it.id }) { session ->
                     SessionCard(
                         session = session,
                         onClick = {

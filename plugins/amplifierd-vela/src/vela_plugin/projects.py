@@ -129,8 +129,9 @@ def make_projects_router(
         }
 
 
-        @router.put("/{project_id}", response_model=ProjectRecord)
-        def update_project(project_id: str, body: dict = Body(default={})) -> ProjectRecord:
+
+    @router.put("/{project_id}", response_model=ProjectRecord)
+    def update_project(project_id: str, body: dict = Body(default={})) -> ProjectRecord:
             """Update a project's name and/or working directory."""
             projects = _read_projects(projects_path)
             project = next((p for p in projects if p["id"] == project_id), None)
@@ -147,7 +148,8 @@ def make_projects_router(
             _write_projects(projects_path, projects)
             return ProjectRecord(**project)
 
-        @router.delete("/{project_id}")
+
+    @router.delete("/{project_id}")
     def delete_project(project_id: str) -> dict[str, str]:
         projects = _read_projects(projects_path)
         remaining = [p for p in projects if p["id"] != project_id]

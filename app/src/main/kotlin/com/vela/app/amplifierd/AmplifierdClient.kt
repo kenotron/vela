@@ -395,9 +395,11 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
                 put("working_dir", workingDir)
             }
             val response = JSONObject(put("/projects/$projectId", body))
+            val name = response.optString("name").ifBlank { null }
+                ?: throw IllegalStateException("Update failed: ${response.optString("detail", "unknown error")}")
             return AmplifierdProject(
                 id          = response.optString("id", projectId),
-                name        = response.optString("name"),
+                name        = name,
                 description = response.optString("description", ""),
                 createdAt   = parseIso(response.optString("created_at")),
                 workingDir  = response.optString("working_dir", workingDir),

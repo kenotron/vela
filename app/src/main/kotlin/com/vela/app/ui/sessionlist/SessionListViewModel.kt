@@ -56,12 +56,14 @@ class SessionListViewModel @Inject constructor(
 
     private val _sessions = MutableStateFlow<List<SessionSummary>>(emptyList())
 
-    /** Sessions currently RUNNING or WAITING. */
+    /** All sessions for this project, sorted by last activity. */
+    val allSessions: StateFlow<List<SessionSummary>> = _sessions
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // Keep for any remaining references — both point at the same data
     val activeSessions: StateFlow<List<SessionSummary>> = _sessions
         .map { list -> list.filter { it.status == SessionStatus.RUNNING || it.status == SessionStatus.WAITING } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    /** Sessions with status DONE or ERROR. */
     val recentSessions: StateFlow<List<SessionSummary>> = _sessions
         .map { list -> list.filter { it.status == SessionStatus.DONE || it.status == SessionStatus.ERROR } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
