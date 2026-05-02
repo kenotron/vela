@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,6 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -208,6 +210,38 @@ fun SessionDetailScreen(
                         color    = VelaColors.Running,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                     )
+                }
+            }
+
+            // ── Steer strip: visible while streaming + input non-blank ─────────
+            // Lets the user redirect the running AI by injecting a mid-loop message.
+            if (isLoading && inputText.isNotBlank()) {
+                Surface(
+                    color    = VelaColors.SurfaceRaised,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier              = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment     = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text  = "Redirect AI mid-run",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = VelaColors.Running,
+                        )
+                        TextButton(
+                            onClick = {
+                                keyboardController?.hide()
+                                viewModel.steer(inputText)
+                                viewModel.clearInputText()
+                            }
+                        ) {
+                            Text("→ Steer", color = VelaColors.Running)
+                        }
+                    }
                 }
             }
 

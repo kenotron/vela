@@ -173,11 +173,11 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
         projectId: String,
         workspaceDir: String = "~",
         title: String = "",
-        bundle: String = "superpowers",
+        bundle: String = "vela",
     ): String {
         // Create real amplifierd session — include working_dir so the bash tool starts there
         val sessionBody = JSONObject().apply {
-            put("bundle", bundle)
+            put("bundle_name", bundle)
             if (workspaceDir.isNotBlank()) put("working_dir", workspaceDir)
         }
         val sessionResp = JSONObject(post("/sessions", sessionBody))
@@ -194,6 +194,21 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
         } catch (_: Exception) { /* non-fatal — vela plugin may not have updated yet */ }
 
         return sessionId
+    }
+
+    /**
+     * POST /sessions/:id/steer
+     * Enqueues a steering message into a running loop-vela session.
+     * Returns true if the message was queued, false on any error.
+     */
+    suspend fun steer(sessionId: String, message: String): Boolean {
+        return try {
+            val body = JSONObject().apply { put("message", message) }
+            val resp = JSONObject(post("/sessions/$sessionId/steer", body))
+            resp.optString("status") == "queued"
+        } catch (_: Exception) {
+            false
+        }
     }
 
     /**

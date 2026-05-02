@@ -195,6 +195,19 @@ class SessionDetailViewModel @Inject constructor(
                                 }
                             }
                         }
+                        // Per-token delta from loop-vela — append token to streaming slot
+                        is StreamEvent.TextDelta -> {
+                            _turns.update { turns ->
+                                turns.mapIndexed { i, t ->
+                                    if (i == assistantTurnIndex) {
+                                        val currentText = t.text
+                                        val newText = currentText + event.token
+                                        t.copy(text = newText, contentBlocks = listOf(ContentBlock.Text(newText)))
+                                    } else t
+                                }
+                            }
+                        }
+                        // Complete block text — set as authoritative final text (replaces accumulated deltas)
                         is StreamEvent.TextBlock -> {
                             _turns.update { turns ->
                                 turns.mapIndexed { i, t ->
@@ -301,6 +314,31 @@ class SessionDetailViewModel @Inject constructor(
                 Log.w(TAG, "Deny failed: ${e.message}")
             }
             _approvalRequest.value = null
+        }
+    }
+
+    // ── Steer (mid-loop inject) ─────────────────────────────────────────────
+
+    /**
+     * Inject a steering message into the currently-running loop-vela session.
+     * The message is queued at the orchestrator level and injected as a user
+     * turn at the next tool-call boundary. Visible as a status message if
+     * the session is streaming; silently dropped if not (the session must be
+     * using loop-vela for this to take effect).
+     */
+    fun steer(message: String) {
+        if (message.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val node = registry.cache.find { it.id == nodeId } ?: return@launch
+            val client = amplifierd.clientForNode(node) ?: return@launch
+            try {
+                val queued = client.steer(sessionId, message)
+                if (queued) {
+                    _statusMessage.value = "Steering: \"${message.take(40)}${if (message.length > 40) "…" else ""}\""
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Steer failed: ${e.message}")
+            }
         }
     }
 

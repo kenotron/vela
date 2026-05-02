@@ -23,6 +23,8 @@ def create_router(state: Any) -> APIRouter:
 
     require_token = make_require_token(settings)
 
+    from .steer import make_steer_router
+
     router = APIRouter()
     router.include_router(
         make_projects_router(state),
@@ -30,6 +32,10 @@ def create_router(state: Any) -> APIRouter:
     )
     router.include_router(
         make_capabilities_router(state),
+        dependencies=[Depends(require_token)],
+    )
+    router.include_router(
+        make_steer_router(state),
         dependencies=[Depends(require_token)],
     )
     return router

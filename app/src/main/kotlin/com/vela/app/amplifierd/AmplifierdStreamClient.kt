@@ -16,6 +16,9 @@ private const val TAG = "AmplifierdStream"
 
 /** Typed events emitted by the amplifierd SSE stream. */
 sealed class StreamEvent {
+    /** A single streamed token from content_block:delta (loop-vela real-time streaming). */
+    data class TextDelta(val token: String, val blockIndex: Int = 0) : StreamEvent()
+    /** The complete text for a block, from content_block:end. Used as authoritative final text. */
     data class TextBlock(val text: String, val blockIndex: Int = 0) : StreamEvent()
     data class ToolUse(val id: String, val name: String, val inputJson: String) : StreamEvent()
     data class ProviderRetry(val attempt: Int, val maxRetries: Int, val errorMessage: String, val delaySecs: Double) : StreamEvent()
@@ -130,6 +133,13 @@ class AmplifierdStreamClient(private val baseUrl: String, private val token: Str
                         val dataObj = obj.optJSONObject("data") ?: JSONObject()
                         val event: StreamEvent? = when (currentEventName) {
                             "execution:start" -> StreamEvent.Thinking
+
+                            // loop-vela per-token streaming
+                            "content_block:delta" -> {
+                                val token = dataObj.optString("token", "")
+                                val blockIndex = dataObj.optInt("block_index", 0)
+                                if (token.isNotEmpty()) StreamEvent.TextDelta(token, blockIndex) else null
+                            }
 
                             "provider:retry" -> StreamEvent.ProviderRetry(
                                 attempt      = dataObj.optInt("attempt", 1),
