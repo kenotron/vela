@@ -2,6 +2,7 @@ package com.vela.app.ui.nodedetail
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -34,6 +35,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -50,6 +52,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -98,6 +102,9 @@ fun NodeDetailScreen(
 
     // "Delete node" confirm dialog state
     var showDeleteDialog by remember { mutableStateOf(false) }
+
+    // "Delete project" bottom sheet state — triggered by long-press on a project card
+    var projectToDelete by remember { mutableStateOf<com.vela.app.amplifierd.AmplifierdProject?>(null) }
 
     // Auto-dismiss repair sheet after brief "done" beat
     LaunchedEffect(repairState.isComplete) {
@@ -376,7 +383,12 @@ fun NodeDetailScreen(
 
             // ── Project list ────────────────────────────────────────────────────
             items(projects, key = { it.id }) { project ->
-                Box(modifier = Modifier.fillMaxWidth()) {
+                Box(modifier = Modifier
+                    .fillMaxWidth()
+                    .pointerInput(Unit) {
+                        detectTapGestures(onLongPress = { projectToDelete = project })
+                    }
+                ) {
                     ProjectCard(
                         projectName = project.name,
                         bundleTag   = project.workingDir.ifBlank { "project" }.let {
@@ -413,6 +425,62 @@ fun NodeDetailScreen(
                 NewProjectPlaceholder(
                     onTap = { showNewProjectDialog = true }
                 )
+            }
+        }
+    }
+
+    // ── Project deletion bottom sheet (long-press triggered) ─────────────────
+    projectToDelete?.let { project ->
+        ModalBottomSheet(
+            onDismissRequest = { projectToDelete = null },
+        ) {
+            Column(
+                modifier            = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 24.dp, end = 24.dp, bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text  = project.name,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = VelaColors.TextPrimary,
+                )
+                Text(
+                    text  = "This will remove the project and its session history from this device.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = VelaColors.TextSecondary,
+                )
+                Surface(
+                    onClick = {
+                        coroutineScope.launch { viewModel.deleteProject(project.id) }
+                        projectToDelete = null
+                    },
+                    color    = Color(0xFF2A1215),
+                    shape    = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text     = "\uD83D\uDDD1 Delete project",
+                        color    = Color(0xFFF38BA8),
+                        style    = MaterialTheme.typography.bodyMedium.copy(
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                        ),
+                        modifier = Modifier.padding(16.dp),
+                    )
+                }
+                Surface(
+                    onClick  = { projectToDelete = null },
+                    color    = VelaColors.SurfaceRaised,
+                    shape    = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text     = "Cancel",
+                        color    = VelaColors.TextPrimary,
+                        style    = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(16.dp),
+                    )
+                }
             }
         }
     }
