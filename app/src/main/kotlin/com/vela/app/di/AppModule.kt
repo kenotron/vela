@@ -32,6 +32,9 @@ import com.vela.app.vault.VaultRegistry
 import com.vela.app.vault.VaultSettings
 import com.vela.app.voice.AndroidSpeechTranscriber
 import com.vela.app.voice.SpeechTranscriber
+import com.vela.app.streaming.SessionStreamingManager
+import com.vela.app.streaming.SessionStreamingManagerImpl
+import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -283,4 +286,18 @@ object AppModule {
         }
         return cache
     }
+}
+
+/**
+ * Hilt module that binds SessionStreamingManager → SessionStreamingManagerImpl.
+ * Separate abstract class required because AppModule is an object (non-abstract).
+ * Both are installed in SingletonComponent so the binding is app-scoped.
+ */
+@Module
+@InstallIn(SingletonComponent::class)
+abstract class StreamingModule {
+
+    @Binds
+    @Singleton
+    abstract fun bindSessionStreamingManager(impl: SessionStreamingManagerImpl): SessionStreamingManager
 }
