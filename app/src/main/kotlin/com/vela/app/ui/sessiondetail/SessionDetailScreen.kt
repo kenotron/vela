@@ -114,8 +114,7 @@ fun SessionDetailScreen(
     }
 
     Scaffold(
-        containerColor      = VelaColors.Abyss,
-        contentWindowInsets = WindowInsets(0), // root Scaffold already handles system bars; avoid double nav bar padding
+        containerColor = VelaColors.Abyss,
         topBar = {
             TopAppBar(
                 title = {
@@ -143,7 +142,6 @@ fun SessionDetailScreen(
                     if (isRunning) RunningDotIndicator()
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = VelaColors.Abyss),
-                windowInsets = WindowInsets(0), // root Scaffold already consumed status bar inset
             )
         },
     ) { innerPadding ->

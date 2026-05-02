@@ -70,8 +70,9 @@ fun VelaApp(modifier: Modifier = Modifier) {
     val approvalReq by approvalVm.request.collectAsState()
 
     Scaffold(
-        modifier       = modifier,
-        containerColor = VelaColors.Abyss,
+        modifier             = modifier,
+        containerColor       = VelaColors.Abyss,
+        contentWindowInsets  = androidx.compose.foundation.layout.WindowInsets(0),
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
 
