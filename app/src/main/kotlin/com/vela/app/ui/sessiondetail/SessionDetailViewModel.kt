@@ -8,10 +8,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vela.app.amplifierd.AmplifierdRepository
 import com.vela.app.notifications.ApprovalNotificationHelper
-import com.vela.app.amplifierd.StreamEvent
 import com.vela.app.settings.ApiKeyStore
-import com.vela.app.ssh.SshNode
 import com.vela.app.ssh.SshNodeRegistry
+import com.vela.app.streaming.SessionStreamingManager
 import com.vela.app.voice.AudioRecorder
 import com.vela.app.voice.WhisperClient
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -23,18 +22,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/**
- * ViewModel for Screen 4: Session Detail — Turn History + Input.
- *
- * Responsibilities:
- *  - Load existing session transcript on init (Phase 7)
- *  - Send messages via SSE streaming (Phase 5)
- *  - Accumulate streaming tokens and tool calls into [turns]
- *  - Voice recording via AudioRecorder + Whisper transcription (Phase 3)
- *  - Image attachment state (Phase 4)
- *  - Approval request state (Phase 6)
- *  - Capture session:named events and persist via vela plugin (Phase 8)
- */
 @HiltViewModel
 class SessionDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
@@ -42,6 +29,7 @@ class SessionDetailViewModel @Inject constructor(
     private val registry: SshNodeRegistry,
     private val amplifierd: AmplifierdRepository,
     private val apiKeyStore: ApiKeyStore,
+    private val streamingManager: SessionStreamingManager,
 ) : ViewModel() {
 
     val sessionId: String = checkNotNull(savedStateHandle["sessionId"])
@@ -49,27 +37,31 @@ class SessionDetailViewModel @Inject constructor(
 
     val hasOpenAiKey: Boolean get() = apiKeyStore.openAiKey.isNotBlank()
 
-    // ── Turn list ──────────────────────────────────────────────────────────────
+    // ── Turn list ──────────────────────────────────────────────────────────
 
     private val _turns = MutableStateFlow<List<TurnContent>>(emptyList())
     val turns: StateFlow<List<TurnContent>> = _turns
 
-    // ── Streaming / loading ────────────────────────────────────────────────────
+    // ── Session status ─────────────────────────────────────────────────────
 
-    private val _isStreaming = MutableStateFlow(false)
-    val isLoading: StateFlow<Boolean> = _isStreaming
+    private val _sessionStatus = MutableStateFlow(SessionStatus.IDLE)
+    val sessionStatus: StateFlow<SessionStatus> = _sessionStatus
 
-    // ── Session name (captured from session:named SSE event) ───────────────────
+    /** isLoading = EXECUTING or RESUMING. Drives TypingIndicator and SessionInputBar. */
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading
+
+    // ── Session name ───────────────────────────────────────────────────────
 
     private val _sessionName = MutableStateFlow("")
     val sessionName: StateFlow<String> = _sessionName
 
-    // ── Status message ─────────────────────────────────────────────────────────
+    // ── Status message ─────────────────────────────────────────────────────
 
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage: StateFlow<String?> = _statusMessage
 
-    // ── Input text ─────────────────────────────────────────────────────────────
+    // ── Input text ─────────────────────────────────────────────────────────
 
     private val _inputText = MutableStateFlow("")
     val inputText: StateFlow<String> = _inputText
@@ -77,7 +69,7 @@ class SessionDetailViewModel @Inject constructor(
     fun updateInputText(v: String) { _inputText.value = v }
     fun clearInputText() { _inputText.value = "" }
 
-    // ── Image attachments ──────────────────────────────────────────────────────
+    // ── Image attachments ──────────────────────────────────────────────────
 
     private val _attachments = MutableStateFlow<List<Uri>>(emptyList())
     val attachments: StateFlow<List<Uri>> = _attachments
@@ -86,7 +78,7 @@ class SessionDetailViewModel @Inject constructor(
     fun removeAttachment(uri: Uri) { _attachments.update { it - uri } }
     fun clearAttachments() { _attachments.value = emptyList() }
 
-    // ── Approval request ───────────────────────────────────────────────────────
+    // ── Approval request ───────────────────────────────────────────────────
 
     /** Pair of (approvalId, question). Non-null while waiting for user approval. */
     private val _approvalRequest = MutableStateFlow<Pair<String, String>?>(null)
@@ -94,7 +86,7 @@ class SessionDetailViewModel @Inject constructor(
 
     fun dismissApproval() { _approvalRequest.value = null }
 
-    // ── Voice recording ────────────────────────────────────────────────────────
+    // ── Voice recording ────────────────────────────────────────────────────
 
     private val _isRecording = MutableStateFlow(false)
     val isRecording: StateFlow<Boolean> = _isRecording
@@ -112,7 +104,6 @@ class SessionDetailViewModel @Inject constructor(
         if (file == null || !file.exists()) return
         val openAiKey = apiKeyStore.openAiKey
         if (openAiKey.isBlank()) {
-            // No key — append a placeholder hint
             _inputText.update { it + "[Set OPENAI_API_KEY in Settings to transcribe]" }
             return
         }
@@ -128,217 +119,69 @@ class SessionDetailViewModel @Inject constructor(
         }
     }
 
-    // ── Init: load transcript ──────────────────────────────────────────────────
+    // ── Init: start streaming + subscribe to session state ─────────────────
 
     init {
         if (sessionId.isNotBlank() && nodeId.isNotBlank()) {
             viewModelScope.launch(Dispatchers.IO) {
-                loadTranscript()
+                streamingManager.startStreaming(sessionId, nodeId, projectName = null)
             }
-        }
-    }
+            viewModelScope.launch {
+                streamingManager.getSessionFlow(sessionId).collect { state ->
+                    state ?: return@collect
 
-    private suspend fun loadTranscript() {
-        try {
-            val node   = registry.cache.find { it.id == nodeId } ?: return
-            val client = amplifierd.clientForNode(node) ?: return
-            val turns  = client.getTranscriptWithBlocks(sessionId)
-            if (turns.isNotEmpty()) {
-                _turns.value = turns
-            }
-        } catch (e: Exception) {
-            Log.d(TAG, "Transcript not yet available: ${e.message}")
-        }
-    }
+                    _turns.value = state.turns
+                    _sessionStatus.value = state.status
+                    _isLoading.value = state.status == SessionStatus.EXECUTING ||
+                            state.status == SessionStatus.RESUMING
 
-    // ── Send message + SSE streaming ───────────────────────────────────────────
+                    val pending = state.pendingApproval
+                    val prevApproval = _approvalRequest.value
+                    if (pending != null &&
+                        (prevApproval == null || prevApproval.first != pending.id)
+                    ) {
+                        _approvalRequest.value = Pair(pending.id, pending.question)
+                        ApprovalNotificationHelper.notify(ctx, sessionId, pending.question)
+                    } else if (pending == null && state.status == SessionStatus.IDLE) {
+                        _approvalRequest.value = null
+                    }
 
-    fun sendMessage(message: String = _inputText.value, uris: List<Uri> = _attachments.value) {
-        Log.d(TAG, "sendMessage: called with message='${message.take(40)}' isStreaming=${_isStreaming.value} blank=${message.isBlank()}")
-        if (_isStreaming.value || message.isBlank()) {
-            Log.d(TAG, "sendMessage: early return — streaming=${_isStreaming.value} blank=${message.isBlank()}")
-            return
-        }
-        clearInputText()
-        clearAttachments()
-
-        viewModelScope.launch(Dispatchers.IO) {
-            _isStreaming.value = true
-            _statusMessage.value = null
-
-            // Add user turn
-            val userTurn = TurnContent(text = message, isUser = true)
-            _turns.update { it + userTurn }
-            val assistantTurnIndex = _turns.value.size
-            Log.d(TAG, "sendMessage: user turn added, assistantTurnIndex=$assistantTurnIndex, nodeId=$nodeId, sessionId=$sessionId")
-
-            val node = awaitNode()
-            Log.d(TAG, "sendMessage: awaitNode returned ${if (node != null) "node url=${node.url}" else "NULL — registry cache empty!"}")
-            if (node == null) { _isStreaming.value = false; return@launch }
-
-            val streamClient = amplifierd.streamClientForNode(node)
-            Log.d(TAG, "sendMessage: streamClient=${if (streamClient != null) "ok baseUrl=${node.url}" else "NULL — node type=${node.type}"}")
-            if (streamClient == null) { _isStreaming.value = false; return@launch }
-
-            // Initialize empty assistant turn slot
-            _turns.update { it + TurnContent(text = "", isUser = false) }
-
-            // Tracks whether we've started building the current text block token-by-token.
-            // Reset to false on each new TextBlock so the first TextDelta replaces the
-            // full text (rather than appending to it) and starts fresh word-by-word.
-            var deltaStreamingStarted = false
-
-            try {
-                streamClient.stream(sessionId, message).collect { event ->
-                    when (event) {
-                        is StreamEvent.Thinking -> {
-                            _turns.update { turns ->
-                                turns.mapIndexed { i, t ->
-                                    if (i == assistantTurnIndex) t.copy(
-                                        contentBlocks = listOf(ContentBlock.Thinking("…"))
-                                    ) else t
-                                }
-                            }
-                        }
-
-                        // Per-token delta from loop-vela.
-                        //
-                        // Key invariants:
-                        //  - TextBlock always arrives BEFORE TextDelta events (loop-vela emits
-                        //    content_block:end before _tokenize_stream tokens).
-                        //  - TextDelta must NOT replace all contentBlocks — tool-use blocks and
-                        //    previous-iteration text blocks must survive.
-                        //  - The first delta for a new block REPLACES (not appends to) the last
-                        //    Text block, which contains the full text from TextBlock.  Subsequent
-                        //    deltas append, reconstructing the text word-by-word.
-                        is StreamEvent.TextDelta -> {
-                            val isFirst = !deltaStreamingStarted
-                            deltaStreamingStarted = true
-                            _turns.update { turns ->
-                                turns.mapIndexed { i, t ->
-                                    if (i == assistantTurnIndex) {
-                                        val lastTextIdx =
-                                            t.contentBlocks.indexOfLast { it is ContentBlock.Text }
-                                        val newBlocks = when {
-                                            // First delta: replace the full text in the last Text block
-                                            isFirst && lastTextIdx >= 0 ->
-                                                t.contentBlocks.mapIndexed { idx, blk ->
-                                                    if (idx == lastTextIdx) ContentBlock.Text(event.token)
-                                                    else blk
-                                                }
-                                            // First delta but no text block yet: add one
-                                            isFirst ->
-                                                t.contentBlocks.filterNot { it is ContentBlock.Thinking } +
-                                                    ContentBlock.Text(event.token)
-                                            // Subsequent delta: append token to last Text block
-                                            lastTextIdx >= 0 -> {
-                                                val prev = (t.contentBlocks[lastTextIdx] as ContentBlock.Text).markdown
-                                                t.contentBlocks.mapIndexed { idx, blk ->
-                                                    if (idx == lastTextIdx) ContentBlock.Text(prev + event.token)
-                                                    else blk
-                                                }
-                                            }
-                                            // No text block: add one
-                                            else -> t.contentBlocks + ContentBlock.Text(event.token)
-                                        }
-                                        val streamText = (newBlocks.lastOrNull { it is ContentBlock.Text }
-                                            as? ContentBlock.Text)?.markdown ?: ""
-                                        t.copy(text = streamText, contentBlocks = newBlocks)
-                                    } else t
-                                }
-                            }
-                        }
-
-                        // Complete block from content_block:end — arrives before TextDelta events.
-                        // Sets the full text immediately; the subsequent TextDelta events will then
-                        // rebuild it word-by-word.  Reset deltaStreamingStarted so the next block
-                        // starts fresh.
-                        is StreamEvent.TextBlock -> {
-                            deltaStreamingStarted = false
-                            _turns.update { turns ->
-                                turns.mapIndexed { i, t ->
-                                    if (i == assistantTurnIndex) {
-                                        val newBlocks = t.contentBlocks.filterNot { it is ContentBlock.Thinking } +
-                                            ContentBlock.Text(event.text)
-                                        t.copy(contentBlocks = newBlocks, text = event.text)
-                                    } else t
-                                }
-                            }
-                        }
-                        is StreamEvent.ToolUse -> {
-                            // Reset delta flag so the next text block starts fresh
-                            // (not appending into the previous text block)
-                            deltaStreamingStarted = false
-                            val block = ContentBlock.ToolUse(event.id, event.name, event.inputJson)
-                            _turns.update { turns ->
-                                turns.mapIndexed { i, t ->
-                                    if (i == assistantTurnIndex) t.copy(contentBlocks = t.contentBlocks + block)
-                                    else t
-                                }
-                            }
-                        }
-                        is StreamEvent.ProviderRetry -> {
-                            _statusMessage.value = "Retrying (${event.attempt}/${event.maxRetries}): ${event.errorMessage}"
-                        }
-                        is StreamEvent.ApprovalRequest -> {
-                            _approvalRequest.value = Pair(event.id, event.question)
-                            ApprovalNotificationHelper.notify(ctx, sessionId, event.question)
-                        }
-                        is StreamEvent.Named -> {
-                            _sessionName.value = event.name
-                            // Persist the name via vela plugin (non-fatal if endpoint missing)
-                            viewModelScope.launch(Dispatchers.IO) {
-                                val n = registry.cache.find { it.id == nodeId } ?: return@launch
-                                val client = amplifierd.clientForNode(n) ?: return@launch
-                                try {
-                                    client.updateSessionName(sessionId, event.name)
-                                } catch (_: Exception) {}
-                            }
-                        }
-                        is StreamEvent.Done -> {
-                            _statusMessage.value = null
-                            _isStreaming.value = false
-                            // Fetch transcript to fill in tool results — but ONLY update the last
-                            // assistant turn's content blocks. Replacing the whole list resets the
-                            // scroll position (which is why the "400dp padding" appeared to vanish).
-                            viewModelScope.launch(Dispatchers.IO) {
-                                try {
-                                    val node = registry.cache.find { it.id == nodeId } ?: return@launch
-                                    val client = amplifierd.clientForNode(node) ?: return@launch
-                                    val transcript = client.getTranscriptWithBlocks(sessionId)
-                                    val lastAssistant = transcript.lastOrNull { !it.isUser } ?: return@launch
-                                    _turns.value = _turns.value.mapIndexed { i, t ->
-                                        if (i == _turns.value.lastIndex && !t.isUser)
-                                            t.copy(contentBlocks = lastAssistant.contentBlocks)
-                                        else t
-                                    }
-                                } catch (_: Exception) { /* non-fatal — live streamed content stays */ }
-                            }
-                        }
-                        is StreamEvent.Error -> {
-                            _statusMessage.value = event.message
-                            _isStreaming.value = false
+                    val prevName = _sessionName.value
+                    if (state.sessionName != null && state.sessionName != prevName) {
+                        _sessionName.value = state.sessionName
+                        viewModelScope.launch(Dispatchers.IO) {
+                            val node = registry.cache.find { it.id == nodeId } ?: return@launch
+                            val client = amplifierd.clientForNode(node) ?: return@launch
+                            try {
+                                client.updateSessionName(sessionId, state.sessionName)
+                            } catch (_: Exception) {}
                         }
                     }
                 }
-            } catch (e: Exception) {
-                _statusMessage.value = "Stream error: ${e.message}"
-                _isStreaming.value = false
             }
         }
     }
 
-    private suspend fun awaitNode(): SshNode? {
-        // Wait up to 5 seconds for the registry cache to have this node
-        repeat(10) {
-            val node = registry.cache.find { it.id == nodeId }
-            if (node != null) return node
-            kotlinx.coroutines.delay(500)
+    // ── Send message ───────────────────────────────────────────────────────
+
+    fun sendMessage(message: String = _inputText.value, uris: List<Uri> = _attachments.value) {
+        if (_sessionStatus.value != SessionStatus.IDLE || message.isBlank()) return
+        clearInputText()
+        clearAttachments()
+        viewModelScope.launch(Dispatchers.IO) {
+            streamingManager.sendMessage(sessionId, message)
         }
-        return registry.cache.find { it.id == nodeId }
     }
 
-    // ── Approval gate ──────────────────────────────────────────────────────────
+    // ── Retry ──────────────────────────────────────────────────────────────
+
+    fun retry() {
+        viewModelScope.launch(Dispatchers.IO) {
+            streamingManager.retryLastMessage(sessionId)
+        }
+    }
+
+    // ── Approval gate ──────────────────────────────────────────────────────
 
     fun approveRequest(approvalId: String) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -366,15 +209,8 @@ class SessionDetailViewModel @Inject constructor(
         }
     }
 
-    // ── Steer (mid-loop inject) ─────────────────────────────────────────────
+    // ── Steer ──────────────────────────────────────────────────────────────
 
-    /**
-     * Inject a steering message into the currently-running loop-vela session.
-     * The message is queued at the orchestrator level and injected as a user
-     * turn at the next tool-call boundary. Visible as a status message if
-     * the session is streaming; silently dropped if not (the session must be
-     * using loop-vela for this to take effect).
-     */
     fun steer(message: String) {
         if (message.isBlank()) return
         viewModelScope.launch(Dispatchers.IO) {
