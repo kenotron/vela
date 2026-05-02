@@ -266,6 +266,9 @@ class SessionDetailViewModel @Inject constructor(
                             }
                         }
                         is StreamEvent.ToolUse -> {
+                            // Reset delta flag so the next text block starts fresh
+                            // (not appending into the previous text block)
+                            deltaStreamingStarted = false
                             val block = ContentBlock.ToolUse(event.id, event.name, event.inputJson)
                             _turns.update { turns ->
                                 turns.mapIndexed { i, t ->

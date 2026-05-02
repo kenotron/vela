@@ -30,7 +30,7 @@ import javax.inject.Inject
  *  3. Return to standby (no foreground notification) when all sessions are IDLE/ERROR.
  *  4. Post turn-complete, approval, and error notifications on state transitions.
  *
- * Started from [com.vela.app.VelaApplication.onCreate] via startService().
+ * Started from [com.vela.app.MainActivity.onCreate] via startForegroundService().
  * Uses START_STICKY so Android restarts it if killed.
  */
 @AndroidEntryPoint
@@ -62,6 +62,9 @@ class SessionStreamingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Must call startForeground() promptly when started via startForegroundService().
+        // handleStateSnapshot() will update or remove this notification as session state changes.
+        startForeground(NOTIF_FOREGROUND_ID, buildForegroundNotification("Vela"))
         return START_STICKY
     }
 

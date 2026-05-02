@@ -1,12 +1,14 @@
 package com.vela.app
 
 import android.Manifest
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import com.vela.app.streaming.SessionStreamingService
 import com.vela.app.ui.navigation.VelaApp
 import com.vela.app.ui.theme.VelaTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -23,6 +25,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         requestNotificationPermissionIfNeeded()
+        // Start the streaming service from the Activity so Android allows startForegroundService()
+        // (Android 12+ blocks FGS launch from Application.onCreate() background state).
+        startForegroundService(Intent(this, SessionStreamingService::class.java))
         setContent {
             VelaTheme {
                 VelaApp()

@@ -79,7 +79,9 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
     steer_queue: asyncio.Queue = asyncio.Queue()
     _steer_queues[session_id] = steer_queue
 
-    orchestrator = VelaOrchestrator(config, steer_queue=steer_queue, session_id=session_id)
+    orchestrator = VelaOrchestrator(
+        config, steer_queue=steer_queue, session_id=session_id
+    )
     await coordinator.mount("orchestrator", orchestrator)
     logger.info("loop-vela mounted (session_id=%s)", session_id)
 
@@ -461,7 +463,9 @@ class VelaOrchestrator:
                     if hasattr(response, "text") and response.text:
                         response_text = response.text
                     else:
-                        response_text = self._extract_text_from_content(response.content)
+                        response_text = self._extract_text_from_content(
+                            response.content
+                        )
 
                     # Emit per-token delta events so clients can display real-time text.
                     # content_block:start / end are already emitted above (from content_blocks).
@@ -578,6 +582,7 @@ class VelaOrchestrator:
                 await context.add_message(assistant_msg)
 
                 import uuid
+
                 parallel_group_id = str(uuid.uuid4())
                 tool_tasks = [
                     self._execute_tool_only(
@@ -789,9 +794,15 @@ DO NOT mention this iteration limit or reminder to the user explicitly. Simply w
         block_index: int = 0,
     ) -> AsyncIterator[str]:
         """Stream tokens from provider.  Emits content_block:start, :delta per token,
-        and :end after the block completes."""
+        and :end after the block completes.  tool_use blocks are accumulated from the
+        stream and stored on self so _has_pending_tools / _process_tools can act on
+        them after the generator finishes."""
         full_response = ""
         tools_list = list(tools.values()) if tools else []
+        # State for tool_use accumulation — read by _has_pending_tools / _process_tools
+        self._pending_streaming_tool_calls: list[dict] = []
+        self._streaming_full_response = ""
+        _current_tool: dict | None = None
 
         # Emit block start
         await hooks.emit(
@@ -831,12 +842,35 @@ DO NOT mention this iteration limit or reminder to the user explicitly. Simply w
                 return
 
             chunk_block_type = chunk.get("block_type")
+
+            if chunk_block_type == "tool_use":
+                # Accumulate tool_use block data from the stream.
+                # The first chunk for a new tool carries id + name; subsequent
+                # chunks carry only partial JSON content.
+                tool_id = chunk.get("tool_id") or chunk.get("id", "")
+                tool_name = chunk.get("tool_name") or chunk.get("name", "")
+                partial = chunk.get("content", "")
+
+                if _current_tool is None or (
+                    tool_id and _current_tool.get("id") != tool_id
+                ):
+                    _current_tool = {"id": tool_id, "name": tool_name, "input_json": ""}
+                    self._pending_streaming_tool_calls.append(_current_tool)
+                else:
+                    # Back-fill name if it arrived on a later chunk
+                    if tool_name and not _current_tool.get("name"):
+                        _current_tool["name"] = tool_name
+                _current_tool["input_json"] += partial
+                continue
+
+            # Non-text, non-tool_use block (e.g. thinking) — skip, reset tracker
             if chunk_block_type and chunk_block_type != "text":
+                _current_tool = None
                 continue
 
             token = chunk.get("content", "")
             if token:
-                # ── Emit per-token delta ─────────────────────────────────────
+                # Emit per-token delta
                 await hooks.emit(
                     CONTENT_BLOCK_DELTA,
                     {"token": token, "block_index": block_index},
@@ -844,7 +878,7 @@ DO NOT mention this iteration limit or reminder to the user explicitly. Simply w
                 yield token
                 full_response += token
 
-        # Emit block end with complete text
+        # Emit text block end
         await hooks.emit(
             CONTENT_BLOCK_END,
             {
@@ -853,8 +887,44 @@ DO NOT mention this iteration limit or reminder to the user explicitly. Simply w
             },
         )
 
-        if full_response:
-            await context.add_message({"role": "assistant", "content": full_response})
+        # Emit tool_use block events (start + end) after the text block
+        tool_block_idx = block_index + 1
+        for tb in self._pending_streaming_tool_calls:
+            try:
+                input_data = json.loads(tb["input_json"]) if tb["input_json"] else {}
+            except json.JSONDecodeError:
+                input_data = {}
+            tb["input_parsed"] = input_data  # cache for _process_tools
+
+            await hooks.emit(
+                CONTENT_BLOCK_START,
+                {"block_type": "tool_use", "block_index": tool_block_idx},
+            )
+            await hooks.emit(
+                CONTENT_BLOCK_END,
+                {
+                    "block_index": tool_block_idx,
+                    "block": {
+                        "type": "tool_use",
+                        "id": tb["id"],
+                        "name": tb["name"],
+                        "input": input_data,
+                    },
+                },
+            )
+            tool_block_idx += 1
+
+        # Stash for _has_pending_tools / _process_tools
+        self._streaming_full_response = full_response
+
+        # Save assistant message to context only when there are no pending tool calls.
+        # When tools ARE pending, _process_tools saves the complete message
+        # (text + tool_calls list) atomically so the context is consistent.
+        if not self._pending_streaming_tool_calls:
+            if full_response:
+                await context.add_message(
+                    {"role": "assistant", "content": full_response}
+                )
 
     def _extract_text_from_content(self, content) -> str:
         if isinstance(content, str):
@@ -864,7 +934,9 @@ DO NOT mention this iteration limit or reminder to the user explicitly. Simply w
         text_parts = []
         for block in content:
             block_type = getattr(block, "type", None)
-            type_value = getattr(block_type, "value", block_type) if block_type else None
+            type_value = (
+                getattr(block_type, "value", block_type) if block_type else None
+            )
             if type_value == "text" and hasattr(block, "text"):
                 text_parts.append(block.text)
         return "\n\n".join(text_parts)
@@ -1136,7 +1208,10 @@ DO NOT mention this iteration limit or reminder to the user explicitly. Simply w
 
         except Exception as e:
             logger.error(
-                "Unexpected error executing tool %s: %s", tool_call.name, e, exc_info=True
+                "Unexpected error executing tool %s: %s",
+                tool_call.name,
+                e,
+                exc_info=True,
             )
             if not response_added:
                 try:
@@ -1157,10 +1232,68 @@ DO NOT mention this iteration limit or reminder to the user explicitly. Simply w
             return {"success": False, "error": str(e)}
 
     async def _has_pending_tools(self, context) -> bool:
-        return False
+        """True when _stream_from_provider accumulated tool_use blocks."""
+        return bool(getattr(self, "_pending_streaming_tool_calls", None))
 
     async def _process_tools(self, context, tools, hooks) -> None:
-        pass
+        """Execute any tool_use blocks that were accumulated during streaming.
+
+        Saves the complete assistant message (text + tool_calls) to context,
+        runs all tool calls in parallel, then saves each tool result.
+        """
+        import types
+        import uuid
+
+        tool_calls_data = getattr(self, "_pending_streaming_tool_calls", [])
+        full_response = getattr(self, "_streaming_full_response", "")
+
+        if not tool_calls_data:
+            return
+
+        # Build lightweight tool-call objects compatible with _execute_tool_only
+        tool_call_objs = [
+            types.SimpleNamespace(
+                id=tb["id"],
+                name=tb["name"],
+                arguments=tb.get("input_parsed", {}),
+            )
+            for tb in tool_calls_data
+        ]
+
+        # Save the complete assistant message (text + tool_calls list) atomically
+        await context.add_message(
+            {
+                "role": "assistant",
+                "content": full_response or "",
+                "tool_calls": [
+                    {"id": tc.id, "tool": tc.name, "arguments": tc.arguments}
+                    for tc in tool_call_objs
+                ],
+            }
+        )
+
+        # Execute all tool calls in parallel
+        parallel_group_id = str(uuid.uuid4())
+        tool_tasks = [
+            self._execute_tool_only(tc, tools, hooks, parallel_group_id, None)
+            for tc in tool_call_objs
+        ]
+        tool_results = await asyncio.gather(*tool_tasks)
+
+        # Save tool results to context
+        for tool_call_id, tool_name, result_content in tool_results:
+            await context.add_message(
+                {
+                    "role": "tool",
+                    "name": tool_name,
+                    "tool_call_id": tool_call_id,
+                    "content": result_content,
+                }
+            )
+
+        # Clear state so the next iteration starts clean
+        self._pending_streaming_tool_calls = []
+        self._streaming_full_response = ""
 
     def _select_provider(self, providers: dict[str, Any]) -> Any:
         if not providers:
