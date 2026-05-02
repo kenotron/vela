@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,10 +28,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -47,6 +52,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -80,6 +86,7 @@ fun SessionDetailScreen(
 ) {
     val turns         by viewModel.turns.collectAsStateWithLifecycle()
     val isLoading     by viewModel.isLoading.collectAsStateWithLifecycle()
+    val sessionStatus by viewModel.sessionStatus.collectAsStateWithLifecycle()
     val inputText     by viewModel.inputText.collectAsStateWithLifecycle()
     val attachments   by viewModel.attachments.collectAsStateWithLifecycle()
     val isRecording   by viewModel.isRecording.collectAsStateWithLifecycle()
@@ -87,7 +94,7 @@ fun SessionDetailScreen(
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
     val sessionName   by viewModel.sessionName.collectAsStateWithLifecycle()
 
-    val isRunning = isLoading || turns.any { !it.isUser && it.toolCalls.any { tc -> tc.isRunning } }
+    val isRunning = isLoading
 
     val ctx = LocalContext.current
     val listState = rememberLazyListState()
@@ -199,6 +206,45 @@ fun SessionDetailScreen(
 
             // ── Session input bar ─────────────────────────────────────────
             // ── Retry / status strip ─────────────────────────────────────────
+            // ── RESUMING strip ───────────────────────────────────────────────
+            if (sessionStatus == SessionStatus.RESUMING) {
+                Surface(
+                    color    = VelaColors.SurfaceRaised,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier              = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment     = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        CircularProgressIndicator(
+                            modifier    = Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                            color       = VelaColors.Running,
+                        )
+                        Text(
+                            text  = "Resuming session…",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = VelaColors.TextSecondary,
+                        )
+                    }
+                }
+            }
+
+            // ── Error retry button ────────────────────────────────────────────
+            if (sessionStatus == SessionStatus.ERROR) {
+                OutlinedButton(
+                    onClick  = { viewModel.retry() },
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .padding(vertical = 8.dp),
+                    shape    = RoundedCornerShape(20.dp),
+                    border   = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                ) {
+                    Text("↺ Try again")
+                }
+            }
+
             statusMessage?.let { msg ->
                 Surface(
                     color    = VelaColors.SurfaceRaised,
@@ -240,6 +286,43 @@ fun SessionDetailScreen(
                             }
                         ) {
                             Text("→ Steer", color = VelaColors.Running)
+                        }
+                    }
+                }
+            }
+
+            // ── Inline approval card ──────────────────────────────────────────
+            approvalReq?.let { (approvalId, question) ->
+                Surface(
+                    color    = Color(0xFF2A2000),
+                    modifier = Modifier.fillMaxWidth(),
+                    border   = BorderStroke(1.dp, Color(0xFFFAB387)),
+                    shape    = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp),
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text  = "⚡ Needs your input",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFFFAB387),
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text  = question,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = VelaColors.TextPrimary,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = { viewModel.approveRequest(approvalId) },
+                                colors  = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFFFAB387),
+                                    contentColor   = Color(0xFF1C1B1F),
+                                ),
+                            ) { Text("Approve") }
+                            OutlinedButton(onClick = { viewModel.denyRequest(approvalId) }) {
+                                Text("Deny")
+                            }
                         }
                     }
                 }
