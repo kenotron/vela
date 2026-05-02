@@ -186,16 +186,22 @@ fun SessionCard(
                 Spacer(Modifier.height(2.dp))
             }
 
-            // ── Executing: last user message = what AI is currently working on ─
-            if (isRunning && session.lastUserMessage.isNotBlank()
-                && session.lastUserMessage != session.preview) {
-                Text(
-                    text     = "↳ ${session.lastUserMessage}",
-                    style    = MaterialTheme.typography.bodySmall,
-                    color    = VelaColors.Running,
-                    maxLines = 1,
-                )
-                Spacer(Modifier.height(2.dp))
+            // ── Running: show current todo activeForm (from streaming) or last user message ──
+            if (isRunning) {
+                val liveSubtitle = when {
+                    session.activeForm.isNotBlank() -> session.activeForm
+                    session.lastUserMessage.isNotBlank() && session.lastUserMessage != session.preview -> session.lastUserMessage
+                    else -> null
+                }
+                if (liveSubtitle != null) {
+                    Text(
+                        text     = "▶ $liveSubtitle",
+                        style    = MaterialTheme.typography.bodySmall,
+                        color    = VelaColors.Running,
+                        maxLines = 1,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                }
             }
 
             // ── Date subtitle ─────────────────────────────────────────────────
