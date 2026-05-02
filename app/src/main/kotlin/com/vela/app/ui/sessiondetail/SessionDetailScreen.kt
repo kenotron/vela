@@ -110,6 +110,18 @@ fun SessionDetailScreen(
         }
     }
 
+    // Reactive send-scroll: captures turns.size when user taps Send, then fires
+    // animateScrollToItem once the new user turn actually appears in the list.
+    // Replaces the old delay(80) approach which raced against the async StateFlow update.
+    var turnsSizeAtSend by remember { mutableStateOf(-1) }
+    LaunchedEffect(turns.size) {
+        if (turnsSizeAtSend >= 0 && turns.size > turnsSizeAtSend) {
+            // New turn landed — scroll to it. +1 for the title hero item offset.
+            listState.animateScrollToItem(turnsSizeAtSend + 1)
+            turnsSizeAtSend = -1
+        }
+    }
+
     // Photo picker
     val imagePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
@@ -332,15 +344,11 @@ fun SessionDetailScreen(
                 text               = inputText,
                 onTextChange       = viewModel::updateInputText,
                 onSend             = {
-                    // Capture where the user turn will land (+1 for title hero item)
-                    val userTurnIndex = turns.size + 1
+                    // Capture size before send — LaunchedEffect(turns.size) fires the
+                    // scroll once the new user turn actually appears in the StateFlow.
+                    turnsSizeAtSend = turns.size
                     keyboardController?.hide()
                     viewModel.sendMessage()
-                    // Scroll so the new user message sits at the top of the viewport
-                    coroutineScope.launch {
-                        delay(80)
-                        listState.animateScrollToItem(userTurnIndex)
-                    }
                 },
                 onVoiceStart       = {
                     val granted = ContextCompat.checkSelfPermission(
