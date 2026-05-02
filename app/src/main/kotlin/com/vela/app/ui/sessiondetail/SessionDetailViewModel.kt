@@ -183,6 +183,11 @@ class SessionDetailViewModel @Inject constructor(
             // Initialize empty assistant turn slot
             _turns.update { it + TurnContent(text = "", isUser = false) }
 
+            // Tracks whether we've started building the current text block token-by-token.
+            // Reset to false on each new TextBlock so the first TextDelta replaces the
+            // full text (rather than appending to it) and starts fresh word-by-word.
+            var deltaStreamingStarted = false
+
             try {
                 streamClient.stream(sessionId, message).collect { event ->
                     when (event) {
@@ -195,20 +200,61 @@ class SessionDetailViewModel @Inject constructor(
                                 }
                             }
                         }
-                        // Per-token delta from loop-vela — append token to streaming slot
+
+                        // Per-token delta from loop-vela.
+                        //
+                        // Key invariants:
+                        //  - TextBlock always arrives BEFORE TextDelta events (loop-vela emits
+                        //    content_block:end before _tokenize_stream tokens).
+                        //  - TextDelta must NOT replace all contentBlocks — tool-use blocks and
+                        //    previous-iteration text blocks must survive.
+                        //  - The first delta for a new block REPLACES (not appends to) the last
+                        //    Text block, which contains the full text from TextBlock.  Subsequent
+                        //    deltas append, reconstructing the text word-by-word.
                         is StreamEvent.TextDelta -> {
+                            val isFirst = !deltaStreamingStarted
+                            deltaStreamingStarted = true
                             _turns.update { turns ->
                                 turns.mapIndexed { i, t ->
                                     if (i == assistantTurnIndex) {
-                                        val currentText = t.text
-                                        val newText = currentText + event.token
-                                        t.copy(text = newText, contentBlocks = listOf(ContentBlock.Text(newText)))
+                                        val lastTextIdx =
+                                            t.contentBlocks.indexOfLast { it is ContentBlock.Text }
+                                        val newBlocks = when {
+                                            // First delta: replace the full text in the last Text block
+                                            isFirst && lastTextIdx >= 0 ->
+                                                t.contentBlocks.mapIndexed { idx, blk ->
+                                                    if (idx == lastTextIdx) ContentBlock.Text(event.token)
+                                                    else blk
+                                                }
+                                            // First delta but no text block yet: add one
+                                            isFirst ->
+                                                t.contentBlocks.filterNot { it is ContentBlock.Thinking } +
+                                                    ContentBlock.Text(event.token)
+                                            // Subsequent delta: append token to last Text block
+                                            lastTextIdx >= 0 -> {
+                                                val prev = (t.contentBlocks[lastTextIdx] as ContentBlock.Text).markdown
+                                                t.contentBlocks.mapIndexed { idx, blk ->
+                                                    if (idx == lastTextIdx) ContentBlock.Text(prev + event.token)
+                                                    else blk
+                                                }
+                                            }
+                                            // No text block: add one
+                                            else -> t.contentBlocks + ContentBlock.Text(event.token)
+                                        }
+                                        val streamText = (newBlocks.lastOrNull { it is ContentBlock.Text }
+                                            as? ContentBlock.Text)?.markdown ?: ""
+                                        t.copy(text = streamText, contentBlocks = newBlocks)
                                     } else t
                                 }
                             }
                         }
-                        // Complete block text — set as authoritative final text (replaces accumulated deltas)
+
+                        // Complete block from content_block:end — arrives before TextDelta events.
+                        // Sets the full text immediately; the subsequent TextDelta events will then
+                        // rebuild it word-by-word.  Reset deltaStreamingStarted so the next block
+                        // starts fresh.
                         is StreamEvent.TextBlock -> {
+                            deltaStreamingStarted = false
                             _turns.update { turns ->
                                 turns.mapIndexed { i, t ->
                                     if (i == assistantTurnIndex) {
