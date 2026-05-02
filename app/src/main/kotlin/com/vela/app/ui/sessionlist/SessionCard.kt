@@ -37,7 +37,7 @@ import com.vela.app.ui.sessiondetail.SessionSummary
 import com.vela.app.ui.theme.VelaColors
 import java.util.Locale
 
-// ── Pure color-mapping logic ───────────────────────────────────────────────────
+// ── Pure color-mapping logic ──────────────────────────────────────────────────
 // All functions are `internal` so the test source set can access them.
 
 /**
@@ -48,29 +48,29 @@ import java.util.Locale
  * per DESIGN.md §7.2.
  */
 internal fun cardBackgroundFor(status: SessionStatus): Color = when (status) {
-    SessionStatus.RUNNING -> Color(0xFF1C1A0E)
-    SessionStatus.WAITING -> Color(0xFF1A1234)
-    SessionStatus.DONE    -> VelaColors.SurfaceSub
-    SessionStatus.ERROR   -> Color(0xFF1C1117)
+    SessionStatus.EXECUTING -> Color(0xFF1C1A0E)
+    SessionStatus.RESUMING  -> Color(0xFF1A1234)
+    SessionStatus.IDLE      -> VelaColors.SurfaceSub
+    SessionStatus.ERROR     -> Color(0xFF1C1117)
 }
 
 /** Status chip background — status container color per DESIGN.md §7.2. */
 internal fun chipContainerFor(status: SessionStatus): Color = when (status) {
-    SessionStatus.RUNNING -> VelaColors.RunningContainer
-    SessionStatus.WAITING -> VelaColors.WaitingContainer
-    SessionStatus.DONE    -> VelaColors.DoneContainer
-    SessionStatus.ERROR   -> VelaColors.ErrorContainer
+    SessionStatus.EXECUTING -> VelaColors.RunningContainer
+    SessionStatus.RESUMING  -> VelaColors.WaitingContainer
+    SessionStatus.IDLE      -> VelaColors.DoneContainer
+    SessionStatus.ERROR     -> VelaColors.ErrorContainer
 }
 
 /** Status chip text — on-container color per DESIGN.md §7.2. */
 internal fun chipOnContainerFor(status: SessionStatus): Color = when (status) {
-    SessionStatus.RUNNING -> VelaColors.RunningOnContainer
-    SessionStatus.WAITING -> VelaColors.WaitingOnContainer
-    SessionStatus.DONE    -> VelaColors.DoneOnContainer
-    SessionStatus.ERROR   -> VelaColors.ErrorOnContainer
+    SessionStatus.EXECUTING -> VelaColors.RunningOnContainer
+    SessionStatus.RESUMING  -> VelaColors.WaitingOnContainer
+    SessionStatus.IDLE      -> VelaColors.DoneOnContainer
+    SessionStatus.ERROR     -> VelaColors.ErrorOnContainer
 }
 
-// ── Composable ─────────────────────────────────────────────────────────────────
+// ── Composable ────────────────────────────────────────────────────────────────
 
 /**
  * Session card for Screen 3 — Project Detail (Sessions List).
@@ -78,9 +78,9 @@ internal fun chipOnContainerFor(status: SessionStatus): Color = when (status) {
  * Design: DESIGN.md §7.2
  * - M3 tonal fill background (NO left border stripe)
  * - 8dp radius status chip (NOT pill)
- * - RUNNING: amber glow via drawBehind + 14dp thin spinner
- * - WAITING: 1dp violet outline around card + "▶ Decide" affordance
- * - DONE/ERROR: no animation
+ * - EXECUTING: amber glow via drawBehind + 14dp thin spinner
+ * - RESUMING: 1dp violet outline around card + '↻ Resuming…' affordance
+ * - IDLE/ERROR: no animation
  */
 @Composable
 fun SessionCard(
@@ -88,8 +88,8 @@ fun SessionCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val isRunning = session.status == SessionStatus.RUNNING
-    val isWaiting = session.status == SessionStatus.WAITING
+    val isRunning  = session.status == SessionStatus.EXECUTING
+    val isResuming = session.status == SessionStatus.RESUMING
 
     // Running glow animation
     val infiniteTransition = rememberInfiniteTransition(label = "sessionCardGlow")
@@ -114,7 +114,7 @@ fun SessionCard(
         label = "spinnerRotation",
     )
 
-    val borderStroke = if (isWaiting) {
+    val borderStroke = if (isResuming) {
         BorderStroke(1.dp, VelaColors.Waiting)
     } else {
         null
@@ -175,7 +175,7 @@ fun SessionCard(
 
             Spacer(Modifier.height(4.dp))
 
-            // ── Preview: first user message (what session is about) ───────────────
+            // ── Preview: first user message (what session is about) ───────────
             if (session.preview.isNotBlank() && session.preview != displayTitle) {
                 Text(
                     text     = session.preview,
@@ -186,7 +186,7 @@ fun SessionCard(
                 Spacer(Modifier.height(2.dp))
             }
 
-            // ── Running: last user message = what AI is currently working on ──────────
+            // ── Executing: last user message = what AI is currently working on ─
             if (isRunning && session.lastUserMessage.isNotBlank()
                 && session.lastUserMessage != session.preview) {
                 Text(
@@ -198,7 +198,7 @@ fun SessionCard(
                 Spacer(Modifier.height(2.dp))
             }
 
-            // ── Date subtitle ──────────────────────────────────────────────────
+            // ── Date subtitle ─────────────────────────────────────────────────
             Text(
                 text  = formatSessionDate(session.lastActiveMs),
                 style = MaterialTheme.typography.bodySmall,
@@ -207,7 +207,7 @@ fun SessionCard(
 
             Spacer(Modifier.height(10.dp))
 
-            // ── Status chip row ────────────────────────────────────────────────
+            // ── Status chip row ───────────────────────────────────────────────
             Row(
                 modifier          = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -232,11 +232,11 @@ fun SessionCard(
                 }
             }
 
-            // ── Waiting: "▶ Decide" affordance ────────────────────────────────
-            if (isWaiting) {
+            // ── Resuming: '↻ Resuming…' affordance ───────────────────────────
+            if (isResuming) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text  = "▶ Decide",
+                    text  = "↻ Resuming…",
                     style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.5.sp),
                     color = VelaColors.Waiting,
                 )

@@ -24,7 +24,7 @@ import javax.inject.Inject
  * ViewModel for Screen 3: Project Detail — Sessions List.
  *
  * Loads sessions from the vela plugin's project-scoped session store.
- * [activeSessions] surfaces RUNNING/WAITING sessions; [recentSessions] surfaces DONE/ERROR.
+ * [activeSessions] surfaces EXECUTING/RESUMING sessions; [recentSessions] surfaces IDLE/ERROR.
  */
 @HiltViewModel
 class SessionListViewModel @Inject constructor(
@@ -63,10 +63,10 @@ class SessionListViewModel @Inject constructor(
 
     // Keep for any remaining references — both point at the same data
     val activeSessions: StateFlow<List<SessionSummary>> = _sessions
-        .map { list -> list.filter { it.status == SessionStatus.RUNNING || it.status == SessionStatus.WAITING } }
+        .map { list -> list.filter { it.status == SessionStatus.EXECUTING || it.status == SessionStatus.RESUMING } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val recentSessions: StateFlow<List<SessionSummary>> = _sessions
-        .map { list -> list.filter { it.status == SessionStatus.DONE || it.status == SessionStatus.ERROR } }
+        .map { list -> list.filter { it.status == SessionStatus.IDLE || it.status == SessionStatus.ERROR } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
@@ -103,10 +103,10 @@ class SessionListViewModel @Inject constructor(
                             id           = s.sessionId,
                             title        = s.title.ifBlank { "" },
                             status       = when (realStatus) {
-                                "executing"        -> SessionStatus.RUNNING
-                                "idle"             -> SessionStatus.DONE
+                                "executing"        -> SessionStatus.EXECUTING
+                                "idle"             -> SessionStatus.IDLE
                                 "failed", "error"  -> SessionStatus.ERROR
-                                else               -> SessionStatus.DONE
+                                else               -> SessionStatus.IDLE
                             },
                             modelName    = nativeById[s.sessionId]?.bundleName?.ifBlank { "amplifierd" } ?: "amplifierd",
                             stepCount    = 0,

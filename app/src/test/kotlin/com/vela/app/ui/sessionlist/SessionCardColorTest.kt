@@ -21,18 +21,18 @@ class SessionCardColorTest {
     // M3 tonal fills: color-mix(StatusContainer, SurfaceSub) per DESIGN.md §7.2
     // Hardcoded approximations — see SessionCard.kt for exact hex rationale.
 
-    @Test fun `cardBackground for RUNNING is amber-tinted surface`() {
-        assertThat(cardBackgroundFor(SessionStatus.RUNNING).toArgb())
+    @Test fun `cardBackground for EXECUTING is amber-tinted surface`() {
+        assertThat(cardBackgroundFor(SessionStatus.EXECUTING).toArgb())
             .isEqualTo(Color(0xFF1C1A0E).toArgb())
     }
 
-    @Test fun `cardBackground for WAITING is violet-tinted surface`() {
-        assertThat(cardBackgroundFor(SessionStatus.WAITING).toArgb())
+    @Test fun `cardBackground for RESUMING is violet-tinted surface`() {
+        assertThat(cardBackgroundFor(SessionStatus.RESUMING).toArgb())
             .isEqualTo(Color(0xFF1A1234).toArgb())
     }
 
-    @Test fun `cardBackground for DONE is default SurfaceSub`() {
-        assertThat(cardBackgroundFor(SessionStatus.DONE).toArgb())
+    @Test fun `cardBackground for IDLE is default SurfaceSub`() {
+        assertThat(cardBackgroundFor(SessionStatus.IDLE).toArgb())
             .isEqualTo(VelaColors.SurfaceSub.toArgb())
     }
 
@@ -41,20 +41,20 @@ class SessionCardColorTest {
             .isEqualTo(Color(0xFF1C1117).toArgb())
     }
 
-    // ── chipContainerFor ──────────────────────────────────────────────────────
+    // ── chipContainerFor ───────────────────────────────────────────────────────
 
-    @Test fun `chipContainer for RUNNING is RunningContainer`() {
-        assertThat(chipContainerFor(SessionStatus.RUNNING).toArgb())
+    @Test fun `chipContainer for EXECUTING is RunningContainer`() {
+        assertThat(chipContainerFor(SessionStatus.EXECUTING).toArgb())
             .isEqualTo(VelaColors.RunningContainer.toArgb())
     }
 
-    @Test fun `chipContainer for WAITING is WaitingContainer`() {
-        assertThat(chipContainerFor(SessionStatus.WAITING).toArgb())
+    @Test fun `chipContainer for RESUMING is WaitingContainer`() {
+        assertThat(chipContainerFor(SessionStatus.RESUMING).toArgb())
             .isEqualTo(VelaColors.WaitingContainer.toArgb())
     }
 
-    @Test fun `chipContainer for DONE is DoneContainer`() {
-        assertThat(chipContainerFor(SessionStatus.DONE).toArgb())
+    @Test fun `chipContainer for IDLE is DoneContainer`() {
+        assertThat(chipContainerFor(SessionStatus.IDLE).toArgb())
             .isEqualTo(VelaColors.DoneContainer.toArgb())
     }
 
@@ -63,20 +63,20 @@ class SessionCardColorTest {
             .isEqualTo(VelaColors.ErrorContainer.toArgb())
     }
 
-    // ── chipOnContainerFor ────────────────────────────────────────────────────
+    // ── chipOnContainerFor ─────────────────────────────────────────────────────
 
-    @Test fun `chipOnContainer for RUNNING is RunningOnContainer`() {
-        assertThat(chipOnContainerFor(SessionStatus.RUNNING).toArgb())
+    @Test fun `chipOnContainer for EXECUTING is RunningOnContainer`() {
+        assertThat(chipOnContainerFor(SessionStatus.EXECUTING).toArgb())
             .isEqualTo(VelaColors.RunningOnContainer.toArgb())
     }
 
-    @Test fun `chipOnContainer for WAITING is WaitingOnContainer`() {
-        assertThat(chipOnContainerFor(SessionStatus.WAITING).toArgb())
+    @Test fun `chipOnContainer for RESUMING is WaitingOnContainer`() {
+        assertThat(chipOnContainerFor(SessionStatus.RESUMING).toArgb())
             .isEqualTo(VelaColors.WaitingOnContainer.toArgb())
     }
 
-    @Test fun `chipOnContainer for DONE is DoneOnContainer`() {
-        assertThat(chipOnContainerFor(SessionStatus.DONE).toArgb())
+    @Test fun `chipOnContainer for IDLE is DoneOnContainer`() {
+        assertThat(chipOnContainerFor(SessionStatus.IDLE).toArgb())
             .isEqualTo(VelaColors.DoneOnContainer.toArgb())
     }
 
@@ -85,7 +85,7 @@ class SessionCardColorTest {
             .isEqualTo(VelaColors.ErrorOnContainer.toArgb())
     }
 
-    // ── Structural: verify composable exists ──────────────────────────────────
+    // ── Structural: verify composable exists ───────────────────────────────────
 
     @Test fun `SessionCard source contains SessionCard composable`() {
         val src = java.io.File(

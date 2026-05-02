@@ -15,11 +15,11 @@ data class SessionSummary(
     val lastActiveMs: Long,
     /** First user message (preview of what the session is about), loaded lazily from transcript. */
     val preview: String = "",
-    /** Last user message — shown when session is RUNNING so you see what the AI is working on. */
+    /** Last user message — shown when session is EXECUTING so you see what the AI is working on. */
     val lastUserMessage: String = "",
 )
 
-enum class SessionStatus { RUNNING, WAITING, DONE, ERROR }
+enum class SessionStatus { EXECUTING, IDLE, RESUMING, ERROR }
 
 // ── Session Detail models ──────────────────────────────────────────────────────
 
@@ -31,6 +31,7 @@ data class TurnContent(
     val text: String,
     val toolCalls: List<ToolCall> = emptyList(),
     val isUser: Boolean,
+    val isStreaming: Boolean = false,
     val contentBlocks: List<ContentBlock> = emptyList(),
 )
 
