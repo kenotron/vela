@@ -175,8 +175,11 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
         title: String = "",
         bundle: String = "superpowers",
     ): String {
-        // Create real amplifierd session
-        val sessionBody = JSONObject().apply { put("bundle", bundle) }
+        // Create real amplifierd session — include working_dir so the bash tool starts there
+        val sessionBody = JSONObject().apply {
+            put("bundle", bundle)
+            if (workspaceDir.isNotBlank()) put("working_dir", workspaceDir)
+        }
         val sessionResp = JSONObject(post("/sessions", sessionBody))
         val sessionId   = sessionResp.getString("session_id")
 
