@@ -143,6 +143,7 @@ fun SessionDetailScreen(
                     if (isRunning) RunningDotIndicator()
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = VelaColors.Abyss),
+                windowInsets = WindowInsets(0), // root Scaffold already consumed status bar inset
             )
         },
     ) { innerPadding ->
