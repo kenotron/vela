@@ -51,6 +51,24 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
         }
     }
 
+        private suspend fun put(path: String, body: JSONObject): String = withContext(Dispatchers.IO) {
+            val request = Request.Builder()
+                .url("$baseUrl$path")
+                .header("x-amplifier-token", token)
+                .put(body.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+            http.newCall(request).execute().use { it.body!!.string() }
+        }
+
+        private suspend fun delete(path: String): String = withContext(Dispatchers.IO) {
+            val request = Request.Builder()
+                .url("$baseUrl$path")
+                .header("x-amplifier-token", token)
+                .delete()
+                .build()
+            http.newCall(request).execute().use { it.body?.string() ?: "" }
+        }
+    
     // ── Public API ────────────────────────────────────────────────────────────
 
     /**
@@ -125,7 +143,26 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
     }
 
     /**
-     * Create a real amplifierd session, then register it with the vela plugin.
+         * GET /sessions/:id — get status of a single session.
+         * Returns null if the session doesn't exist (404).
+         */
+        suspend fun getSessionStatus(sessionId: String): AmplifierdSession? {
+            return try {
+                val obj = JSONObject(get("/sessions/$sessionId"))
+                AmplifierdSession(
+                    sessionId    = obj.optString("session_id", sessionId),
+                    projectId    = "",
+                    title        = "",
+                    status       = obj.optString("status", "completed"),
+                    bundleName   = obj.optString("bundle", ""),
+                    lastActivity = parseIso(obj.optString("last_activity")),
+                    createdAt    = parseIso(obj.optString("created_at")),
+                )
+            } catch (_: Exception) { null }
+        }
+
+        /**
+         * Create a real amplifierd session, then register it with the vela plugin.
      *
      * Step 1: POST /sessions → {"session_id":"uuid",...}
      * Step 2: POST /projects/{id}/sessions with session_id so it appears in the project list.
@@ -352,8 +389,27 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
         post("/sessions/$sessionId/name", body)
     }
 
-    /**
-         * GET /sessions — returns native amplifierd sessions filtered by recency.
+    suspend fun updateProject(projectId: String, name: String, workingDir: String): AmplifierdProject {
+            val body = JSONObject().apply {
+                if (name.isNotBlank()) put("name", name)
+                put("working_dir", workingDir)
+            }
+            val response = JSONObject(put("/projects/$projectId", body))
+            return AmplifierdProject(
+                id          = response.optString("id", projectId),
+                name        = response.optString("name"),
+                description = response.optString("description", ""),
+                createdAt   = parseIso(response.optString("created_at")),
+                workingDir  = response.optString("working_dir", workingDir),
+            )
+        }
+
+        suspend fun deleteProject(projectId: String) {
+            delete("/projects/$projectId")
+        }
+
+        /**
+             * GET /sessions — returns native amplifierd sessions filtered by recency.
          *
          * Includes:
          *  - All active sessions (status "running" or "waiting"), regardless of age.

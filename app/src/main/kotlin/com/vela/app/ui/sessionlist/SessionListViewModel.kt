@@ -79,41 +79,38 @@ class SessionListViewModel @Inject constructor(
                 val client = amplifierd.clientForNode(node.value) ?: return@launch
 
                 // 1. Load project-tracked sessions from the vela plugin endpoint.
-                val pluginSessions: List<com.vela.app.amplifierd.AmplifierdSession> = try {
-                    val (active, recent) = client.getSessions(projectId)
-                    active + recent
-                } catch (_: Exception) { emptyList() }
+                val (active, recent) = client.getSessions(projectId)
+                val pluginSessions = active + recent
 
-                // 2. Load recent sessions from amplifierd's native /sessions endpoint.
-                //    This surfaces sessions created from the CLI, other apps, etc.
-                val nativeSessions: List<com.vela.app.amplifierd.AmplifierdSession> = try {
-                    client.getNativeSessions()
-                } catch (_: Exception) { emptyList() }
+                // 2. Fetch native status for just the plugin sessions (not all amplifierd sessions)
+                val nativeById = mutableMapOf<String, com.vela.app.amplifierd.AmplifierdSession>()
+                pluginSessions.forEach { s ->
+                    try {
+                        val native = client.getSessionStatus(s.sessionId)
+                        if (native != null) nativeById[s.sessionId] = native
+                    } catch (_: Exception) {}
+                }
 
-                // 3. Merge: native is ground truth. Drop plugin sessions not in native —
-                //    they no longer exist in amplifierd and would show "session not found".
-                val nativeById = nativeSessions.associateBy { it.sessionId }
-                val seen = mutableSetOf<String>()
-                val validPlugin = pluginSessions.filter { nativeById.containsKey(it.sessionId) }
-                val merged = (validPlugin + nativeSessions).filter { seen.add(it.sessionId) }
-
-                val summaries = merged.map { s ->
-                    val realStatus = nativeById[s.sessionId]?.status ?: "completed"
-                    SessionSummary(
-                        id           = s.sessionId,
-                        title        = s.title.ifBlank { "" },
-                        status       = when (realStatus) {
-                            "executing"        -> SessionStatus.RUNNING
-                            "idle"             -> SessionStatus.DONE
-                            "failed", "error"  -> SessionStatus.ERROR
-                            else               -> SessionStatus.DONE
-                        },
-                        modelName    = s.bundleName.ifBlank { "amplifierd" },
-                        stepCount    = 0,
-                        lastActiveMs = s.lastActivity,
-                    )
-                }.sortedByDescending { it.lastActiveMs }
-
+                // Only show Vela-owned sessions (no native merge)
+                val summaries = pluginSessions
+                    .filter { nativeById.containsKey(it.sessionId) } // skip sessions that no longer exist
+                    .map { s ->
+                        val realStatus = nativeById[s.sessionId]?.status ?: "completed"
+                        SessionSummary(
+                            id           = s.sessionId,
+                            title        = s.title.ifBlank { "" },
+                            status       = when (realStatus) {
+                                "executing"        -> SessionStatus.RUNNING
+                                "idle"             -> SessionStatus.DONE
+                                "failed", "error"  -> SessionStatus.ERROR
+                                else               -> SessionStatus.DONE
+                            },
+                            modelName    = nativeById[s.sessionId]?.bundleName?.ifBlank { "amplifierd" } ?: "amplifierd",
+                            stepCount    = 0,
+                            lastActiveMs = nativeById[s.sessionId]?.lastActivity?.takeIf { it > 0 } ?: s.lastActivity,
+                        )
+                    }
+                    .sortedByDescending { it.lastActiveMs }
                 _sessions.value = summaries
 
                 // Lazy-load first+last user message preview from transcript for each session

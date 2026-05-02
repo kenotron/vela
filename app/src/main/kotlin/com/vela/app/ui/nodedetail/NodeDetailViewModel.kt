@@ -111,6 +111,32 @@ class NodeDetailViewModel @Inject constructor(
         }
     }
 
+        suspend fun updateProject(projectId: String, name: String, workingDir: String): Boolean {
+            return try {
+                val n = node.value ?: return false
+                val client = amplifierd.clientForNode(n) ?: return false
+                val updated = client.updateProject(projectId, name, workingDir)
+                _projects.update { list -> list.map { if (it.id == projectId) updated else it } }
+                true
+            } catch (e: Exception) {
+                android.util.Log.w("NodeDetailVM", "updateProject failed: ${e.message}")
+                false
+            }
+        }
+
+        suspend fun deleteProject(projectId: String): Boolean {
+            return try {
+                val n = node.value ?: return false
+                val client = amplifierd.clientForNode(n) ?: return false
+                client.deleteProject(projectId)
+                _projects.update { list -> list.filter { it.id != projectId } }
+                true
+            } catch (e: Exception) {
+                android.util.Log.w("NodeDetailVM", "deleteProject failed: ${e.message}")
+                false
+            }
+        }
+    
     // ── Repair state ──────────────────────────────────────────────────────
 
     private val _repairState = MutableStateFlow(BootstrapUiState())

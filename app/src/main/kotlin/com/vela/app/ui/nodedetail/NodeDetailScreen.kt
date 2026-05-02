@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -88,6 +91,11 @@ fun NodeDetailScreen(
     var newProjectName by remember { mutableStateOf("") }
     var newProjectDir by remember { mutableStateOf("") }
 
+    // "Edit project" dialog state
+    var editingProject by remember { mutableStateOf<com.vela.app.amplifierd.AmplifierdProject?>(null) }
+    var editProjectName by remember { mutableStateOf("") }
+    var editProjectDir by remember { mutableStateOf("") }
+
     // "Delete node" confirm dialog state
     var showDeleteDialog by remember { mutableStateOf(false) }
 
@@ -132,7 +140,52 @@ fun NodeDetailScreen(
         )
     }
 
-    if (showNewProjectDialog) {
+    editingProject?.let { project ->
+        AlertDialog(
+            onDismissRequest = { editingProject = null },
+            containerColor   = VelaColors.SurfacePeak,
+            title = {
+                Text("Edit project", style = MaterialTheme.typography.titleLarge, color = VelaColors.TextPrimary)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value         = editProjectName,
+                        onValueChange = { editProjectName = it },
+                        label         = { Text("Project name", color = VelaColors.TextSecondary) },
+                        singleLine    = true,
+                        modifier      = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value         = editProjectDir,
+                        onValueChange = { editProjectDir = it },
+                        label         = { Text("Working directory", color = VelaColors.TextSecondary) },
+                        singleLine    = true,
+                        modifier      = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val p = editingProject ?: return@TextButton
+                    coroutineScope.launch {
+                        viewModel.updateProject(p.id, editProjectName.trim(), editProjectDir.trim())
+                    }
+                    editingProject = null
+                }) { Text("Save", color = VelaColors.Accent) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    coroutineScope.launch {
+                        viewModel.deleteProject(editingProject?.id ?: return@launch)
+                    }
+                    editingProject = null
+                }) { Text("Delete", color = VelaColors.Error) }
+            },
+        )
+    }
+
+        if (showNewProjectDialog) {
         AlertDialog(
             onDismissRequest = { showNewProjectDialog = false; newProjectName = ""; newProjectDir = "" },
             containerColor   = VelaColors.SurfacePeak,
@@ -323,15 +376,36 @@ fun NodeDetailScreen(
 
             // ── Project list ────────────────────────────────────────────────────
             items(projects, key = { it.id }) { project ->
-                ProjectCard(
-                    projectName = project.name,
-                    bundleTag   = "project",
-                    onTap       = {
-                        navController.navigate(
-                            Routes.sessionList(viewModel.nodeId, project.id, project.name, project.workingDir)
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    ProjectCard(
+                        projectName = project.name,
+                        bundleTag   = project.workingDir.ifBlank { "project" }.let {
+                            it.trimEnd('/').substringAfterLast('/')
+                        },
+                        onTap       = {
+                            navController.navigate(
+                                Routes.sessionList(viewModel.nodeId, project.id, project.name, project.workingDir)
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    // Edit icon in top-right corner
+                    IconButton(
+                        onClick   = {
+                            editingProject = project
+                            editProjectName = project.name
+                            editProjectDir  = project.workingDir
+                        },
+                        modifier  = Modifier.align(Alignment.TopEnd).padding(top = 4.dp, end = 4.dp),
+                    ) {
+                        Icon(
+                            imageVector        = Icons.Default.Edit,
+                            contentDescription = "Edit project",
+                            tint               = VelaColors.TextTertiary,
+                            modifier           = Modifier.size(18.dp),
                         )
-                    },
-                )
+                    }
+                }
                 Spacer(modifier = Modifier.height(12.dp))
             }
 
