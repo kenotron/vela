@@ -31,6 +31,7 @@ class SessionListViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val registry: SshNodeRegistry,
     private val amplifierd: AmplifierdRepository,
+    private val bootstrapper: com.vela.app.ssh.NodeBootstrapper,
 ) : ViewModel() {
 
     val nodeId: String      = checkNotNull(savedStateHandle["nodeId"])
@@ -145,6 +146,8 @@ class SessionListViewModel @Inject constructor(
             try {
                 val nodeObj = registry.cache.find { it.id == nodeId } ?: return@launch
                 val client = amplifierd.clientForNode(nodeObj) ?: return@launch
+                // Ensure the project's working directory exists before starting the session
+                bootstrapper.ensureDirectory(nodeObj, workingDir)
                 val sessionId = client.createSession(projectId, workingDir, title = "")
                 _createdSessionId.value = sessionId
                 loadSessions() // refresh list

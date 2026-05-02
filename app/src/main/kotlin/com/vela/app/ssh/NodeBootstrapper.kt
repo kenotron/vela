@@ -558,6 +558,21 @@ WantedBy=default.target
 
     // ── JSch session factory ──────────────────────────────────────────────────
 
+    /**
+     * Ensure [path] exists on [node] by running `mkdir -p "$path"` over SSH.
+     * Non-fatal — if SSH fails (e.g. node unreachable), the session creation continues anyway.
+     */
+    suspend fun ensureDirectory(node: SshNode, path: String) {
+        if (path.isBlank() || path == "~") return
+        try {
+            val host = node.hosts.firstOrNull() ?: return
+            val shell = openJschShell(host, node.port, node.username)
+            shell.exec("mkdir -p \"${path.replace("\"", "\\\"")}\"")
+        } catch (e: Exception) {
+            android.util.Log.w("NodeBootstrapper", "ensureDirectory($path) failed: ${e.message}")
+        }
+    }
+
     private fun openJschShell(host: String, port: Int, username: String): RemoteShell {
         val jsch = com.jcraft.jsch.JSch()
         jsch.addIdentity(
