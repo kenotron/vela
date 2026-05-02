@@ -201,4 +201,125 @@ class AmplifierdStreamClient(private val baseUrl: String, private val token: Str
         Log.d(TAG, "stream: loop exited isDone=$isDone eventCount=$eventCount")
         if (!isDone) emit(StreamEvent.Done)
     }.flowOn(Dispatchers.IO) // run the blocking OkHttp reads on IO without breaking emit() contract
+
+    /**
+     * Subscribe to amplifierd SSE events for an existing session WITHOUT submitting a new prompt.
+     *
+     * Opens GET /events?session={id} and processes all incoming events.
+     * amplifierd replays past events from seq 1 — callers must handle idempotent delivery.
+     *
+     * Use this when the session is already executing (e.g. resume flow, re-attach to running session).
+     * For new executions, use [stream] instead.
+     */
+    fun subscribeEvents(sessionId: String): Flow<StreamEvent> = flow {
+        Log.d(TAG, "subscribeEvents: opening SSE for session=$sessionId")
+
+        val eventsRequest = Request.Builder()
+            .url("$baseUrl/events?session=$sessionId")
+            .header("x-amplifier-token", token)
+            .header("Accept", "text/event-stream")
+            .get()
+            .build()
+
+        val sseResponse = http.newCall(eventsRequest).execute()
+        if (!sseResponse.isSuccessful) {
+            Log.e(TAG, "subscribeEvents: GET /events failed HTTP ${sseResponse.code}")
+            emit(StreamEvent.Error("Events stream failed: HTTP ${sseResponse.code}"))
+            return@flow
+        }
+        Log.d(TAG, "subscribeEvents: SSE connection open (${sseResponse.code})")
+
+        val source = sseResponse.body?.source() ?: run {
+            emit(StreamEvent.Error("Empty SSE response body"))
+            return@flow
+        }
+
+        var currentEventName = ""
+        var isDone = false
+        var eventCount = 0
+
+        while (!isDone && !source.exhausted()) {
+            val line = source.readUtf8Line() ?: break
+
+            when {
+                line.startsWith("event: ") -> currentEventName = line.removePrefix("event: ").trim()
+                line.startsWith("data: ") -> {
+                    val dataStr = line.removePrefix("data: ").trim()
+                    if (dataStr == "[DONE]") { emit(StreamEvent.Done); isDone = true; break }
+
+                    try {
+                        val obj = JSONObject(dataStr)
+                        eventCount++
+                        Log.d(TAG, "subscribeEvents: event[$eventCount] $currentEventName")
+
+                        val dataObj = obj.optJSONObject("data") ?: JSONObject()
+                        val event: StreamEvent? = when (currentEventName) {
+                            "execution:start" -> StreamEvent.Thinking
+
+                            "content_block:delta" -> {
+                                val token = dataObj.optString("token", "")
+                                val blockIndex = dataObj.optInt("block_index", 0)
+                                if (token.isNotEmpty()) StreamEvent.TextDelta(token, blockIndex) else null
+                            }
+
+                            "provider:retry" -> StreamEvent.ProviderRetry(
+                                attempt      = dataObj.optInt("attempt", 1),
+                                maxRetries   = dataObj.optInt("max_retries", 5),
+                                errorMessage = dataObj.optString("error_message", "Connection error"),
+                                delaySecs    = dataObj.optDouble("delay", 0.0),
+                            )
+
+                            "content_block:end" -> {
+                                val block = dataObj.optJSONObject("block")
+                                val blockIndex = dataObj.optInt("block_index", 0)
+                                when (block?.optString("type")) {
+                                    "text" -> {
+                                        val text = block.optString("text", "")
+                                        if (text.isNotBlank()) {
+                                            Log.d(TAG, "subscribeEvents: TextBlock len=${text.length}")
+                                            StreamEvent.TextBlock(text, blockIndex)
+                                        } else null
+                                    }
+                                    "tool_use" -> StreamEvent.ToolUse(
+                                        id        = block.optString("id", ""),
+                                        name      = block.optString("name", ""),
+                                        inputJson = block.optJSONObject("input")?.toString() ?: "{}",
+                                    )
+                                    "thinking" -> null
+                                    else -> null
+                                }
+                            }
+
+                            "execution:end", "orchestrator:complete" -> {
+                                Log.d(TAG, "subscribeEvents: Done from $currentEventName")
+                                emit(StreamEvent.Done)
+                                isDone = true
+                                null
+                            }
+
+                            "approval:request", "approval_request" -> StreamEvent.ApprovalRequest(
+                                id       = dataObj.optString("approval_id", dataObj.optString("id", "")),
+                                question = dataObj.optString("question", ""),
+                                context  = dataObj.optString("context", ""),
+                            )
+
+                            "session:named", "hooks:session-naming:complete" -> {
+                                val name = dataObj.optString("name", dataObj.optString("session_name", ""))
+                                if (name.isNotBlank()) StreamEvent.Named(name) else null
+                            }
+
+                            else -> null
+                        }
+                        event?.let { emit(it) }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "subscribeEvents: parse error: ${e.message}")
+                    }
+                }
+                line.isBlank() -> currentEventName = ""
+            }
+        }
+
+        Log.d(TAG, "subscribeEvents: loop exited isDone=$isDone eventCount=$eventCount")
+        if (!isDone) emit(StreamEvent.Done)
+    }.flowOn(Dispatchers.IO)
 }

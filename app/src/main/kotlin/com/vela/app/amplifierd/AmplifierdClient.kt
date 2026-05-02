@@ -399,6 +399,35 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
     }
 
     /**
+     * GET /sessions/:id/transcript
+     * Returns the raw JSON string — used by SessionTranscriptNormalizer for parsing.
+     */
+    suspend fun getTranscriptJson(sessionId: String): String = get("/sessions/$sessionId/transcript")
+
+    /**
+     * POST /sessions/:id/resume  body: {}
+     * Idempotent resume of a paused/waiting session.
+     * Returns true on 2xx, false on any exception.
+     */
+    suspend fun resumeSession(sessionId: String): Boolean {
+        return try {
+            post("/sessions/$sessionId/resume", JSONObject())
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * POST /sessions/:id/execute/stream  body: {prompt: message}
+     * Returns the raw response body (contains correlation_id).
+     */
+    suspend fun executeStream(sessionId: String, message: String): String {
+        val body = JSONObject().apply { put("prompt", message) }
+        return post("/sessions/$sessionId/execute/stream", body)
+    }
+
+    /**
      * POST /sessions/:id/name  body: {"name":"..."}
      * Updates the session name via the vela plugin. Fails silently if endpoint not available.
      */
