@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vela.app.amplifierd.AmplifierdRepository
 import com.vela.app.ssh.SshNodeRegistry
+import com.vela.app.streaming.SessionStreamingManager
 import com.vela.app.ui.sessiondetail.SessionStatus
 import com.vela.app.ui.sessiondetail.SessionSummary
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -13,10 +14,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -32,6 +35,7 @@ class SessionListViewModel @Inject constructor(
     private val registry: SshNodeRegistry,
     private val amplifierd: AmplifierdRepository,
     private val bootstrapper: com.vela.app.ssh.NodeBootstrapper,
+    private val streamingManager: SessionStreamingManager,
 ) : ViewModel() {
 
     val nodeId: String      = checkNotNull(savedStateHandle["nodeId"])
@@ -74,6 +78,21 @@ class SessionListViewModel @Inject constructor(
             node.filterNotNull().first() // wait for node to load
             loadSessions()
         }
+        // Subscribe to live streaming state — overlay status + activeForm from manager
+        viewModelScope.launch {
+            streamingManager.getAllSessionFlows().collect { streamingStates ->
+                if (streamingStates.isEmpty()) return@collect
+                _sessions.update { summaries ->
+                    summaries.map { summary ->
+                        val state = streamingStates[summary.id] ?: return@map summary
+                        summary.copy(
+                            status     = state.status,
+                            activeForm = state.currentTodoActiveForm ?: "",
+                        )
+                    }
+                }
+            }
+        }
     }
 
     fun loadSessions() {
@@ -115,6 +134,14 @@ class SessionListViewModel @Inject constructor(
                     }
                     .sortedByDescending { it.lastActiveMs }
                 _sessions.value = summaries
+
+                // Start streaming for any currently-executing sessions so the manager
+                // tracks them and the list updates in real-time
+                summaries.filter { it.status == SessionStatus.EXECUTING }.forEach { summary ->
+                    viewModelScope.launch {
+                        streamingManager.startStreaming(summary.id, nodeId, projectName)
+                    }
+                }
 
                 // Lazy-load first+last user message preview from transcript for each session
                 summaries.take(20).forEach { summary ->
