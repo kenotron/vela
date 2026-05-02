@@ -1,6 +1,8 @@
 package com.vela.app.ui.miniapp
 
 import android.util.Log
+import android.webkit.ConsoleMessage
+import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.animation.AnimatedVisibility
@@ -143,7 +145,9 @@ data class RendererSuggestion(
  * - [BuildFailed]  — generation failed; show error screen with retry option.
  */
 sealed class RendererState {
-    object Loading : RendererState()
+    object Loading  : RendererState()
+    /** No mini app created yet — vela-content-renderer handles the view. */
+    object Enhanced : RendererState()
     data class Fallback(val contentType: String, val content: String) : RendererState()
     data class Building(
         val rendererType: com.vela.app.ai.RendererType,
@@ -350,6 +354,7 @@ Return ONLY a JSON array of 2 strings: ["idea 1", "idea 2"]
                 userInput         = prompt,
                 userContentJson   = null,
                 systemPrompt      = "Return ONLY valid JSON. No explanation.",
+                vaultPath         = "",
                 onToolStart       = { _, _ -> "" },
                 onToolEnd         = { _, _ -> },
                 onToken           = { token -> sb.append(token) },
@@ -393,6 +398,7 @@ Return ONLY a JSON array of 2 strings: ["idea 1", "idea 2"]
                 userInput         = prompt,
                 userContentJson   = null,
                 systemPrompt      = "Return only valid JSON. No explanation.",
+                vaultPath         = "",
                 onToolStart       = { _, _ -> "" },
                 onToolEnd         = { _, _ -> },
                 onToken           = { sb.append(it) },
@@ -462,7 +468,7 @@ fun MiniAppContainer(
                 forceMarkdown           -> RendererState.Fallback(contentType, itemContent)
                 else -> viewModel.getRendererFile(contentType)
                             ?.let { RendererState.Ready(it) }
-                            ?: RendererState.Fallback(contentType, itemContent)
+                            ?: RendererState.Enhanced
             }
         )
     }
@@ -523,7 +529,7 @@ fun MiniAppContainer(
                     is GenerationResult.Success ->
                         viewModel.getRendererFile(contentType)
                             ?.let { RendererState.Ready(it) }
-                            ?: RendererState.Fallback(contentType, itemContent)
+                            ?: RendererState.Enhanced
                     is GenerationResult.Failure -> {
                         Log.w("MiniAppRuntime", "Build failed", result.cause)
                         RendererState.BuildFailed(s.rendererType, result.cause)
@@ -535,7 +541,7 @@ fun MiniAppContainer(
                 rendererType = s.rendererType,
                 contentType  = contentType,
                 buildPhases  = buildPhases,
-                onCancel     = { rendererState = RendererState.Fallback(contentType, itemContent) },
+                onCancel     = { rendererState = RendererState.Enhanced },
                 modifier     = modifier,
             )
         }
@@ -546,7 +552,7 @@ fun MiniAppContainer(
                 rendererType = s.rendererType,
                 cause        = s.cause,
                 onRetry      = { rendererState = RendererState.Building(s.rendererType) },
-                onViewAsText = { rendererState = RendererState.Fallback(contentType, itemContent) },
+                onViewAsText = { rendererState = RendererState.Enhanced },
                 modifier     = modifier,
             )
         }
@@ -568,6 +574,12 @@ fun MiniAppContainer(
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
 
+                            webChromeClient = object : WebChromeClient() {
+                                override fun onConsoleMessage(msg: ConsoleMessage): Boolean {
+                                    Log.d("VelaWebConsole", "${msg.message()} [${msg.sourceId()}:${msg.lineNumber()}]")
+                                    return true
+                                }
+                            }
                             webViewClient = object : WebViewClient() {
                                 override fun onPageFinished(view: WebView, url: String) {
                                     val velaShim = """
@@ -580,7 +592,7 @@ fun MiniAppContainer(
     },
     ai:{complete:(prompt,sp)=>fetch('/api/ai/complete',{method:'POST',headers:h,body:JSON.stringify({prompt,systemPrompt:sp})}).then(r=>r.json()).then(r=>r.text)},
     vault:{
-      read:(p,fmt)=>fetch('/api/vault/read?path='+encodeURIComponent(p)+(fmt?'&format='+fmt:'')).then(r=>fmt==='json'?r.json():r.text()),
+      read:(p,fmt)=>fetch('/api/vault/read?path='+encodeURIComponent(p)+(fmt?'&format='+fmt:'')).then(r=>r.ok?(fmt==='json'?r.json():r.text()):(fmt==='json'?{frontmatter:{},sections:[]}:'')),
       list:(p)=>fetch('/api/vault/list?path='+encodeURIComponent(p||'')).then(r=>r.json())
     },
     events:{
@@ -597,22 +609,32 @@ fun MiniAppContainer(
                             }
 
                             val port = viewModel.serverPort.value
-                            tag = "http://localhost:$port/miniapps/$contentType"
-                            loadUrl("http://localhost:$port/miniapps/$contentType")
+                            val initialUrl = if (rendererState is RendererState.Enhanced)
+                                "http://localhost:$port/enhanced"
+                            else
+                                "http://localhost:$port/miniapps/$contentType"
+                            tag = initialUrl
+                            loadUrl(initialUrl)
                         }
                     },
                     update = { webView ->
                         val currentState = rendererState
-                        if (currentState is RendererState.Ready) {
-                            val port = viewModel.serverPort.value
-                            val targetUrl = "http://localhost:$port/miniapps/$contentType"
-                            if (webView.tag != targetUrl) {
-                                webView.tag = targetUrl
-                                webView.loadUrl(targetUrl)
-                            }
+                        val port = viewModel.serverPort.value
+                        val targetUrl = when (currentState) {
+                            is RendererState.Enhanced -> "http://localhost:$port/enhanced"
+                            is RendererState.Ready    -> "http://localhost:$port/miniapps/$contentType"
+                            else -> null
+                        }
+                        if (targetUrl != null && webView.tag != targetUrl) {
+                            webView.tag = targetUrl
+                            webView.loadUrl(targetUrl)
                         }
                         webView.post {
-                            webView.evaluateJavascript("window.__VELA_CONTEXT__=$contextJson;", null)
+                            webView.evaluateJavascript(
+                                "window.__VELA_CONTEXT__=$contextJson;" +
+                                "if(typeof window.__velaReload==='function')window.__velaReload();",
+                                null
+                            )
                         }
                     },
                     modifier = Modifier.fillMaxSize(),
@@ -661,7 +683,7 @@ fun MiniAppContainer(
                                 android.util.Log.w("MiniApp", "DELETE renderer failed: ${e.message}")
                             }
                         }
-                        rendererState = RendererState.Fallback(contentType, itemContent)
+                        rendererState = RendererState.Enhanced
                     },
                 )
             }

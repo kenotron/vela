@@ -55,6 +55,7 @@ class ContentExtractor @Inject constructor(
                     userInput         = fullPrompt,
                     userContentJson   = null,
                     systemPrompt      = "You are a structured data extractor. Return only valid JSON. No explanation.",
+                    vaultPath         = "",
                     onToolStart       = { _, _ -> "" },
                     onToolEnd         = { _, _ -> },
                     onToken           = { sb.append(it) },

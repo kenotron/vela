@@ -57,6 +57,7 @@ class ArchetypeDetector @Inject constructor(
                     userInput         = prompt,
                     userContentJson   = null,
                     systemPrompt      = "You are a content type classifier. Return only valid JSON.",
+                    vaultPath         = "",
                     onToolStart       = { _, _ -> "" },
                     onToolEnd         = { _, _ -> },
                     onToken           = { sb.append(it) },

@@ -298,14 +298,6 @@ class MiniAppRuntimeTest {
     }
 
     @Test
-    fun `LaunchedEffect isAnalysing block invokes fitnessCheck on viewModel`() {
-        val source = java.io.File(
-            "src/main/kotlin/com/vela/app/ui/miniapp/MiniAppRuntime.kt"
-        ).readText()
-        assertThat(source).contains("viewModel.fitnessCheck(")
-    }
-
-    @Test
     fun `RendererFeedbackSheet contains Start fresh list item`() {
         val source = java.io.File(
             "src/main/kotlin/com/vela/app/ui/miniapp/MiniAppRuntime.kt"

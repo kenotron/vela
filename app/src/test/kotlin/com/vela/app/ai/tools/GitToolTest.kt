@@ -248,6 +248,36 @@ class GitToolTest {
         assertThat(result).contains("No remote")
     }
 
+
+    // ── rm ───────────────────────────────────────────────────────────────────
+
+    @Test
+    fun rm_noPathProvided_returnsError() = runTest {
+        val vaultDir = initGitRepo()
+        val tool = makeGitTool(listOf(vaultEntity(vaultDir)))
+
+        val result = tool.execute(mapOf("command" to "rm"))
+
+        assertThat(result).contains("Error")
+        assertThat(result).contains("path")
+    }
+
+    @Test
+    fun rm_trackedFile_removesFromIndexAndDisk() = runTest {
+        val vaultDir = initGitRepo()
+        val git = Git.open(vaultDir)
+        val file = File(vaultDir, "bye.md").also { it.writeText("bye") }
+        git.add().addFilepattern(".").call()
+        git.commit().setMessage("add bye.md").call()
+        git.close()
+        val tool = makeGitTool(listOf(vaultEntity(vaultDir)))
+
+        val result = tool.execute(mapOf("command" to "rm", "args" to "bye.md"))
+
+        assertThat(result).contains("Removed")
+        assertThat(file.exists()).isFalse()
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private fun initGitRepo(): File {

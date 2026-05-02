@@ -8,11 +8,17 @@ const _h = { 'Content-Type': 'application/json' };
 const _post = (url, body) =>
   fetch(url, { method: 'POST', headers: _h, body: JSON.stringify(body) }).then(r => r.json());
 
+const _emptyDoc = { frontmatter: {}, sections: [] };
+
 export const vela = {
   vault: {
     read:  (path, fmt) =>
       fetch(`/api/vault/read?path=${encodeURIComponent(path)}${fmt ? '&format=' + fmt : ''}`)
-        .then(r => fmt === 'json' ? r.json() : r.text()),
+        .then(r => {
+          if (!r.ok) return fmt === 'json' ? _emptyDoc : '';
+          return fmt === 'json' ? r.json() : r.text();
+        })
+        .catch(() => fmt === 'json' ? _emptyDoc : ''),
     list:  (path = '') =>
       fetch(`/api/vault/list?path=${encodeURIComponent(path)}`).then(r => r.json()),
     write: (path, content) => _post('/api/vault/write', { path, content }),
@@ -45,14 +51,12 @@ export const vela = {
     record:   (options = {})          => _post('/api/app/record',   options),
   },
   miniapp: {
-    /**
-     * Fetches the LLM-extracted structured data for the current mini app.
-     * Returns null if data.json hasn't been generated yet (first run still in progress).
-     */
+    /** Fetches the LLM-extracted structured data. Returns null if not yet generated. */
     data: () => {
       const ct = (window.__VELA_CONTEXT__ || {}).contentType || '';
       return fetch(`/miniapps/${encodeURIComponent(ct)}/data.json`)
-        .then(r => r.ok ? r.json() : null)
+        .then(r => r.ok ? r.text() : null)
+        .then(t => { try { return t && t.trim() ? JSON.parse(t) : null; } catch { return null; } })
         .catch(() => null);
     },
   },

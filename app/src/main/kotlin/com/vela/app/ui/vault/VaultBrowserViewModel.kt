@@ -49,6 +49,32 @@ package com.vela.app.ui.vault
             _entries.value = emptyList()
         }
 
+        // --- Deeplink -------------------------------------------------------------------
+        private val _deeplinkPath = MutableStateFlow<String?>(null)
+        val deeplinkPath: StateFlow<String?> = _deeplinkPath.asStateFlow()
+
+        private var pendingDeeplinkVaultId: String? = null
+
+        fun openDeeplink(vaultId: String, relPath: String) {
+            pendingDeeplinkVaultId = vaultId
+            _deeplinkPath.value = relPath
+            tryResolveDeeplinkVault()   // resolve immediately if vaults already loaded
+        }
+
+        private fun tryResolveDeeplinkVault() {
+            val id = pendingDeeplinkVaultId ?: return
+            val vault = allVaults.value.find { it.id == id }
+                     ?: allVaults.value.find { it.name.equals(id, ignoreCase = true) }
+            if (vault != null) { setVault(vault); pendingDeeplinkVaultId = null }
+        }
+
+        fun consumeDeeplink() { _deeplinkPath.value = null }
+
+        init {
+            // Retry vault resolution once vaults load from DB (cold-start deeplinks)
+            viewModelScope.launch { allVaults.collect { tryResolveDeeplinkVault() } }
+        }
+
         // --- File tree ----------------------------------------------------------------
         private val _currentPath = MutableStateFlow("")
         val currentPath: StateFlow<String> = _currentPath.asStateFlow()

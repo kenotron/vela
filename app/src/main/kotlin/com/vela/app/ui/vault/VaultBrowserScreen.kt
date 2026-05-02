@@ -179,6 +179,15 @@ package com.vela.app.ui.vault
         // file viewing internally so tapping a file always shows MiniAppContainerView.
         var selectedFilePath by remember { mutableStateOf<String?>(null) }
 
+        // Consume any pending deeplink into selectedFilePath
+        val deeplinkPath by viewModel.deeplinkPath.collectAsState()
+        LaunchedEffect(deeplinkPath) {
+            if (deeplinkPath != null) {
+                selectedFilePath = deeplinkPath
+                viewModel.consumeDeeplink()
+            }
+        }
+
         LaunchedEffect(selectedFilePath) { onSetDrawerGesturesEnabled(selectedFilePath == null) }
 
         BackHandler(enabled = selectedFilePath != null) { selectedFilePath = null }

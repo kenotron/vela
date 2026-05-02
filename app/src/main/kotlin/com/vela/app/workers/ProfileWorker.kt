@@ -78,6 +78,7 @@ Return ONLY the complete updated profile.md. No markdown fences. No explanation.
                 userInput         = prompt,
                 userContentJson   = null,
                 systemPrompt      = SYSTEM_PROMPT,
+                vaultPath         = "",
                 onToolStart       = { name, _ ->
                     setProgress(workDataOf("status" to toolActivityLabel(name)))
                     ""

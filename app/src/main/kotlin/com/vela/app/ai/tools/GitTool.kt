@@ -19,18 +19,18 @@ class GitTool @Inject constructor(
     override val name        = "git"
     override val displayName = "Git"
     override val icon        = "⎇"
-    override val description = "Run git operations on the active vault repository. Supports: status, log, diff, add, commit, push, branch, pull."
+    override val description = "Run git operations on the active vault repository. Supports: status, log, diff, add, rm, commit, push, branch, pull."
     override val parameters  = listOf(
         ToolParameter(
             name        = "command",
             type        = "string",
-            description = "Git command to run: status | log | diff | add | commit | push | pull | branch",
+            description = "Git command to run: status | log | diff | add | rm | commit | push | pull | branch",
             required    = true,
         ),
         ToolParameter(
             name        = "args",
             type        = "string",
-            description = "Arguments: log N (number of commits), diff/add PATH, commit MESSAGE, pull/push (no args needed)",
+            description = "Arguments: log N (number of commits), diff/add/rm PATH, commit MESSAGE, pull/push (no args needed)",
             required    = false,
         ),
     )
@@ -93,6 +93,13 @@ class GitTool @Inject constructor(
                         val pattern = extraArgs.ifBlank { "." }
                         git.add().addFilepattern(pattern).call()
                         "Staged: $pattern"
+                    }
+
+
+                    "rm" -> {
+                        val pattern = extraArgs.ifBlank { return@use "Error: provide a file path in 'args'" }
+                        git.rm().addFilepattern(pattern).call()
+                        "Removed: $pattern"
                     }
 
                     "commit" -> {

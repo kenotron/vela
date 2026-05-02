@@ -56,6 +56,18 @@ fun VaultHubScreen(
     var browsingVault by remember { mutableStateOf<VaultEntity?>(null) }
     var showAddSheet  by remember { mutableStateOf(false) }
 
+    // Auto-open the browser when a deeplink is pending — deeplink sets deeplinkPath
+    // but VaultBrowserScreen (which consumes it) never renders until browsingVault is set.
+    val deeplinkPath by browserVm.deeplinkPath.collectAsState()
+    val activeVault  by browserVm.activeVault.collectAsState()
+    // vaults is also a key so this re-fires when the DB loads on cold start
+    LaunchedEffect(deeplinkPath, vaults) {
+        if (deeplinkPath != null && browsingVault == null) {
+            val vault = activeVault ?: vaults.firstOrNull { it.isEnabled } ?: vaults.firstOrNull()
+            if (vault != null) browsingVault = vault
+        }
+    }
+
     // ── File browser mode ─────────────────────────────────────────────────────
     val bv = browsingVault
     if (bv != null) {

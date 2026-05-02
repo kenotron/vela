@@ -120,6 +120,7 @@ class RendererGenerator @Inject constructor(
                 userInput         = prompt,
                 userContentJson   = null,
                 systemPrompt      = RENDERER_SYSTEM_PROMPT,
+                vaultPath         = "",
                 onToolStart       = { name, _ ->
                     onActivity?.invoke(toolActivityLabel(name))
                     ""  // stableId — unused

@@ -198,6 +198,7 @@ class VelaJSInterface(
                         userInput         = prompt,
                         userContentJson   = null,
                         systemPrompt      = "",
+                        vaultPath         = "",
                         onToolStart       = { _, _ -> "" },
                         onToolEnd         = { _, _ -> },
                         onToken           = { token -> sb.append(token) },
@@ -227,6 +228,7 @@ class VelaJSInterface(
                         userInput         = prompt,
                         userContentJson   = null,
                         systemPrompt      = "",
+                        vaultPath         = "",
                         onToolStart       = { _, _ -> "" },
                         onToolEnd         = { _, _ -> },
                         onToken           = { token ->

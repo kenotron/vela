@@ -84,7 +84,9 @@ package com.vela.app.server
                     val format = call.request.queryParameters["format"] ?: "raw"
                     val vault = vaultRegistry.enabledVaults.value.firstOrNull()
                         ?: return@get call.respond(HttpStatusCode.ServiceUnavailable)
-                    val file = File(vault.localPath, path)
+                    // Android's File(parent,child) always concatenates — it does NOT treat
+                    // absolute child paths as overriding parent (unlike standard Java).
+                    val file = if (path.startsWith("/")) File(path) else File(vault.localPath, path)
                     if (!file.exists()) return@get call.respond(HttpStatusCode.NotFound)
                     val content = withContext(Dispatchers.IO) { file.readText() }
                     if (format == "json") {
@@ -125,6 +127,7 @@ package com.vela.app.server
                         userInput         = prompt,
                         userContentJson   = null,
                         systemPrompt      = systemPrompt,
+                        vaultPath         = "",
                         onToolStart       = { _, _ -> "" },
                         onToolEnd         = { _, _ -> },
                         onToken           = { token -> sb.append(token) },

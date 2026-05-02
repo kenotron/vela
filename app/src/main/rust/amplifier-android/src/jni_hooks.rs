@@ -84,7 +84,7 @@ impl KotlinHookBridge {
                     let result = env
                         .get_string(&jstr)
                         .ok()
-                        .map(|s| String::from(s));
+                        .map(String::from);
                     if result.is_none() {
                         warn!("KotlinHookBridge: get_string failed");
                     }

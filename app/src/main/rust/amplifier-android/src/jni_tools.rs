@@ -116,7 +116,7 @@ impl KotlinToolBridge {
 
         let jstr = JString::from(jobject);
         env.get_string(&jstr)
-            .map(|s| String::from(s))
+            .map(String::from)
             .map_err(|e| ToolError::Other {
                 message: format!("get_string failed: {e}"),
             })

@@ -30,8 +30,13 @@ fun NavigationScaffold(
     val navViewModel     = hiltViewModel<NavigationViewModel>()
     val convViewModel    = hiltViewModel<ConversationViewModel>()
     val profileViewModel = hiltViewModel<ProfileViewModel>()
+    val vaultBrowserVm = hiltViewModel<com.vela.app.ui.vault.VaultBrowserViewModel>()
+    val deeplinkPath   by vaultBrowserVm.deeplinkPath.collectAsState()
 
     var currentDest by remember { mutableStateOf(DrawerDestination.CHAT) }
+    LaunchedEffect(deeplinkPath) {
+        if (deeplinkPath != null) currentDest = DrawerDestination.VAULT
+    }
     var drawerGesturesEnabled by remember { mutableStateOf(true) }
 
     // Emit system events whenever theme or layout changes
