@@ -559,17 +559,30 @@ WantedBy=default.target
     // ── JSch session factory ──────────────────────────────────────────────────
 
     /**
-     * Ensure [path] exists on [node] by running `mkdir -p "$path"` over SSH.
-     * Non-fatal — if SSH fails (e.g. node unreachable), the session creation continues anyway.
+     * Ensure [path] exists on [node] and return the fully-expanded absolute path.
+     *
+     * Runs `mkdir -p <path> && cd <path> && pwd` over SSH so that:
+     *  - Tilde is expanded by the remote shell  (~/workspace → /Users/ken/workspace)
+     *  - The directory is created if absent
+     *  - The real absolute path is returned so amplifierd receives a valid cwd
+     *
+     * Non-fatal — if SSH fails the original [path] is returned unchanged and
+     * session creation continues (amplifierd may still handle it).
      */
-    suspend fun ensureDirectory(node: SshNode, path: String) {
-        if (path.isBlank() || path == "~") return
-        try {
-            val host = node.hosts.firstOrNull() ?: return
+    suspend fun ensureDirectory(node: SshNode, path: String): String {
+        if (path.isBlank()) return path
+        return try {
+            val host = node.hosts.firstOrNull() ?: return path
             val shell = openJschShell(host, node.port, node.username)
-            shell.exec("mkdir -p \"${path.replace("\"", "\\\"")}\"")
+            // Unquoted tilde so the shell expands it; single-quote the rest for safety
+            val safePath = path.trimEnd('/')
+            val result = shell.exec("mkdir -p $safePath && cd $safePath && pwd")
+            val expanded = result.stdout.trim().takeIf { it.startsWith("/") } ?: path
+            android.util.Log.d("NodeBootstrapper", "ensureDirectory: $path → $expanded")
+            expanded
         } catch (e: Exception) {
             android.util.Log.w("NodeBootstrapper", "ensureDirectory($path) failed: ${e.message}")
+            path
         }
     }
 

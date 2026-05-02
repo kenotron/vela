@@ -146,9 +146,9 @@ class SessionListViewModel @Inject constructor(
             try {
                 val nodeObj = registry.cache.find { it.id == nodeId } ?: return@launch
                 val client = amplifierd.clientForNode(nodeObj) ?: return@launch
-                // Ensure the project's working directory exists before starting the session
-                bootstrapper.ensureDirectory(nodeObj, workingDir)
-                val sessionId = client.createSession(projectId, workingDir, title = "")
+                // mkdir -p + expand ~ on the remote node, get the real absolute path back
+                val resolvedDir = bootstrapper.ensureDirectory(nodeObj, workingDir)
+                val sessionId = client.createSession(projectId, resolvedDir, title = "")
                 _createdSessionId.value = sessionId
                 loadSessions() // refresh list
             } catch (e: Exception) {
