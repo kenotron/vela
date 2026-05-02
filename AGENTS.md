@@ -12,7 +12,7 @@ Vela is a **mobile-first AI orchestration hub** (Android app). The phone is the 
 
 ---
 
-## Current Architecture (as of 2026-05)
+## Current Architecture (as of 2026-05-02)
 
 ```
 Phone (Android)                           Mac / Remote Node
@@ -40,7 +40,7 @@ Phone (Android)                           Mac / Remote Node
 2. Then `POST /sessions/{id}/execute/stream` with `{"prompt": "..."}` — returns `{"correlation_id":"...","status":"accepted"}`
 3. Collect events from GET /events until `execution:end` or `orchestrator:complete`
 
-### Event sequence (successful turn)
+### Event sequence (successful turn — loop-vela bundle)
 ```
 id: 1  event: session:start      # lightweight, just session_id + timestamp
 id: 2  event: session:start      # full config dump (agents, hooks, providers, tools)
@@ -50,11 +50,13 @@ id: 5  event: provider:request   # data.provider = "anthropic", data.iteration =
 id: 6  event: llm:request        # data.model, data.thinking_enabled, data.message_count
 id: 7  event: llm:response       # data.duration_ms, data.status = "ok", data.usage
 id: 8  event: content_block:start  # data.block_index = 0, data.block_type = "text"
-id: 9  event: content_block:end    # data.block = {"text": "hello", "type": "text"}
-                                   #             or {"id", "name", "input", "type": "tool_use"}
-                                   #             or {"thinking": "...", "type": "thinking"}
+                                   # (may also appear for thinking blocks in non-streaming path)
+id: 9  event: content_block:end    # data.block = {"text": "...", "type": "text"} (full final text)
+id:9a  event: content_block:delta  # *** loop-vela ONLY *** data.token = "word", data.block_index = 0
+                                   # emitted for each token during streaming; arrives AFTER content_block:end
+                                   # due to _tokenize_stream simulating streaming from full response
 id:10  event: execution:end
-id:11  event: orchestrator:complete  ← DONE signal
+id:11  event: orchestrator:complete  ← DONE signal; data.orchestrator = "loop-vela"
 ```
 
 ### On provider failure (retries)
@@ -68,11 +70,23 @@ id: 7  event: provider:retry   # data.attempt, data.max_retries, data.error_mess
 - ❌ `tool:start`, `tool_start`, `tool:result`, `tool_result`, `tool:done` — none exist
 - ❌ `[DONE]` — amplifierd does not use this SSE pattern
 - ❌ Native tool events are NOT in the SSE stream; tool details come via `content_block:end` with `block_type: "tool_use"`
+- ✅ `content_block:delta` DOES exist (loop-vela only) — per-token streaming via `_tokenize_stream`
 
-### Response format
-- **There is NO per-token streaming event.** The full text arrives in one `content_block:end` event.
-- The `block.text` field in `content_block:end` contains the complete response.
-- Thinking blocks (`block_type: "thinking"`) exist — hide from user, don't render.
+### Response format (loop-vela bundle)
+- **`content_block:delta` IS the per-token streaming event** (loop-vela only). Token is in `data.token`.
+- `content_block:end` still arrives with the complete final text — use as the authoritative fallback.
+- Delta events use `_tokenize_stream` simulation (word/space boundaries at ~10ms delay per token).
+- Thinking blocks (`block_type: "thinking"`) exist in `content_block:start/end` — hide from user, don't render.
+- Delta events arrive AFTER `content_block:end` because the non-streaming path returns the full text first.
+
+### Steer endpoint (loop-vela sessions only)
+```
+POST /sessions/{id}/steer
+Body: {"message": "redirect message here"}
+Auth: x-amplifier-token header
+Returns: {"status": "queued", "session_id": "..."}  or 404 if session not using loop-vela
+```
+The message is injected as a user turn at the next tool-call boundary in the running loop.
 
 ### Session statuses (from `GET /sessions`)
 ```
@@ -89,6 +103,43 @@ POST /sessions/{id}/execute/stream
 Body: {"prompt": "the message"}   ← field is "prompt" NOT "message"
 Auth: x-amplifier-token header
 Returns immediately: {"correlation_id":"...", "session_id":"...", "status":"accepted"}
+```
+
+---
+
+## Server-Side Components (on Mac at 10.0.0.143)
+
+### loop-vela orchestrator
+Custom amplifierd orchestrator based on `loop-streaming` with additions:
+- **Per-token delta events**: emits `content_block:delta {token, block_index}` for each word/token
+- **Steer queue**: each session gets an `asyncio.Queue`; `POST /sessions/{id}/steer` enqueues messages
+- **Mid-loop injection**: between LLM iterations, drains the steer queue and injects messages as user turns
+- Source: `/Users/ken/workspace/vela/plugins/loop-vela/`
+- Installed: editable install in amplifierd Python env (`uv pip install -e`)
+- Entry point: `loop-vela = amplifier_module_loop_vela:mount`
+
+### vela bundle
+Registered at `~/.amplifier/bundles/vela.md`. Inherits `distro` (all tools/providers/context) but
+overrides the orchestrator to `loop-vela`. Sessions must be created with `bundle_name: "vela"`.
+
+### Vela plugin steer endpoint
+Added to `plugins/amplifierd-vela/src/vela_plugin/steer.py`.
+Route: `POST /sessions/{id}/steer` — imports `_steer_queues` from `amplifier_module_loop_vela`
+(same process), puts message in the session's asyncio.Queue.
+
+### How to re-install after changes
+```bash
+# Reinstall loop-vela (editable install — changes take effect on next amplifierd restart)
+cd /Users/ken/workspace/vela/plugins/loop-vela && \
+  uv pip install -e . --python ~/.local/share/uv/tools/amplifierd/bin/python
+
+# Reinstall Vela plugin (not editable — must reinstall to pick up source changes)
+cd /Users/ken/workspace/vela/plugins/amplifierd-vela && \
+  uv pip install . --python ~/.local/share/uv/tools/amplifierd/bin/python
+
+# Restart amplifierd
+launchctl unload ~/Library/LaunchAgents/com.vela.amplifierd.plist
+launchctl load ~/Library/LaunchAgents/com.vela.amplifierd.plist
 ```
 
 ---
@@ -122,10 +173,12 @@ Migrations: 1→2, ..., 15→16 (workspace_dir column added)
 
 ```
 AmplifierdClient       — HTTP CRUD: GET/POST /sessions, /projects, /capabilities, /transcript
+                         + steer(sessionId, message): POST /sessions/{id}/steer for loop-vela
 AmplifierdStreamClient — SSE streaming: opens GET /events first, then POST /execute/stream
+                         handles content_block:delta → TextDelta events (loop-vela)
 AmplifierdRepository   — per-node client factory; reads node from SshNodeRegistry.cache
 SshNodeRegistry        — @Singleton; .cache: List<SshNode> populated by HomeViewModel
-SessionDetailViewModel — drives chat: sendMessage(), awaitNode(), turns StateFlow
+SessionDetailViewModel — drives chat: sendMessage(), steer(), awaitNode(), turns StateFlow
 ApiKeyStore            — EncryptedSharedPreferences: OPENAI_API_KEY only (for Whisper)
 NodeBootstrapper       — SSH install of amplifierd: bootstrap() and repair() flows
 ```
@@ -143,7 +196,8 @@ sendMessage(message) called
       → append empty assistant TurnContent to _turns
       → streamClient.stream(sessionId, message).collect { event → ... }
           → Thinking → update assistant slot with "…"
-          → TextBlock → update assistant slot with block.text
+          → TextDelta → append token to assistant slot text (real-time streaming)
+          → TextBlock → replace assistant slot with final complete text
           → ToolUse → append ToolCall to assistant slot
           → ProviderRetry → show statusMessage
           → Done → _isStreaming = false
