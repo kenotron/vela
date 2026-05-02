@@ -4,6 +4,7 @@ import android.util.Log
 import com.vela.app.amplifierd.AmplifierdRepository
 import com.vela.app.ssh.SshNodeRegistry
 import com.vela.app.ui.sessiondetail.SessionStatus
+import com.vela.app.ui.sessiondetail.TurnContent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -132,8 +133,16 @@ class SessionStreamingManagerImpl @Inject constructor(
         val node = nodeRegistry.cache.find { it.id == state.nodeId } ?: return false
         val client = amplifierd.clientForNode(node) ?: return false
 
-        // Optimistic update: persist the user message so retry is possible even on failure
-        updateState(sessionId, state.copy(lastUserMessage = message, status = SessionStatus.EXECUTING))
+        // Optimistic update: add user turn to turns list + persist message for retry
+        val userTurn = TurnContent(text = message, isUser = true)
+        updateState(
+            sessionId,
+            state.copy(
+                lastUserMessage = message,
+                status = SessionStatus.EXECUTING,
+                turns = state.turns + userTurn,
+            ),
+        )
 
         return try {
             client.executeStream(sessionId, message)

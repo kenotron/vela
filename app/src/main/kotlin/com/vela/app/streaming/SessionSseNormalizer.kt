@@ -128,7 +128,7 @@ class SessionSseNormalizer @Inject constructor() {
             is StreamEvent.ProviderRetry -> state   // notification handled externally
 
             // ── session:named ────────────────────────────────────────────────────
-            is StreamEvent.Named -> state           // handled in ViewModel layer Phase 2
+            is StreamEvent.Named -> state.copy(sessionName = event.name)
 
             // ── execution:end / orchestrator:complete ────────────────────────────
             StreamEvent.Done -> {

@@ -32,6 +32,7 @@ data class SessionState(
     val lastUserMessage: String?,
     val currentTodoActiveForm: String?,
     val projectName: String?,
+    val sessionName: String? = null,
 )
 
 /**
