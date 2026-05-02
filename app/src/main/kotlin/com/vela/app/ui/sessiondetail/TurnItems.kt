@@ -43,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -136,17 +137,14 @@ fun AgentTurnItem(
                                     isRunning = block.isRunning,
                                 )
                             } else {
-                                ToolCallBlock(
-                                    name      = block.name,
-                                    inputJson = block.inputJson,
-                                    result    = result?.output,
-                                    isError   = result?.isError ?: false,
-                                    isRunning = block.isRunning,
-                                )
+                                CollapsibleToolCard(block = block, result = result)
                             }
                         }
                         is ContentBlock.ToolResult -> { /* rendered via matching ToolUse block */ }
-                        is ContentBlock.TodoProgress -> { /* TODO: render TodoProgressCard */ }
+                        is ContentBlock.TodoProgress -> TodoProgressCard(
+                            todos       = block.todos,
+                            isStreaming = content.isStreaming,
+                        )
                     }
                 }
             } else {
@@ -302,6 +300,106 @@ fun ToolCallBlock(
                     style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                     color = if (isError) VelaColors.Error else VelaColors.TextSecondary,
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Collapsible card for non-delegate [ContentBlock.ToolUse] blocks.
+ * Collapsed: single-line chip. Expanded: full input + output JSON.
+ */
+@Composable
+private fun CollapsibleToolCard(
+    block: ContentBlock.ToolUse,
+    result: ContentBlock.ToolResult? = null,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val truncatedInput = remember(block.inputJson) {
+        block.inputJson.take(60).let { if (block.inputJson.length > 60) "$it…" else it }
+    }
+
+    Surface(
+        color    = Color(0xFF181825),
+        shape    = RoundedCornerShape(8.dp),
+        border   = BorderStroke(1.dp, Color(0xFF313244)),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            Row(
+                modifier          = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text  = "⚙ ${block.name}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = VelaColors.TextSecondary,
+                )
+                if (!expanded) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text     = truncatedInput,
+                        style    = MaterialTheme.typography.labelSmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                        ),
+                        color    = VelaColors.TextTertiary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+                Spacer(Modifier.width(4.dp))
+                if (block.isRunning && result == null) {
+                    CircularProgressIndicator(
+                        modifier    = Modifier.size(10.dp),
+                        color       = VelaColors.Running,
+                        strokeWidth = 1.5.dp,
+                        progress    = { 0.25f },
+                    )
+                    Spacer(Modifier.width(4.dp))
+                }
+                if (result != null) {
+                    Icon(
+                        imageVector        = if (result.isError) Icons.Default.Error
+                                             else Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint               = if (result.isError) VelaColors.Error
+                                             else VelaColors.Done,
+                        modifier           = Modifier.size(12.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                }
+                Icon(
+                    imageVector        = if (expanded) Icons.Default.ExpandLess
+                                         else Icons.Default.ExpandMore,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    tint               = VelaColors.TextTertiary,
+                    modifier           = Modifier.size(14.dp),
+                )
+            }
+
+            if (expanded) {
+                Spacer(Modifier.height(8.dp))
+                Text("Input:", style = MaterialTheme.typography.labelSmall, color = VelaColors.TextTertiary)
+                Text(
+                    text  = block.inputJson,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    color = VelaColors.TextSecondary,
+                )
+                if (result != null) {
+                    Spacer(Modifier.height(4.dp))
+                    Text("Result:", style = MaterialTheme.typography.labelSmall, color = VelaColors.TextTertiary)
+                    Text(
+                        text  = result.output,
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        color = if (result.isError) VelaColors.Error else VelaColors.TextSecondary,
+                    )
+                }
             }
         }
     }
