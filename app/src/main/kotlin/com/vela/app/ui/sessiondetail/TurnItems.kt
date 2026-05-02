@@ -146,6 +146,7 @@ fun AgentTurnItem(
                             }
                         }
                         is ContentBlock.ToolResult -> { /* rendered via matching ToolUse block */ }
+                        is ContentBlock.TodoProgress -> { /* TODO: render TodoProgressCard */ }
                     }
                 }
             } else {
