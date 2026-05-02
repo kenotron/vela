@@ -17,6 +17,8 @@ data class SessionSummary(
     val preview: String = "",
     /** Last user message — shown when session is EXECUTING so you see what the AI is working on. */
     val lastUserMessage: String = "",
+    /** Current todo activeForm for running sessions — sourced from live streaming state. */
+    val activeForm: String = "",
 )
 
 enum class SessionStatus { EXECUTING, IDLE, RESUMING, ERROR }
