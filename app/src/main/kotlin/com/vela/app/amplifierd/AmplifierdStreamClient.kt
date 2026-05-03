@@ -26,6 +26,8 @@ sealed class StreamEvent {
     /** Session was given a name by hooks-session-naming after sufficient turns. */
     data class Named(val name: String) : StreamEvent()
     object Thinking : StreamEvent()
+    /** Thinking block content from content_block:end with type="thinking". */
+    data class ThinkingBlock(val text: String) : StreamEvent()
     object Done : StreamEvent()
     data class Error(val message: String) : StreamEvent()
 }
@@ -164,7 +166,10 @@ class AmplifierdStreamClient(private val baseUrl: String, private val token: Str
                                         name      = block.optString("name", ""),
                                         inputJson = block.optJSONObject("input")?.toString() ?: "{}",
                                     )
-                                    "thinking" -> null
+                                    "thinking" -> {
+                                        val thinkText = block.optString("thinking", "")
+                                        if (thinkText.isNotBlank()) StreamEvent.ThinkingBlock(thinkText) else null
+                                    }
                                     else -> null
                                 }
                             }
@@ -285,7 +290,10 @@ class AmplifierdStreamClient(private val baseUrl: String, private val token: Str
                                         name      = block.optString("name", ""),
                                         inputJson = block.optJSONObject("input")?.toString() ?: "{}",
                                     )
-                                    "thinking" -> null
+                                    "thinking" -> {
+                                        val thinkText = block.optString("thinking", "")
+                                        if (thinkText.isNotBlank()) StreamEvent.ThinkingBlock(thinkText) else null
+                                    }
                                     else -> null
                                 }
                             }
