@@ -223,28 +223,36 @@ sendMessage(message) called
 
 ## ADB Debugging Commands
 
+**Device discovery (run this first — port changes every session):**
 ```bash
-# Connect
-adb connect 10.0.0.106:<port>
+DEVICE=$(./scripts/vela-device)   # auto-discovers IP:port, connects if needed
+```
+
+If `vela-device` fails (device not advertising yet), enable wireless debugging on the phone,
+then `adb connect 10.0.0.106:<port>` once — after that `vela-device` will find it via `adb devices`.
+
+```bash
+# Discover device (agents should always run this first)
+DEVICE=$(./scripts/vela-device)
 
 # Get app PID (use this, not package-name grep which misses log lines)
-APP_PID=$(adb -s 10.0.0.106:<port> shell pidof com.vela.app | tr -d ' \r\n')
+APP_PID=$(adb -s $DEVICE shell pidof com.vela.app | tr -d ' \r\n')
 
 # Watch ALL app logs by PID (most reliable)
-adb -s 10.0.0.106:<port> logcat --pid=$APP_PID
+adb -s $DEVICE logcat --pid=$APP_PID
 
 # Screenshot (exec-out returns black if screen locked; use shell+pull instead)
-adb -s 10.0.0.106:<port> shell screencap /sdcard/vela.png
-adb -s 10.0.0.106:<port> pull /sdcard/vela.png /tmp/vela.png
+adb -s $DEVICE shell screencap /sdcard/vela.png
+adb -s $DEVICE pull /sdcard/vela.png /tmp/vela.png
 
 # Wake screen (needed before any screenshot)
-adb -s 10.0.0.106:<port> shell input keyevent KEYCODE_WAKEUP
+adb -s $DEVICE shell input keyevent KEYCODE_WAKEUP
 
 # Check if screen is locked
-adb -s 10.0.0.106:<port> shell dumpsys window | grep mDreamingLockscreen
+adb -s $DEVICE shell dumpsys window | grep mDreamingLockscreen
 
 # SQLite DB inspection
-adb -s 10.0.0.106:<port> shell run-as com.vela.app \
+adb -s $DEVICE shell run-as com.vela.app \
   sqlite3 /data/data/com.vela.app/databases/vela_database "SELECT * FROM ssh_nodes"
 ```
 
@@ -286,13 +294,17 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.vela.amplifierd.plis
 cd /Users/ken/workspace/vela
 ./gradlew assembleDebug -x test
 
+# Discover device (port changes every session — always do this first)
+DEVICE=$(./scripts/vela-device)
+
 # Install
-adb -s 10.0.0.106:<port> install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s $DEVICE install -r app/build/outputs/apk/debug/app-debug.apk
 
 # Launch
-adb -s 10.0.0.106:<port> shell am start --user 0 -n com.vela.app/.MainActivity
+adb -s $DEVICE shell am start --user 0 -n com.vela.app/.MainActivity
 ```
 
 ## Current Phone
 Pixel 10 Pro at 10.0.0.106, wireless debugging port changes each session.
+Use `./scripts/vela-device` to discover and connect — never hardcode the port.
 DB: version 16. App package: `com.vela.app`.

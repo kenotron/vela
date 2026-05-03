@@ -161,10 +161,13 @@ class AmplifierdStreamClient(private val baseUrl: String, private val token: Str
                                             StreamEvent.TextBlock(text, blockIndex)
                                         } else null
                                     }
-                                    "tool_use" -> StreamEvent.ToolUse(
+                                    // amplifierd SSE uses "tool_call"; transcript uses "tool_use" — handle both.
+                                    // Input field: SSE uses "arguments", transcript uses "input" — handle both.
+                                    "tool_use", "tool_call" -> StreamEvent.ToolUse(
                                         id        = block.optString("id", ""),
                                         name      = block.optString("name", ""),
-                                        inputJson = block.optJSONObject("input")?.toString() ?: "{}",
+                                        inputJson = (block.optJSONObject("arguments")
+                                            ?: block.optJSONObject("input"))?.toString() ?: "{}",
                                     )
                                     "thinking" -> {
                                         val thinkText = block.optString("thinking", "")
@@ -285,10 +288,13 @@ class AmplifierdStreamClient(private val baseUrl: String, private val token: Str
                                             StreamEvent.TextBlock(text, blockIndex)
                                         } else null
                                     }
-                                    "tool_use" -> StreamEvent.ToolUse(
+                                    // amplifierd SSE uses "tool_call"; transcript uses "tool_use" — handle both.
+                                    // Input field: SSE uses "arguments", transcript uses "input" — handle both.
+                                    "tool_use", "tool_call" -> StreamEvent.ToolUse(
                                         id        = block.optString("id", ""),
                                         name      = block.optString("name", ""),
-                                        inputJson = block.optJSONObject("input")?.toString() ?: "{}",
+                                        inputJson = (block.optJSONObject("arguments")
+                                            ?: block.optJSONObject("input"))?.toString() ?: "{}",
                                     )
                                     "thinking" -> {
                                         val thinkText = block.optString("thinking", "")
