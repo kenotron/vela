@@ -56,7 +56,16 @@ class SessionStreamingManagerImpl @Inject constructor(
         _allFlows.asStateFlow()
 
     override suspend fun startStreaming(sessionId: String, nodeId: String, projectName: String?) {
-        // Idempotent: cancel any existing stream before starting a fresh one
+        // If a stream job is already running for this session, leave it alone.
+        // The ViewModel re-subscribes to the existing StateFlow and gets live state immediately.
+        // Killing the job here would destroy the in-progress streaming turn and reload a
+        // stale transcript that is missing the current turn's content.
+        if (streamJobs[sessionId]?.isActive == true) {
+            Log.d(TAG, "startStreaming: stream already active for $sessionId — skipping restart")
+            return
+        }
+
+        // No active stream — clean up any completed/cancelled job
         stopStreaming(sessionId)
 
         val node = nodeRegistry.cache.find { it.id == nodeId }
