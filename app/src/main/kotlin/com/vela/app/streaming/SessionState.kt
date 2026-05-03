@@ -33,6 +33,7 @@ data class SessionState(
     val currentTodoActiveForm: String?,
     val projectName: String?,
     val sessionName: String? = null,
+    val textBlockFired: Boolean = false,  // true after TextBlock (content_block:end); reset on first TextDelta
 )
 
 /**

@@ -83,12 +83,19 @@ class SessionStreamingManagerImpl @Inject constructor(
         val initialTurns = transcriptJson?.let { transcriptNormalizer.normalize(it) } ?: emptyList()
         val lastUserMessage = initialTurns.lastOrNull { it.isUser }?.text
 
+        // Only open SSE if the session is actively executing right now.
+        // For IDLE sessions the transcript already has complete state.
+        // sendMessage() will open a fresh stream() per execution.
+        val serverStatus = try {
+            client.getSessionStatus(sessionId)?.status
+        } catch (_: Exception) { null }
+
         updateState(
             sessionId,
             SessionState(
                 sessionId = sessionId,
                 nodeId = nodeId,
-                status = SessionStatus.IDLE,
+                status = if (serverStatus == "executing") SessionStatus.EXECUTING else SessionStatus.IDLE,
                 turns = initialTurns,
                 activeTurnIndex = null,
                 pendingApproval = null,
@@ -98,20 +105,22 @@ class SessionStreamingManagerImpl @Inject constructor(
             ),
         )
 
-        val job = scope.launch {
-            try {
-                streamClient.subscribeEvents(sessionId).collect { event ->
-                    val current = sessionFlows[sessionId]?.value ?: return@collect
-                    val updated = sseNormalizer.applyEvent(current, event)
-                    updateState(sessionId, updated)
+        if (serverStatus == "executing") {
+            val job = scope.launch {
+                try {
+                    streamClient.subscribeEvents(sessionId).collect { event ->
+                        val current = sessionFlows[sessionId]?.value ?: return@collect
+                        val updated = sseNormalizer.applyEvent(current, event)
+                        updateState(sessionId, updated)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "startStreaming: stream error for $sessionId", e)
+                    val cur = sessionFlows[sessionId]?.value
+                    if (cur != null) updateState(sessionId, cur.copy(status = SessionStatus.ERROR))
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "startStreaming: stream error for session $sessionId", e)
-                val current = sessionFlows[sessionId]?.value ?: return@launch
-                updateState(sessionId, current.copy(status = SessionStatus.ERROR))
             }
+            streamJobs[sessionId] = job
         }
-        streamJobs[sessionId] = job
     }
 
     override fun stopStreaming(sessionId: String) {
@@ -131,7 +140,7 @@ class SessionStreamingManagerImpl @Inject constructor(
     override suspend fun sendMessage(sessionId: String, message: String): Boolean {
         val state = sessionFlows[sessionId]?.value ?: return false
         val node = nodeRegistry.cache.find { it.id == state.nodeId } ?: return false
-        val client = amplifierd.clientForNode(node) ?: return false
+        val streamClient = amplifierd.streamClientForNode(node) ?: return false
 
         // Optimistic update: add user turn to turns list + persist message for retry
         val userTurn = TurnContent(text = message, isUser = true)
@@ -144,17 +153,26 @@ class SessionStreamingManagerImpl @Inject constructor(
             ),
         )
 
-        return try {
-            client.executeStream(sessionId, message)
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "sendMessage: failed for session $sessionId: ${e.message}")
-            val current = sessionFlows[sessionId]?.value
-            if (current != null) {
-                updateState(sessionId, current.copy(status = SessionStatus.ERROR))
+        // Cancel any existing stream job (e.g. subscribeEvents from startStreaming)
+        // and start a fresh stream() for this execution.
+        // stream() opens SSE + POST + correlation_id filtering — no historical replay.
+        stopStreaming(sessionId)
+
+        val job = scope.launch {
+            try {
+                streamClient.stream(sessionId, message).collect { event ->
+                    val current = sessionFlows[sessionId]?.value ?: return@collect
+                    val updated = sseNormalizer.applyEvent(current, event)
+                    updateState(sessionId, updated)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "sendMessage: stream error for $sessionId", e)
+                val cur = sessionFlows[sessionId]?.value
+                if (cur != null) updateState(sessionId, cur.copy(status = SessionStatus.ERROR))
             }
-            false
         }
+        streamJobs[sessionId] = job
+        return true
     }
 
     override suspend fun retryLastMessage(sessionId: String): Boolean {

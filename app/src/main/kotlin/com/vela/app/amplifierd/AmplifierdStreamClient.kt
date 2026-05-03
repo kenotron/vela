@@ -293,7 +293,7 @@ class AmplifierdStreamClient(private val baseUrl: String, private val token: Str
                             "execution:end", "orchestrator:complete" -> {
                                 Log.d(TAG, "subscribeEvents: Done from $currentEventName")
                                 emit(StreamEvent.Done)
-                                isDone = true
+                                // Don't exit — stay subscribed for subsequent executions.
                                 null
                             }
 

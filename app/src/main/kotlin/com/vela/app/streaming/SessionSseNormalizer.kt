@@ -47,16 +47,28 @@ class SessionSseNormalizer @Inject constructor() {
                 val blocks = turn.contentBlocks.toMutableList()
 
                 val lastTextIdx = blocks.indexOfLast { it is ContentBlock.Text }
-                if (lastTextIdx >= 0) {
-                    val prev = (blocks[lastTextIdx] as ContentBlock.Text).markdown
-                    blocks[lastTextIdx] = ContentBlock.Text(prev + event.token)
+                if (state.textBlockFired) {
+                    // First delta after TextBlock (loop-vela: deltas arrive AFTER content_block:end).
+                    // REPLACE the full text with just this token — streaming rebuilds word-by-word.
+                    if (lastTextIdx >= 0) {
+                        blocks[lastTextIdx] = ContentBlock.Text(event.token)
+                    } else {
+                        blocks.add(ContentBlock.Text(event.token))
+                    }
+                    turns[idx] = turn.copy(text = event.token, contentBlocks = blocks)
+                    state.copy(turns = turns, textBlockFired = false)
                 } else {
-                    blocks.add(ContentBlock.Text(event.token))
+                    // Subsequent deltas — append
+                    if (lastTextIdx >= 0) {
+                        val prev = (blocks[lastTextIdx] as ContentBlock.Text).markdown
+                        blocks[lastTextIdx] = ContentBlock.Text(prev + event.token)
+                    } else {
+                        blocks.add(ContentBlock.Text(event.token))
+                    }
+                    val newText = turn.text + event.token
+                    turns[idx] = turn.copy(text = newText, contentBlocks = blocks)
+                    state.copy(turns = turns)
                 }
-
-                val newText = turn.text + event.token
-                turns[idx] = turn.copy(text = newText, contentBlocks = blocks)
-                state.copy(turns = turns)
             }
 
             // ── content_block:end (text) ─────────────────────────────────────────
@@ -74,7 +86,7 @@ class SessionSseNormalizer @Inject constructor() {
                 }
 
                 turns[idx] = turn.copy(text = event.text, contentBlocks = blocks)
-                state.copy(turns = turns)
+                state.copy(turns = turns, textBlockFired = true)  // mark that full text is set
             }
 
             // ── content_block:end (tool_use) ─────────────────────────────────────
@@ -145,6 +157,7 @@ class SessionSseNormalizer @Inject constructor() {
                     activeTurnIndex = null,
                     turns = turns,
                     pendingApproval = null,
+                    textBlockFired = false,
                 )
             }
 
