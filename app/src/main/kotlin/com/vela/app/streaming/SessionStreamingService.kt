@@ -37,6 +37,7 @@ import javax.inject.Inject
 class SessionStreamingService : Service() {
 
     @Inject lateinit var streamingManager: SessionStreamingManagerImpl
+    @Inject lateinit var activeSessionTracker: ActiveSessionTracker
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -121,6 +122,8 @@ class SessionStreamingService : Service() {
 
     private fun checkNotifications(prev: SessionState?, next: SessionState) {
         val sid = next.sessionId
+        // User is already looking at this session — no notification needed
+        if (activeSessionTracker.isActive(sid)) return
 
         // Turn complete: EXECUTING → IDLE
         if (prev?.status == SessionStatus.EXECUTING && next.status == SessionStatus.IDLE) {

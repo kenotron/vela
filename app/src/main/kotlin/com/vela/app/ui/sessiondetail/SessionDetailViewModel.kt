@@ -10,6 +10,7 @@ import com.vela.app.amplifierd.AmplifierdRepository
 import com.vela.app.notifications.ApprovalNotificationHelper
 import com.vela.app.settings.ApiKeyStore
 import com.vela.app.ssh.SshNodeRegistry
+import com.vela.app.streaming.ActiveSessionTracker
 import com.vela.app.streaming.SessionStreamingManager
 import com.vela.app.voice.AudioRecorder
 import com.vela.app.voice.WhisperClient
@@ -30,6 +31,7 @@ class SessionDetailViewModel @Inject constructor(
     private val amplifierd: AmplifierdRepository,
     private val apiKeyStore: ApiKeyStore,
     private val streamingManager: SessionStreamingManager,
+    private val activeSessionTracker: ActiveSessionTracker,
 ) : ViewModel() {
 
     val sessionId: String = checkNotNull(savedStateHandle["sessionId"])
@@ -119,6 +121,17 @@ class SessionDetailViewModel @Inject constructor(
         }
     }
 
+    // ── Lifecycle: track active session to suppress notifications ──────────
+
+    init {
+        activeSessionTracker.setActive(sessionId)
+    }
+
+    override fun onCleared() {
+        activeSessionTracker.setInactive(sessionId)
+        super.onCleared()
+    }
+
     // ── Init: start streaming + subscribe to session state ─────────────────
 
     init {
@@ -141,7 +154,7 @@ class SessionDetailViewModel @Inject constructor(
                         (prevApproval == null || prevApproval.first != pending.id)
                     ) {
                         _approvalRequest.value = Pair(pending.id, pending.question)
-                        ApprovalNotificationHelper.notify(ctx, sessionId, nodeId, pending.question)
+                        // No notification — user is already in this session; inline card handles it
                     } else if (pending == null && state.status == SessionStatus.IDLE) {
                         _approvalRequest.value = null
                     }
