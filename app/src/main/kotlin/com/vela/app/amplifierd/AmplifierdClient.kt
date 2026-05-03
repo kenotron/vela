@@ -457,6 +457,19 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
             delete("/projects/$projectId")
         }
 
+    /**
+     * DELETE /sessions/{id}
+     * Returns true on success (2xx), false on any error.
+     */
+    suspend fun deleteSession(sessionId: String): Boolean {
+        return try {
+            delete("/sessions/$sessionId")
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
         /**
              * GET /sessions — returns native amplifierd sessions filtered by recency.
          *
