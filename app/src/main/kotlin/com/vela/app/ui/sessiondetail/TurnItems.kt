@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -116,44 +117,50 @@ fun AgentTurnItem(
             modifier            = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (content.contentBlocks.isNotEmpty()) {
-                content.contentBlocks.forEach { block ->
-                    when (block) {
-                        is ContentBlock.Text    -> MarkdownText(
-                            markdown = block.markdown,
-                            color    = VelaColors.TextPrimary,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        is ContentBlock.Thinking -> ThinkingBlock(text = block.text)
-                        is ContentBlock.ToolUse  -> {
-                            val result = content.contentBlocks
-                                .filterIsInstance<ContentBlock.ToolResult>()
-                                .find { it.toolUseId == block.id }
-                            // Delegate tool → indented subagent card
-                            if (block.name == "delegate" || block.name.contains("delegate", ignoreCase = true)) {
-                                DelegateBlock(
-                                    inputJson = block.inputJson,
-                                    result    = result?.output,
-                                    isRunning = block.isRunning,
-                                )
-                            } else {
-                                CollapsibleToolCard(block = block, result = result)
+            when {
+                content.contentBlocks.isNotEmpty() -> {
+                    content.contentBlocks.forEach { block ->
+                        when (block) {
+                            is ContentBlock.Text    -> MarkdownText(
+                                markdown = block.markdown,
+                                color    = VelaColors.TextPrimary,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            is ContentBlock.Thinking -> ThinkingBlock(text = block.text)
+                            is ContentBlock.ToolUse  -> {
+                                val result = content.contentBlocks
+                                    .filterIsInstance<ContentBlock.ToolResult>()
+                                    .find { it.toolUseId == block.id }
+                                if (block.name == "delegate" || block.name.contains("delegate", ignoreCase = true)) {
+                                    DelegateBlock(
+                                        inputJson = block.inputJson,
+                                        result    = result?.output,
+                                        isRunning = block.isRunning,
+                                    )
+                                } else {
+                                    CollapsibleToolCard(block = block, result = result)
+                                }
                             }
+                            is ContentBlock.ToolResult -> { /* rendered via matching ToolUse block */ }
+                            is ContentBlock.TodoProgress -> TodoProgressCard(
+                                todos       = block.todos,
+                                isStreaming = content.isStreaming,
+                            )
                         }
-                        is ContentBlock.ToolResult -> { /* rendered via matching ToolUse block */ }
-                        is ContentBlock.TodoProgress -> TodoProgressCard(
-                            todos       = block.todos,
-                            isStreaming = content.isStreaming,
-                        )
                     }
                 }
-            } else {
-                MarkdownText(
-                    markdown = content.text,
-                    color    = VelaColors.TextPrimary,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                content.toolCalls.forEach { ToolCallCard(it) }
+                content.text.isBlank() && content.isStreaming -> {
+                    // No content yet but turn is live — show thinking pulse instead of empty bubble
+                    ThinkingPulse()
+                }
+                else -> {
+                    MarkdownText(
+                        markdown = content.text,
+                        color    = VelaColors.TextPrimary,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    content.toolCalls.forEach { ToolCallCard(it) }
+                }
             }
         }
     }
@@ -207,6 +214,43 @@ fun ThinkingBlock(text: String, modifier: Modifier = Modifier) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+/**
+ * Compact pulsing indicator shown inside an agent turn while waiting for the
+ * first content block to arrive. Replaces the empty-bubble problem where
+ * the Surface card rendered with no content inside.
+ */
+@Composable
+private fun ThinkingPulse(modifier: Modifier = Modifier) {
+    val infiniteTransition = rememberInfiniteTransition(label = "thinkingPulse")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue  = 0.3f,
+        targetValue   = 0.85f,
+        animationSpec = infiniteRepeatable(
+            animation  = tween(900, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "thinkingPulseAlpha",
+    )
+
+    Row(
+        modifier          = modifier.padding(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            imageVector        = Icons.Default.Psychology,
+            contentDescription = null,
+            tint               = VelaColors.Accent.copy(alpha = alpha),
+            modifier           = Modifier.size(13.dp),
+        )
+        Text(
+            text  = "thinking…",
+            style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
+            color = VelaColors.TextTertiary.copy(alpha = alpha),
+        )
     }
 }
 
