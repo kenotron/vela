@@ -39,6 +39,17 @@ class SessionSseNormalizer @Inject constructor() {
                 )
             }
 
+            // ── content_block:end (thinking) ──────────────────────────────────
+            is StreamEvent.ThinkingBlock -> {
+                val idx = state.activeTurnIndex ?: return state
+                val turns = state.turns.toMutableList()
+                val turn = turns[idx]
+                val blocks = turn.contentBlocks.toMutableList()
+                blocks.add(ContentBlock.Thinking(event.text))
+                turns[idx] = turn.copy(contentBlocks = blocks)
+                state.copy(turns = turns)
+            }
+
             // ── content_block:delta ──────────────────────────────────────────────
             is StreamEvent.TextDelta -> {
                 val idx = state.activeTurnIndex ?: return state
