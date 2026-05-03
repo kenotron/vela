@@ -11,6 +11,7 @@ import com.vela.app.ui.sessiondetail.SessionStatus
 import com.vela.app.ui.sessiondetail.SessionSummary
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -189,6 +190,30 @@ class SessionListViewModel @Inject constructor(
                 loadSessions() // refresh list
             } catch (e: Exception) {
                 Log.w(TAG, "createSession failed: ${e.message}")
+            }
+        }
+    }
+
+    fun deleteProject(onDeleted: () -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val client = amplifierd.clientForNode(node.value) ?: return@launch
+                client.deleteProject(projectId)
+                withContext(Dispatchers.Main) { onDeleted() }
+            } catch (e: Exception) {
+                Log.w(TAG, "deleteProject failed: ${e.message}")
+            }
+        }
+    }
+
+    fun updateProject(name: String, workingDir: String, onSaved: () -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val client = amplifierd.clientForNode(node.value) ?: return@launch
+                client.updateProject(projectId, name, workingDir)
+                withContext(Dispatchers.Main) { onSaved() }
+            } catch (e: Exception) {
+                Log.w(TAG, "updateProject failed: ${e.message}")
             }
         }
     }

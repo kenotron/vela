@@ -240,5 +240,23 @@ class SessionDetailViewModel @Inject constructor(
         }
     }
 
+    // ── Session deletion ───────────────────────────────────────────────────
+
+    private val _sessionDeleted = MutableStateFlow(false)
+    val sessionDeleted: StateFlow<Boolean> = _sessionDeleted
+
+    fun deleteSession() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val node = registry.cache.find { it.id == nodeId } ?: return@launch
+                val client = amplifierd.clientForNode(node) ?: return@launch
+                client.deleteSession(sessionId)
+                _sessionDeleted.value = true
+            } catch (e: Exception) {
+                Log.w(TAG, "deleteSession failed: ${e.message}")
+            }
+        }
+    }
+
     companion object { private const val TAG = "SessionDetailVM" }
 }
