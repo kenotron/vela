@@ -89,7 +89,11 @@ class SessionListViewModel @Inject constructor(
                             status     = state.status,
                             activeForm = state.currentTodoActiveForm ?: "",
                         )
-                    }
+                    }.sortedWith(
+                        compareByDescending<SessionSummary> {
+                            it.status == SessionStatus.EXECUTING || it.status == SessionStatus.RESUMING
+                        }.thenByDescending { it.lastActiveMs }
+                    )
                 }
             }
         }
@@ -132,7 +136,12 @@ class SessionListViewModel @Inject constructor(
                             lastActiveMs = nativeById[s.sessionId]?.lastActivity?.takeIf { it > 0 } ?: s.lastActivity,
                         )
                     }
-                    .sortedByDescending { it.lastActiveMs }
+                    .sortedWith(
+                        // Active sessions bubble to the top, then sort by most-recent activity
+                        compareByDescending<SessionSummary> {
+                            it.status == SessionStatus.EXECUTING || it.status == SessionStatus.RESUMING
+                        }.thenByDescending { it.lastActiveMs }
+                    )
                 _sessions.value = summaries
 
                 // Start streaming for any currently-executing sessions so the manager
