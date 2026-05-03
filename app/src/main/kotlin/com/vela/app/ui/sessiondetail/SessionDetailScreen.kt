@@ -28,9 +28,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -92,7 +96,16 @@ fun SessionDetailScreen(
     val isRecording   by viewModel.isRecording.collectAsStateWithLifecycle()
     val approvalReq   by viewModel.approvalRequest.collectAsStateWithLifecycle()
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
-    val sessionName   by viewModel.sessionName.collectAsStateWithLifecycle()
+    val sessionName    by viewModel.sessionName.collectAsStateWithLifecycle()
+    val sessionDeleted by viewModel.sessionDeleted.collectAsStateWithLifecycle()
+
+    var showGearMenu      by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    // Navigate back when session is deleted
+    LaunchedEffect(sessionDeleted) {
+        if (sessionDeleted) navController.popBackStack()
+    }
 
     val isRunning = isLoading
 
@@ -160,6 +173,27 @@ fun SessionDetailScreen(
                     }
                 },
                 actions = {
+                    Box {
+                        IconButton(onClick = { showGearMenu = true }) {
+                            Icon(
+                                imageVector        = Icons.Default.Settings,
+                                contentDescription = "Session options",
+                                tint               = VelaColors.TextSecondary,
+                            )
+                        }
+                        DropdownMenu(
+                            expanded         = showGearMenu,
+                            onDismissRequest = { showGearMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text    = { Text("Delete session", color = Color(0xFFF38BA8)) },
+                                onClick = {
+                                    showGearMenu      = false
+                                    showDeleteConfirm = true
+                                },
+                            )
+                        }
+                    }
                     if (isRunning) RunningDotIndicator()
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = VelaColors.Abyss),
@@ -381,6 +415,37 @@ fun SessionDetailScreen(
                 ),
                 onApprove = { viewModel.approveRequest(approvalId) },
                 onDeny    = { viewModel.denyRequest(approvalId) },
+            )
+        }
+
+        // ── Delete session confirm ─────────────────────────────────────────
+        if (showDeleteConfirm) {
+            AlertDialog(
+                onDismissRequest = { showDeleteConfirm = false },
+                containerColor   = VelaColors.SurfacePeak,
+                title = {
+                    Text("Delete session?", style = MaterialTheme.typography.titleMedium, color = VelaColors.TextPrimary)
+                },
+                text = {
+                    Text(
+                        "This session and its history will be permanently removed.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = VelaColors.TextSecondary,
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showDeleteConfirm = false
+                        viewModel.deleteSession()
+                    }) {
+                        Text("Delete", color = Color(0xFFF38BA8))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteConfirm = false }) {
+                        Text("Cancel", color = VelaColors.TextSecondary)
+                    }
+                },
             )
         }
     }
