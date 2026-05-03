@@ -165,6 +165,9 @@ class SessionStreamingManagerImpl @Inject constructor(
                     val updated = sseNormalizer.applyEvent(current, event)
                     updateState(sessionId, updated)
                 }
+                // stream() terminated normally (orchestrator:complete received).
+                // Reload transcript to pair ToolUse blocks with their ToolResults.
+                reloadTranscriptAfterCompletion(sessionId, state.nodeId)
             } catch (e: Exception) {
                 Log.e(TAG, "sendMessage: stream error for $sessionId", e)
                 val cur = sessionFlows[sessionId]?.value
@@ -189,6 +192,23 @@ class SessionStreamingManagerImpl @Inject constructor(
     private fun updateState(sessionId: String, state: SessionState) {
         sessionFlows.getOrPut(sessionId) { MutableStateFlow(null) }.value = state
         _allFlows.update { it + (sessionId to state) }
+    }
+
+    /**
+     * Reloads the transcript after an execution completes so that
+     * [ContentBlock.ToolUse] entries are paired with their [ContentBlock.ToolResult]s.
+     * Tool results live only in the transcript (role="tool" messages), never in SSE.
+     */
+    private suspend fun reloadTranscriptAfterCompletion(sessionId: String, nodeId: String) {
+        val node = nodeRegistry.cache.find { it.id == nodeId } ?: return
+        val client = amplifierd.clientForNode(node) ?: return
+        val transcriptJson = try {
+            client.getTranscriptJson(sessionId)
+        } catch (_: Exception) { return }
+        val freshTurns = transcriptNormalizer.normalize(transcriptJson)
+        val current = sessionFlows[sessionId]?.value ?: return
+        // Replace turns with transcript version — preserves status (IDLE already set by Done handler)
+        updateState(sessionId, current.copy(turns = freshTurns))
     }
 
     companion object {
