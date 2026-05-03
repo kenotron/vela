@@ -127,6 +127,7 @@ class SessionStreamingService : Service() {
             ApprovalNotificationHelper.postTurnComplete(
                 context         = this,
                 sessionId       = sid,
+                nodeId          = next.nodeId,
                 projectName     = next.projectName ?: "Vela",
                 lastUserMessage = next.lastUserMessage,
             )
@@ -138,6 +139,7 @@ class SessionStreamingService : Service() {
             ApprovalNotificationHelper.postApproval(
                 context     = this,
                 sessionId   = sid,
+                nodeId      = next.nodeId,
                 projectName = next.projectName ?: "Vela",
                 approvalId  = newApproval.id,
                 question    = newApproval.question,
@@ -149,6 +151,7 @@ class SessionStreamingService : Service() {
             ApprovalNotificationHelper.postError(
                 context     = this,
                 sessionId   = sid,
+                nodeId      = next.nodeId,
                 projectName = next.projectName ?: "Vela",
             )
         }

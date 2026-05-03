@@ -5,8 +5,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vela.app.ui.theme.VelaColors
@@ -66,6 +68,16 @@ object Routes {
 @Composable
 fun VelaApp(modifier: Modifier = Modifier) {
     val navController = rememberNavController()
+
+    val deepLinkVm: DeepLinkViewModel = hiltViewModel()
+    val pendingDeepLink by deepLinkVm.pendingRoute.collectAsStateWithLifecycle()
+
+    LaunchedEffect(pendingDeepLink) {
+        val route = pendingDeepLink ?: return@LaunchedEffect
+        navController.navigate(route)
+        deepLinkVm.consumed()
+    }
+
     val approvalVm: ApprovalSheetViewModel = hiltViewModel()
     val approvalReq by approvalVm.request.collectAsState()
 

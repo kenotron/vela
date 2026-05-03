@@ -141,7 +141,7 @@ class SessionDetailViewModel @Inject constructor(
                         (prevApproval == null || prevApproval.first != pending.id)
                     ) {
                         _approvalRequest.value = Pair(pending.id, pending.question)
-                        ApprovalNotificationHelper.notify(ctx, sessionId, pending.question)
+                        ApprovalNotificationHelper.notify(ctx, sessionId, nodeId, pending.question)
                     } else if (pending == null && state.status == SessionStatus.IDLE) {
                         _approvalRequest.value = null
                     }

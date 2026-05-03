@@ -68,7 +68,7 @@ object ApprovalNotificationHelper {
      * Post a high-priority notification for an approval request.
      * Kept for ViewModel-level usage until Phase 2 migration is complete.
      */
-    fun notify(context: Context, sessionId: String, question: String) {
+    fun notify(context: Context, sessionId: String, nodeId: String = "", question: String) {
         if (!hasPermission(context)) return
         val notification = NotificationCompat.Builder(context, CHANNEL_APPROVALS)
             .setSmallIcon(R.mipmap.ic_launcher)
@@ -77,7 +77,7 @@ object ApprovalNotificationHelper {
             .setStyle(NotificationCompat.BigTextStyle().bigText(question))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
-            .setContentIntent(tapIntent(context, sessionId))
+            .setContentIntent(tapIntent(context, sessionId, nodeId))
             .build()
         NotificationManagerCompat.from(context)
             .notify(NOTIFICATION_ID_BASE + sessionId.hashCode(), notification)
@@ -89,6 +89,7 @@ object ApprovalNotificationHelper {
     fun postTurnComplete(
         context: Context,
         sessionId: String,
+        nodeId: String = "",
         projectName: String,
         lastUserMessage: String?,
     ) {
@@ -101,7 +102,7 @@ object ApprovalNotificationHelper {
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
-            .setContentIntent(tapIntent(context, sessionId))
+            .setContentIntent(tapIntent(context, sessionId, nodeId))
             .build()
         NotificationManagerCompat.from(context)
             .notify(NOTIF_COMPLETE_BASE + sessionId.hashCode(), notification)
@@ -114,6 +115,7 @@ object ApprovalNotificationHelper {
     fun postApproval(
         context: Context,
         sessionId: String,
+        nodeId: String = "",
         projectName: String,
         approvalId: String,
         question: String,
@@ -126,7 +128,7 @@ object ApprovalNotificationHelper {
             .setStyle(NotificationCompat.BigTextStyle().bigText(question))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
-            .setContentIntent(tapIntent(context, sessionId))
+            .setContentIntent(tapIntent(context, sessionId, nodeId))
             .build()
         NotificationManagerCompat.from(context)
             .notify(NOTIFICATION_ID_BASE + sessionId.hashCode(), notification)
@@ -136,6 +138,7 @@ object ApprovalNotificationHelper {
     fun postError(
         context: Context,
         sessionId: String,
+        nodeId: String = "",
         projectName: String,
     ) {
         if (!hasPermission(context)) return
@@ -145,7 +148,7 @@ object ApprovalNotificationHelper {
             .setContentText("Connection error — tap to retry")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
-            .setContentIntent(tapIntent(context, sessionId))
+            .setContentIntent(tapIntent(context, sessionId, nodeId))
             .build()
         NotificationManagerCompat.from(context)
             .notify(NOTIF_ERROR_BASE + sessionId.hashCode(), notification)
@@ -162,9 +165,11 @@ object ApprovalNotificationHelper {
         return true
     }
 
-    private fun tapIntent(context: Context, sessionId: String): PendingIntent {
+    private fun tapIntent(context: Context, sessionId: String, nodeId: String = ""): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("deep_link_session_id", sessionId)
+            putExtra("deep_link_node_id", nodeId)
         }
         return PendingIntent.getActivity(
             context,
