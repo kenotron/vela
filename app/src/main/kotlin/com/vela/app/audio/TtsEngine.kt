@@ -3,7 +3,9 @@ package com.vela.app.audio
 import android.content.Context
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 import java.util.UUID
 import kotlin.coroutines.resume
@@ -17,24 +19,19 @@ interface TtsEngine {
 
 class AndroidTtsEngine(context: Context) : TtsEngine {
 
-    @Volatile private var initialized = false
-    @Volatile private var initFailed = false
+    // Completes exactly once when the TextToSpeech init callback fires.
+    // true = SUCCESS, false = engine unavailable.
+    // No polling needed — callers suspend on await() until the deferred is resolved.
+    private val initResult = CompletableDeferred<Boolean>()
 
     private val tts = TextToSpeech(context) { status ->
-        if (status == TextToSpeech.SUCCESS) {
-            initialized = true
-        } else {
-            initFailed = true
-        }
+        initResult.complete(status == TextToSpeech.SUCCESS)
     }
 
     override suspend fun speak(text: String) {
-        // Wait up to 5s for init with 50ms polling
-        val deadlineMs = System.currentTimeMillis() + 5_000L
-        while (!initialized && !initFailed && System.currentTimeMillis() < deadlineMs) {
-            kotlinx.coroutines.delay(50)
-        }
-        if (!initialized) return
+        // Suspend until TTS is ready, with a 5s safety timeout for broken engines.
+        val ready = withTimeoutOrNull(5_000L) { initResult.await() } ?: false
+        if (!ready) return
 
         tts.language = Locale.US
 

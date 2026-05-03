@@ -735,8 +735,8 @@ internal fun RendererTypeSheet(
     var rerollKey    by remember { mutableStateOf(0) }
 
     LaunchedEffect(contentType, rerollKey) {
-        suggestions = null          // reset — triggers loading skeleton
-        delay(50)                   // one frame: guarantee skeleton renders before new results arrive
+        suggestions = null          // triggers recompose to skeleton; Compose recomposes during
+                                    // the suspension inside getRendererFile/suggestRendererTypes
         existingFile = viewModel.getRendererFile(contentType)
         suggestions  = viewModel.suggestRendererTypes(itemContent, contentType)
         onSuggestionsReady()        // signal FAB to stop spinning

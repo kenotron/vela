@@ -193,12 +193,9 @@ private fun AddIdentitySheet(
     var token by remember { mutableStateOf("") }
     val cs = MaterialTheme.colorScheme
 
-    // Auto-close on success
+    // Dismiss immediately on success — the modal exit animation provides the visual beat
     LaunchedEffect(statusMessage) {
-        if (statusMessage?.startsWith("Connected") == true) {
-            kotlinx.coroutines.delay(1200)
-            onDismiss()
-        }
+        if (statusMessage?.startsWith("Connected") == true) onDismiss()
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {

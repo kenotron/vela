@@ -106,12 +106,9 @@ fun NodeDetailScreen(
     // "Delete project" bottom sheet state — triggered by long-press on a project card
     var projectToDelete by remember { mutableStateOf<com.vela.app.amplifierd.AmplifierdProject?>(null) }
 
-    // Auto-dismiss repair sheet after brief "done" beat
+    // Dismiss repair sheet as soon as it reports complete
     LaunchedEffect(repairState.isComplete) {
-        if (repairState.isComplete) {
-            delay(1500)
-            viewModel.clearRepairState()
-        }
+        if (repairState.isComplete) viewModel.clearRepairState()
     }
 
     if (showDeleteDialog) {
