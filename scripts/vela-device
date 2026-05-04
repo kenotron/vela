@@ -1,43 +1,36 @@
 #!/usr/bin/env bash
-# Discover and return the ADB serial for the Vela device (Pixel 10 Pro).
+# Discover and return the ADB serial for the Vela device.
 # Usage:
-#   DEVICE=$(./scripts/vela-device)
-#   adb -s $DEVICE logcat ...
+#   ./scripts/vela-device              # print serial, connect if needed
+#   adb -s $(./scripts/vela-device) logcat ...
 #
-# Android 12+ wireless debugging assigns a new port every session.
-# This script finds the device automatically without needing the port.
+# Identifies the device by hardware serial (stable across networks/ports).
+# Works with both classic IP:port wireless and mDNS TLS (Android 12+).
 
-DEVICE_IP="10.0.0.106"
-HW_SERIAL="58121FDCH002PR"   # Stable hardware serial — never changes
+set -uo pipefail
 
-# Note: avoid grep in pipelines — it exits 1 on no match, which kills
-# the script under set -euo pipefail. Use awk for filtering instead.
+HW_SERIAL="58121FDCH002PR"
 
-# 1. Already connected via IP:port (traditional TCP mode)?
-SERIAL=$(adb devices 2>/dev/null | awk -v ip="$DEVICE_IP" '$1 ~ ip {print $1}' | head -1)
+# 1. Already connected? (matches any transport: USB, IP:port, or mDNS TLS)
+SERIAL=$(adb devices -l 2>/dev/null | grep "$HW_SERIAL" | awk '{print $1}' | head -1 || true)
 if [ -n "$SERIAL" ]; then
   echo "$SERIAL"
   exit 0
 fi
 
-# 2. Already connected via mDNS/TLS (Android 12+ wireless debugging)?
-#    Serial looks like: adb-58121FDCH002PR-KFuTp0._adb-tls-connect._tcp
-SERIAL=$(adb devices 2>/dev/null | awk -v s="$HW_SERIAL" '$1 ~ s {print $1}' | head -1)
-if [ -n "$SERIAL" ]; then
-  echo "$SERIAL"
+# 2. Discover via mDNS and connect (Android 12+ wireless debugging)
+MDNS_ADDR=$(adb mdns services 2>/dev/null \
+  | grep "$HW_SERIAL" \
+  | grep "_adb-tls-connect" \
+  | awk '{print $NF}' \
+  | head -1 || true)
+if [ -n "$MDNS_ADDR" ]; then
+  adb connect "$MDNS_ADDR" >/dev/null 2>&1 || true
+  SERIAL=$(adb devices -l 2>/dev/null | grep "$HW_SERIAL" | awk '{print $1}' | head -1 || true)
+  echo "${SERIAL:-$MDNS_ADDR}"
   exit 0
 fi
 
-# 3. Not yet connected — discover via mDNS and connect.
-#    Output format: adb-SERIAL-HASH  _adb-tls-connect._tcp  IP:PORT
-ADDR=$(adb mdns services 2>/dev/null | awk -v ip="$DEVICE_IP" '$0 ~ ip {print $NF}' | head -1)
-if [ -n "$ADDR" ]; then
-  adb connect "$ADDR" >/dev/null 2>&1 || true
-  echo "$ADDR"
-  exit 0
-fi
-
-echo "ERROR: Vela device not found." >&2
-echo "  Enable wireless debugging on the phone, then:" >&2
-echo "  adb connect $DEVICE_IP:<port>  (port shown in Developer Options → Wireless debugging)" >&2
+echo "ERROR: Vela device ($HW_SERIAL) not found" >&2
+echo "  Enable wireless debugging on the phone and ensure ADB is paired" >&2
 exit 1
