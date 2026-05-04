@@ -58,9 +58,11 @@ NodeReachabilityMonitor (@Singleton) ──StateFlow──▶ NodeDetailVM
 
 ---
 
-## Optimistic Write Pattern
+## Mutation Patterns
 
-Applied identically to every mutating operation (create, update, delete) in `ProjectRepository` and `SessionRepository`.
+### Delete and Update — Optimistic
+
+Applied to delete and update operations only. Create is different (see below).
 
 ```
 1. Snapshot current list
@@ -68,9 +70,23 @@ Applied identically to every mutating operation (create, update, delete) in `Pro
 3. Fire API call async
    onError  → restore snapshot in StateFlow       ← silent rollback, item reappears
    onSettled → reload from server into StateFlow  ← server truth always wins
+              (if reload also fails → retain rollback state, do not retry)
 ```
 
-No snackbars. No undo affordance. No dialogs on failure. Item disappears; if it fails, it silently reappears. This is the React Query optimistic mutation contract.
+No snackbars. No undo affordance. No dialogs on failure. Item disappears; if it fails, it silently reappears. If the settled reload fails (e.g. node went unreachable), the rollback state is kept as-is and no further action is taken.
+
+### Create — Server-Round-Trip First
+
+Both project create and session create require a server-assigned ID before the item can be usefully added to the list or navigated to. Neither can be optimistic.
+
+```
+1. Set isCreating=true (spinner)
+2. Fire API call → server assigns ID
+   onError  → isCreating=false, nothing changes
+   onSuccess → add to StateFlow, navigate / close sheet
+   onSettled → reload from server into StateFlow
+              (if reload fails → retain the just-added item, do not retry)
+```
 
 ---
 
@@ -89,7 +105,8 @@ User ──delete──▶ ProjectRepository
                               restore snapshot │               │ success
                     item reappears silently ◀──┘               │
                                                     reload from server
-                                                    StreamingManager.evict(all sessions for project)
+                                                    SessionRepository.clearProject(projectId)
+                                                    StreamingManager.evictForProject(projectId)
 ```
 
 ### Session Delete
@@ -159,15 +176,18 @@ NodeReachabilityMonitor.probe(nodeId)
 
 ### Node Reachability — Failure Propagation
 
-Any API call anywhere can mark a node unreachable immediately — no probe needed:
+Not all exceptions mean the node is down. Only connection-phase failures are treated as node-unreachable signals. HTTP error responses mean the node is up but the operation failed.
 
 ```
-ProjectRepository.delete() throws IOException
+ProjectRepository.delete() throws exception
     │
     ├─ restore snapshot (project reappears)
-    └─ NodeReachabilityMonitor.markUnreachable(nodeId)
-              │
-              └─ StateFlow updates → red dot appears everywhere immediately
+    └─ classify exception:
+          ConnectException / SocketTimeoutException / UnknownHostException
+              └─ NodeReachabilityMonitor.markUnreachable(nodeId)
+                        └─ red dot appears everywhere immediately
+          HttpException (4xx / 5xx) / other
+              └─ do NOT mark unreachable — node is reachable, operation failed
 ```
 
 ---
@@ -177,8 +197,10 @@ ProjectRepository.delete() throws IOException
 ### NodeDetailScreen
 
 ```
+─── VM.init ───▶ ProjectRepository.load(nodeId)   (triggers first fetch)
+                 NodeReachabilityMonitor.probe(nodeId)
 LOADING
-  └─[repo emits]──▶ LOADED
+  └─[repo emits first value]──▶ LOADED
                       ├─[probe on appear]──▶ PROBING (spinner on dot)
                       │     ├─[success]──▶ LOADED + green dot
                       │     └─[failure]──▶ LOADED + red dot + actions disabled
@@ -190,8 +212,10 @@ LOADING
 ### SessionListScreen
 
 ```
+─── VM.init ───▶ SessionRepository.load(projectId)   (triggers first fetch)
+                 NodeReachabilityMonitor.probe(nodeId)
 LOADING
-  └─[repo emits]──▶ LOADED
+  └─[repo emits first value]──▶ LOADED
                       ├─[session deleted optimistic]──▶ LOADED (row gone)
                       │     └─[rollback]──▶ LOADED (row back)
                       ├─[project name updated]──▶ LOADED (title updates immediately)
@@ -232,17 +256,17 @@ REACHABLE ──any API IOException──▶ UNREACHABLE
 
 | Class | Package | Responsibility |
 |---|---|---|
-| `ProjectRepository` | `com.vela.app.amplifierd` | `@Singleton`. `MutableStateFlow<Map<nodeId, List<AmplifierdProject>>>`. Exposes `projects(nodeId): StateFlow<List<AmplifierdProject>>`. All project CRUD with optimistic patch + rollback + refetch. On confirmed project delete, calls `SessionRepository.evictProject(projectId)` to clear cached sessions and streaming state for all child sessions. Calls `NodeReachabilityMonitor.markUnreachable()` on `IOException`. |
-| `SessionRepository` | `com.vela.app.amplifierd` | `@Singleton`. `MutableStateFlow<Map<projectId, List<AmplifierdSession>>>`. Exposes `sessions(projectId): StateFlow<List<AmplifierdSession>>`. All session CRUD. Exposes `evictProject(projectId)` for `ProjectRepository` to call on project delete — clears the session list and calls `StreamingManager.evict()` for each known session. Calls `NodeReachabilityMonitor.markUnreachable()` on `IOException`. |
-| `NodeReachabilityMonitor` | `com.vela.app.amplifierd` | `@Singleton`. `MutableStateFlow<Map<nodeId, Reachability>>` where `Reachability = UNKNOWN \| PROBING \| REACHABLE \| UNREACHABLE`. `probe(nodeId)` fetches `/capabilities`. `markUnreachable(nodeId)` sets directly. Auto-retries when a screen calls `probe()` on an `UNREACHABLE` node. |
+| `ProjectRepository` | `com.vela.app.amplifierd` | `@Singleton`. `MutableStateFlow<Map<nodeId, List<AmplifierdProject>>>`. Exposes `projects(nodeId): StateFlow<List<AmplifierdProject>>` and `load(nodeId)` to trigger the initial server fetch (called by `NodeDetailViewModel.init`). All project CRUD with optimistic patch + rollback + refetch. On confirmed project delete, calls both `SessionRepository.clearProject(projectId)` (clears the cached session list) and `StreamingManager.evictForProject(projectId)` (clears ghost streaming states regardless of what `SessionRepository` has cached). Calls `NodeReachabilityMonitor.markUnreachable()` only on `ConnectException`, `SocketTimeoutException`, or `UnknownHostException`. |
+| `SessionRepository` | `com.vela.app.amplifierd` | `@Singleton`. `MutableStateFlow<Map<projectId, List<AmplifierdSession>>>`. Exposes `sessions(projectId): StateFlow<List<AmplifierdSession>>` and `load(projectId)` to trigger the initial server fetch (called by `SessionListViewModel.init`). All session CRUD. Exposes `clearProject(projectId)` for `ProjectRepository` to call on project delete — removes the session list entries from the map only (streaming eviction is handled directly by `ProjectRepository` via `StreamingManager.evictForProject()`). Calls `NodeReachabilityMonitor.markUnreachable()` only on `ConnectException`, `SocketTimeoutException`, or `UnknownHostException`. |
+| `NodeReachabilityMonitor` | `com.vela.app.amplifierd` | `@Singleton`. `MutableStateFlow<Map<nodeId, Reachability>>` where `Reachability = UNKNOWN \| PROBING \| REACHABLE \| UNREACHABLE`. `probe(nodeId)` fetches `/capabilities` — **no-op if current state is already `PROBING`** (de-duplicates concurrent calls from multiple screens). `markUnreachable(nodeId)` called only on `ConnectException`, `SocketTimeoutException`, or `UnknownHostException` — not on HTTP 4xx/5xx. Auto-retries when a screen calls `probe()` on an `UNREACHABLE` node. |
 
 ### Modified (6 classes)
 
 | Class | Changes |
 |---|---|
-| `SessionStreamingManagerImpl` | Add `evict(sessionId: String)` — removes entry from `sessionFlows`. Called by `SessionRepository` after confirmed session delete. |
-| `NodeDetailViewModel` | Observe `ProjectRepository.projects(nodeId)` instead of `_projects`. Call `NodeReachabilityMonitor.probe(nodeId)` on init. Expose `reachability: StateFlow<Reachability>` to UI. Remove local `_projects` field. |
-| `SessionListViewModel` | Observe `SessionRepository.sessions(projectId)`. Observe `ProjectRepository.projects(nodeId)` for live project name — replaces frozen `SavedStateHandle` arg. Remove `previewCache` (dead memory). Expose `reachability` to UI. |
+| `SessionStreamingManagerImpl` | Add `evict(sessionId: String)` — removes one entry from `sessionFlows`. Called by `SessionRepository` after confirmed session delete. Add `evictForProject(projectId: String)` — removes all entries from `sessionFlows` whose `SessionState.projectId` matches, operating on the streaming manager's own internal map rather than `SessionRepository`'s cached session list. Called by `ProjectRepository` after confirmed project delete. This ensures ghost states are cleaned up even for sessions the `SessionRepository` has never loaded. |
+| `NodeDetailViewModel` | On init: call `ProjectRepository.load(nodeId)` (triggers initial fetch) and `NodeReachabilityMonitor.probe(nodeId)`. Observe `ProjectRepository.projects(nodeId)` instead of `_projects`. Expose `reachability: StateFlow<Reachability>` to UI. Remove local `_projects` field. |
+| `SessionListViewModel` | On init: call `SessionRepository.load(projectId)` (triggers initial fetch) and `NodeReachabilityMonitor.probe(nodeId)`. Observe `SessionRepository.sessions(projectId)`. Observe `ProjectRepository.projects(nodeId)` filtered by `projectId` for live project name — replaces frozen `SavedStateHandle` arg (projectId and nodeId are still read from `SavedStateHandle` as nav args, but the displayed name comes from the repo). Remove `previewCache` (dead memory). Expose `reachability` to UI. |
 | `SessionDetailViewModel` | Route delete through `SessionRepository` instead of direct client call. Set `_sessionDeleted = true` only when `SessionRepository.delete()` returns success. Call `StreamingManager.evict(sessionId)` on success. |
 | `NodeDetailScreen` | Bind green/red status dot to `NodeReachabilityMonitor` state, not `BootstrapStatus`. Disable create/delete actions when `UNREACHABLE`. |
 | `SessionListScreen` | Bind screen title to repo-derived project name, not `SavedStateHandle`. Show reachability indicator. Disable create/delete when `UNREACHABLE`. |
@@ -253,11 +277,11 @@ All three new classes need `@Singleton` Hilt bindings. Dependency graph:
 
 ```
 NodeReachabilityMonitor  ←  AmplifierdRepository, SshNodeRegistry
-ProjectRepository        ←  AmplifierdRepository, SshNodeRegistry, NodeReachabilityMonitor, SessionRepository
 SessionRepository        ←  AmplifierdRepository, SshNodeRegistry, NodeReachabilityMonitor, SessionStreamingManagerImpl
+ProjectRepository        ←  AmplifierdRepository, SshNodeRegistry, NodeReachabilityMonitor, SessionRepository, SessionStreamingManagerImpl
 ```
 
-`ProjectRepository` depends on `SessionRepository` (not the reverse) to call `evictProject()` on confirmed project delete. No circular dependency.
+`ProjectRepository` depends on both `SessionRepository` (to call `clearProject()`) and `SessionStreamingManagerImpl` (to call `evictForProject()` directly). `SessionRepository` does not depend on `ProjectRepository`. No circular dependency.
 
 ---
 
