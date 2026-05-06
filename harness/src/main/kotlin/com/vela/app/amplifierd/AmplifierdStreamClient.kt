@@ -21,7 +21,11 @@ sealed class StreamEvent {
     data class TextDelta(val token: String, val blockIndex: Int = 0) : StreamEvent()
     /** The complete text for a block, from content_block:end. Used as authoritative final text. */
     data class TextBlock(val text: String, val blockIndex: Int = 0) : StreamEvent()
-    data class ToolUse(val id: String, val name: String, val inputJson: String) : StreamEvent()
+    /**
+     * @param childSessionId Non-null when this tool call originates from a delegate child session.
+     *                       Null for root-session tool calls.
+     */
+    data class ToolUse(val id: String, val name: String, val inputJson: String, val childSessionId: String? = null) : StreamEvent()
     data class ProviderRetry(val attempt: Int, val maxRetries: Int, val errorMessage: String, val delaySecs: Double) : StreamEvent()
     data class ApprovalRequest(val id: String, val question: String, val context: String = "") : StreamEvent()
     /** Session was given a name by hooks-session-naming after sufficient turns. */
@@ -29,8 +33,11 @@ sealed class StreamEvent {
     object Thinking : StreamEvent()
     /** Thinking block content from content_block:end with type="thinking". */
     data class ThinkingBlock(val text: String) : StreamEvent()
-    /** Tool has completed — tool_call_id + output available immediately via tool:result event. */
-    data class ToolResult(val toolCallId: String, val toolName: String, val output: String) : StreamEvent()
+    /**
+     * Tool has completed — tool_call_id + output available immediately via tool:result event.
+     * @param childSessionId Non-null when this result originates from a delegate child session.
+     */
+    data class ToolResult(val toolCallId: String, val toolName: String, val output: String, val childSessionId: String? = null) : StreamEvent()
     /** A token from a child (delegate) session — routed to the active ToolUse block. */
     data class DelegateDelta(val token: String, val childSessionId: String) : StreamEvent()
     object Done : StreamEvent()
@@ -170,11 +177,11 @@ class AmplifierdStreamClient(private val baseUrl: String, private val token: Str
                                 delaySecs    = dataObj.optDouble("delay", 0.0),
                             )
 
-                            "content_block:end" -> if (isChildEvent) null else {
+                            "content_block:end" -> {
                                 val block = dataObj.optJSONObject("block")
                                 val blockIndex = dataObj.optInt("block_index", 0)
                                 when (block?.optString("type")) {
-                                    "text" -> {
+                                    "text" -> if (isChildEvent) null else {
                                         val text = block.optString("text", "")
                                         if (text.isNotBlank()) {
                                             Log.d(TAG, "stream: TextBlock len=${text.length}")
@@ -183,13 +190,16 @@ class AmplifierdStreamClient(private val baseUrl: String, private val token: Str
                                     }
                                     // amplifierd SSE uses "tool_call"; transcript uses "tool_use" — handle both.
                                     // Input field: SSE uses "arguments", transcript uses "input" — handle both.
+                                    // Child tool calls pass through with childSessionId set so the normalizer
+                                    // can nest them inside the parent delegate block.
                                     "tool_use", "tool_call" -> StreamEvent.ToolUse(
-                                        id        = block.optString("id", ""),
-                                        name      = block.optString("name", ""),
-                                        inputJson = (block.optJSONObject("arguments")
+                                        id            = block.optString("id", ""),
+                                        name          = block.optString("name", ""),
+                                        inputJson     = (block.optJSONObject("arguments")
                                             ?: block.optJSONObject("input"))?.toString() ?: "{}",
+                                        childSessionId = if (isChildEvent) eventSessionId else null,
                                     )
-                                    "thinking" -> {
+                                    "thinking" -> if (isChildEvent) null else {
                                         val thinkText = block.optString("thinking", "")
                                         if (thinkText.isNotBlank()) StreamEvent.ThinkingBlock(thinkText) else null
                                     }
@@ -216,11 +226,17 @@ class AmplifierdStreamClient(private val baseUrl: String, private val token: Str
                                 if (name.isNotBlank()) StreamEvent.Named(name) else null
                             }
 
-                            "tool:result" -> if (isChildEvent) null else {
+                            // Child tool results pass through with childSessionId set.
+                            "tool:result" -> {
                                 val id     = dataObj.optString("tool_call_id", "")
                                 val name   = dataObj.optString("tool_name", "")
                                 val output = dataObj.optString("output", "")
-                                if (id.isNotBlank()) StreamEvent.ToolResult(id, name, output) else null
+                                if (id.isNotBlank()) StreamEvent.ToolResult(
+                                    toolCallId     = id,
+                                    toolName       = name,
+                                    output         = output,
+                                    childSessionId = if (isChildEvent) eventSessionId else null,
+                                ) else null
                             }
 
                             else -> null
@@ -313,11 +329,11 @@ class AmplifierdStreamClient(private val baseUrl: String, private val token: Str
                                 delaySecs    = dataObj.optDouble("delay", 0.0),
                             )
 
-                            "content_block:end" -> if (isChildEvent) null else {
+                            "content_block:end" -> {
                                 val block = dataObj.optJSONObject("block")
                                 val blockIndex = dataObj.optInt("block_index", 0)
                                 when (block?.optString("type")) {
-                                    "text" -> {
+                                    "text" -> if (isChildEvent) null else {
                                         val text = block.optString("text", "")
                                         if (text.isNotBlank()) {
                                             Log.d(TAG, "subscribeEvents: TextBlock len=${text.length}")
@@ -326,13 +342,16 @@ class AmplifierdStreamClient(private val baseUrl: String, private val token: Str
                                     }
                                     // amplifierd SSE uses "tool_call"; transcript uses "tool_use" — handle both.
                                     // Input field: SSE uses "arguments", transcript uses "input" — handle both.
+                                    // Child tool calls pass through with childSessionId set so the normalizer
+                                    // can nest them inside the parent delegate block.
                                     "tool_use", "tool_call" -> StreamEvent.ToolUse(
-                                        id        = block.optString("id", ""),
-                                        name      = block.optString("name", ""),
-                                        inputJson = (block.optJSONObject("arguments")
+                                        id             = block.optString("id", ""),
+                                        name           = block.optString("name", ""),
+                                        inputJson      = (block.optJSONObject("arguments")
                                             ?: block.optJSONObject("input"))?.toString() ?: "{}",
+                                        childSessionId = if (isChildEvent) eventSessionId else null,
                                     )
-                                    "thinking" -> {
+                                    "thinking" -> if (isChildEvent) null else {
                                         val thinkText = block.optString("thinking", "")
                                         if (thinkText.isNotBlank()) StreamEvent.ThinkingBlock(thinkText) else null
                                     }
@@ -360,11 +379,17 @@ class AmplifierdStreamClient(private val baseUrl: String, private val token: Str
                                 if (name.isNotBlank()) StreamEvent.Named(name) else null
                             }
 
-                            "tool:result" -> if (isChildEvent) null else {
+                            // Child tool results pass through with childSessionId set.
+                            "tool:result" -> {
                                 val id     = dataObj.optString("tool_call_id", "")
                                 val name   = dataObj.optString("tool_name", "")
                                 val output = dataObj.optString("output", "")
-                                if (id.isNotBlank()) StreamEvent.ToolResult(id, name, output) else null
+                                if (id.isNotBlank()) StreamEvent.ToolResult(
+                                    toolCallId     = id,
+                                    toolName       = name,
+                                    output         = output,
+                                    childSessionId = if (isChildEvent) eventSessionId else null,
+                                ) else null
                             }
 
                             else -> null

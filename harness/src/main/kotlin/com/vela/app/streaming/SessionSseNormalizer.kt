@@ -22,6 +22,19 @@ import javax.inject.Singleton
 class SessionSseNormalizer @Inject constructor() {
 
     /**
+     * Maps child session ID → parent ToolUse block ID.
+     *
+     * Populated when a [StreamEvent.DelegateDelta] arrives carrying a childSessionId — at that
+     * point we know which running ToolUse block "owns" that child. Used to route subsequent
+     * child [StreamEvent.ToolUse] and [StreamEvent.ToolResult] events into the correct
+     * [ContentBlock.ToolUse.childBlocks] list rather than the parent turn's top-level blocks.
+     *
+     * Not part of [SessionState] because it is routing plumbing, not UI state.
+     * Cleared on [StreamEvent.Done] so it is fresh for the next execution.
+     */
+    private val childToParentBlockId = mutableMapOf<String, String>()
+
+    /**
      * Applies [event] to [state] and returns the updated [SessionState].
      *
      * This is a pure function — it never mutates [state] in place and has no side effects.
@@ -29,7 +42,7 @@ class SessionSseNormalizer @Inject constructor() {
     fun applyEvent(state: SessionState, event: StreamEvent): SessionState {
         return when (event) {
 
-            // ── execution:start ──────────────────────────────────────────────────
+            // ── execution:start ──────────────────────────────────────────────────────────
             StreamEvent.Thinking -> {
                 val newTurn = TurnContent(text = "", isUser = false, isStreaming = true)
                 state.copy(
@@ -39,7 +52,7 @@ class SessionSseNormalizer @Inject constructor() {
                 )
             }
 
-            // ── content_block:end (thinking) ──────────────────────────────────
+            // ── content_block:end (thinking) ──────────────────────────────────────────────
             is StreamEvent.ThinkingBlock -> {
                 val idx = state.activeTurnIndex ?: return state
                 val turns = state.turns.toMutableList()
@@ -50,7 +63,7 @@ class SessionSseNormalizer @Inject constructor() {
                 state.copy(turns = turns)
             }
 
-            // ── content_block:delta ──────────────────────────────────────────────
+            // ── content_block:delta ────────────────────────────────────────────────────────
             is StreamEvent.TextDelta -> {
                 val idx = state.activeTurnIndex ?: return state
                 val turns = state.turns.toMutableList()
@@ -77,7 +90,7 @@ class SessionSseNormalizer @Inject constructor() {
                 }
             }
 
-            // ── content_block:end (text) ─────────────────────────────────────────
+            // ── content_block:end (text) ───────────────────────────────────────────────────
             is StreamEvent.TextBlock -> {
                 val idx = state.activeTurnIndex ?: return state
                 val turns = state.turns.toMutableList()
@@ -95,51 +108,81 @@ class SessionSseNormalizer @Inject constructor() {
                 state.copy(turns = turns, textBlockFired = true)  // mark that full text is set
             }
 
-            // ── content_block:end (tool_use) ─────────────────────────────────────
+            // ── content_block:end (tool_use) — root and child ─────────────────────────────
             is StreamEvent.ToolUse -> {
                 val idx = state.activeTurnIndex ?: return state
                 val turns = state.turns.toMutableList()
                 val turn = turns[idx]
                 val blocks = turn.contentBlocks.toMutableList()
-                var todoActiveForm: String? = null
 
-                if (event.name == "todo") {
-                    val todos = parseTodoInput(event.inputJson)
-                    val progress = ContentBlock.TodoProgress(todos)
-
-                    // Only one TodoProgress per turn; last state wins — replace in place
-                    val existingIdx = blocks.indexOfFirst { it is ContentBlock.TodoProgress }
-                    if (existingIdx >= 0) {
-                        blocks[existingIdx] = progress
-                    } else {
-                        blocks.add(progress)
+                if (event.childSessionId != null) {
+                    // Child tool call — nest inside the parent delegate block
+                    val parentId = childToParentBlockId[event.childSessionId]
+                    val parentIdx = blocks.indexOfFirst {
+                        it is ContentBlock.ToolUse && it.id == parentId
                     }
-
-                    todoActiveForm = todos.firstOrNull { it.status == TodoStatus.IN_PROGRESS }?.activeForm
-                } else {
-                    // Deduplicate by id — the same content_block:end [tool_use] can arrive
-                    // twice on stream reconnect or subscribeEvents/stream overlap.
-                    val alreadyExists = blocks.any { it is ContentBlock.ToolUse && it.id == event.id }
-                    if (!alreadyExists) {
-                        blocks.add(
-                            ContentBlock.ToolUse(
-                                id = event.id,
-                                name = event.name,
+                    if (parentIdx >= 0) {
+                        val parent = blocks[parentIdx] as ContentBlock.ToolUse
+                        val alreadyExists = parent.childBlocks.any {
+                            it is ContentBlock.ToolUse && it.id == event.id
+                        }
+                        if (!alreadyExists) {
+                            val childBlock = ContentBlock.ToolUse(
+                                id        = event.id,
+                                name      = event.name,
                                 inputJson = event.inputJson,
                                 isRunning = true,
                             )
-                        )
+                            blocks[parentIdx] = parent.copy(
+                                childBlocks = parent.childBlocks + childBlock,
+                            )
+                        }
+                        turns[idx] = turn.copy(contentBlocks = blocks)
+                        state.copy(turns = turns)
+                    } else {
+                        state // parent block not found — drop
                     }
-                }
+                } else {
+                    var todoActiveForm: String? = null
 
-                turns[idx] = turn.copy(contentBlocks = blocks)
-                state.copy(
-                    turns = turns,
-                    currentTodoActiveForm = todoActiveForm ?: state.currentTodoActiveForm,
-                )
+                    if (event.name == "todo") {
+                        val todos = parseTodoInput(event.inputJson)
+                        val progress = ContentBlock.TodoProgress(todos)
+
+                        // Only one TodoProgress per turn; last state wins — replace in place
+                        val existingIdx = blocks.indexOfFirst { it is ContentBlock.TodoProgress }
+                        if (existingIdx >= 0) {
+                            blocks[existingIdx] = progress
+                        } else {
+                            blocks.add(progress)
+                        }
+
+                        todoActiveForm = todos.firstOrNull { it.status == TodoStatus.IN_PROGRESS }?.activeForm
+                    } else {
+                        // Deduplicate by id — the same content_block:end [tool_use] can arrive
+                        // twice on stream reconnect or subscribeEvents/stream overlap.
+                        val alreadyExists = blocks.any { it is ContentBlock.ToolUse && it.id == event.id }
+                        if (!alreadyExists) {
+                            blocks.add(
+                                ContentBlock.ToolUse(
+                                    id        = event.id,
+                                    name      = event.name,
+                                    inputJson = event.inputJson,
+                                    isRunning = true,
+                                )
+                            )
+                        }
+                    }
+
+                    turns[idx] = turn.copy(contentBlocks = blocks)
+                    state.copy(
+                        turns = turns,
+                        currentTodoActiveForm = todoActiveForm ?: state.currentTodoActiveForm,
+                    )
+                }
             }
 
-            // ── approval:request ─────────────────────────────────────────────────
+            // ── approval:request ──────────────────────────────────────────────────────────
             is StreamEvent.ApprovalRequest -> {
                 // Guard: only apply when session is actively executing (prevents SSE replay
                 // from re-surfacing approvals that were already resolved in a previous turn)
@@ -147,14 +190,15 @@ class SessionSseNormalizer @Inject constructor() {
                 state.copy(pendingApproval = ApprovalRequest(id = event.id, question = event.question))
             }
 
-            // ── provider:retry ───────────────────────────────────────────────────
+            // ── provider:retry ────────────────────────────────────────────────────────────
             is StreamEvent.ProviderRetry -> state   // notification handled externally
 
-            // ── session:named ────────────────────────────────────────────────────
+            // ── session:named ─────────────────────────────────────────────────────────────
             is StreamEvent.Named -> state.copy(sessionName = event.name)
 
-            // ── execution:end / orchestrator:complete ────────────────────────────
+            // ── execution:end / orchestrator:complete ──────────────────────────────────────
             StreamEvent.Done -> {
+                childToParentBlockId.clear()
                 val activeTurnIdx = state.activeTurnIndex
                 val turns = if (activeTurnIdx != null) {
                     state.turns.toMutableList().also { list ->
@@ -173,15 +217,18 @@ class SessionSseNormalizer @Inject constructor() {
             }
 
             is StreamEvent.DelegateDelta -> {
-                // Route child session tokens to the active ToolUse block's streamingText
+                // Route child session tokens to the active ToolUse block's streamingText.
+                // Also register the childSessionId → parent ToolUse.id mapping here — this is
+                // the first event that tells us which running delegate block owns this child.
                 val idx = state.activeTurnIndex ?: return state
                 val turns = state.turns.toMutableList()
                 val turn = turns[idx]
                 val blocks = turn.contentBlocks.toMutableList()
-                // Find the last running ToolUse block (most recently started delegate)
                 val toolIdx = blocks.indexOfLast { it is ContentBlock.ToolUse && it.isRunning }
                 if (toolIdx >= 0) {
                     val old = blocks[toolIdx] as ContentBlock.ToolUse
+                    // Register mapping so subsequent child tool events route to this block
+                    childToParentBlockId[event.childSessionId] = old.id
                     blocks[toolIdx] = old.copy(streamingText = old.streamingText + event.token)
                     turns[idx] = turn.copy(contentBlocks = blocks)
                     state.copy(turns = turns)
@@ -191,25 +238,75 @@ class SessionSseNormalizer @Inject constructor() {
             }
 
             is StreamEvent.ToolResult -> {
-                // Find the matching ToolUse block by id and mark it done with output
                 val idx = state.activeTurnIndex ?: return state
                 val turns = state.turns.toMutableList()
                 val turn = turns[idx]
                 val blocks = turn.contentBlocks.toMutableList()
-                val toolIdx = blocks.indexOfFirst {
-                    it is ContentBlock.ToolUse && it.id == event.toolCallId
-                }
-                if (toolIdx >= 0) {
-                    val old = blocks[toolIdx] as ContentBlock.ToolUse
-                    blocks[toolIdx] = old.copy(isRunning = false)
-                    turns[idx] = turn.copy(contentBlocks = blocks)
-                    state.copy(turns = turns)
+
+                if (event.childSessionId != null) {
+                    // Child tool result — update the nested child block inside the parent delegate
+                    val parentId = childToParentBlockId[event.childSessionId]
+                    val parentIdx = blocks.indexOfFirst {
+                        it is ContentBlock.ToolUse && it.id == parentId
+                    }
+                    if (parentIdx >= 0) {
+                        val parent = blocks[parentIdx] as ContentBlock.ToolUse
+                        val updatedChildren = parent.childBlocks.map { child ->
+                            if (child is ContentBlock.ToolUse && child.id == event.toolCallId) {
+                                child.copy(isRunning = false)
+                            } else child
+                        }.toMutableList()
+                        // Attach child result if not already present
+                        val alreadyHasChildResult = updatedChildren.any {
+                            it is ContentBlock.ToolResult && it.toolUseId == event.toolCallId
+                        }
+                        if (!alreadyHasChildResult && event.output.isNotBlank()) {
+                            updatedChildren.add(
+                                ContentBlock.ToolResult(
+                                    toolUseId = event.toolCallId,
+                                    output    = event.output,
+                                    isError   = false,
+                                )
+                            )
+                        }
+                        blocks[parentIdx] = parent.copy(childBlocks = updatedChildren)
+                        turns[idx] = turn.copy(contentBlocks = blocks)
+                        state.copy(turns = turns)
+                    } else {
+                        state // parent block not found — drop
+                    }
                 } else {
-                    state
+                    // Root tool result — find the matching ToolUse block by id, mark it done,
+                    // and attach result immediately from the SSE payload. The transcript reload
+                    // post-execution will overwrite this idempotently with the canonical version.
+                    val toolIdx = blocks.indexOfFirst {
+                        it is ContentBlock.ToolUse && it.id == event.toolCallId
+                    }
+                    if (toolIdx >= 0) {
+                        val old = blocks[toolIdx] as ContentBlock.ToolUse
+                        blocks[toolIdx] = old.copy(isRunning = false)
+                        // Attach result now — don't wait for transcript reload
+                        val alreadyHasResult = blocks.any {
+                            it is ContentBlock.ToolResult && it.toolUseId == event.toolCallId
+                        }
+                        if (!alreadyHasResult && event.output.isNotBlank()) {
+                            blocks.add(
+                                ContentBlock.ToolResult(
+                                    toolUseId = event.toolCallId,
+                                    output    = event.output,
+                                    isError   = false,
+                                )
+                            )
+                        }
+                        turns[idx] = turn.copy(contentBlocks = blocks)
+                        state.copy(turns = turns)
+                    } else {
+                        state
+                    }
                 }
             }
 
-            // ── error ────────────────────────────────────────────────────────────
+            // ── error ─────────────────────────────────────────────────────────────────────
             is StreamEvent.Error -> {
                 state.copy(status = SessionStatus.ERROR, activeTurnIndex = null)
             }

@@ -7,7 +7,15 @@ sealed class ContentBlock {
     /** Internal reasoning — shown as compact inline strip */
     data class Thinking(val text: String) : ContentBlock()
     /** Tool invocation card — isRunning=true while in-flight, false after result arrives */
-    data class ToolUse(val id: String, val name: String, val inputJson: String, val isRunning: Boolean = true, val streamingText: String = "") : ContentBlock()
+    data class ToolUse(
+        val id: String,
+        val name: String,
+        val inputJson: String,
+        val isRunning: Boolean = true,
+        val streamingText: String = "",
+        /** Nested tool calls from a delegate child session — non-empty only for delegate blocks. */
+        val childBlocks: List<ContentBlock> = emptyList(),
+    ) : ContentBlock()
     /** Tool result (paired with ToolUse by id) */
     data class ToolResult(val toolUseId: String, val output: String, val isError: Boolean = false) : ContentBlock()
     /**
