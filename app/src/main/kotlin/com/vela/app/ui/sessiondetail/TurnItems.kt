@@ -137,6 +137,7 @@ fun AgentTurnItem(
                                         result        = result?.output,
                                         isRunning     = block.isRunning,
                                         streamingText = block.streamingText,
+                                        childBlocks   = block.childBlocks,
                                     )
                                 } else {
                                     CollapsibleToolCard(block = block, result = result)
@@ -456,6 +457,7 @@ fun DelegateBlock(
     result: String? = null,
     isRunning: Boolean = false,
     streamingText: String = "",
+    childBlocks: List<ContentBlock> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     val (agentName, instruction) = remember(inputJson) {
@@ -526,6 +528,22 @@ fun DelegateBlock(
                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                     color = VelaColors.TextSecondary.copy(alpha = 0.7f),
                 )
+            }
+
+            // Nested child tool calls — rendered inline with a left indent
+            if (childBlocks.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Column(
+                    modifier            = Modifier.padding(start = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    childBlocks.filterIsInstance<ContentBlock.ToolUse>().forEach { childTool ->
+                        val childResult = childBlocks
+                            .filterIsInstance<ContentBlock.ToolResult>()
+                            .find { it.toolUseId == childTool.id }
+                        CollapsibleToolCard(block = childTool, result = childResult)
+                    }
+                }
             }
 
             // Result — always visible when present, no expand gate
