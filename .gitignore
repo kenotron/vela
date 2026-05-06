@@ -33,3 +33,5 @@ app/.cxx/
 # Brainstorming session artifacts (Amplifier superpowers)
 .superpowers/
 
+
+.worktrees/
