@@ -191,7 +191,9 @@ class SessionSseNormalizer @Inject constructor() {
             }
 
             is StreamEvent.ToolResult -> {
-                // Find the matching ToolUse block by id and mark it done with output
+                // Find the matching ToolUse block by id, mark it done, and attach result
+                // immediately from the SSE payload. The transcript reload post-execution will
+                // overwrite this idempotently with the canonical version.
                 val idx = state.activeTurnIndex ?: return state
                 val turns = state.turns.toMutableList()
                 val turn = turns[idx]
@@ -202,6 +204,19 @@ class SessionSseNormalizer @Inject constructor() {
                 if (toolIdx >= 0) {
                     val old = blocks[toolIdx] as ContentBlock.ToolUse
                     blocks[toolIdx] = old.copy(isRunning = false)
+                    // Attach result now — don't wait for transcript reload
+                    val alreadyHasResult = blocks.any {
+                        it is ContentBlock.ToolResult && it.toolUseId == event.toolCallId
+                    }
+                    if (!alreadyHasResult && event.output.isNotBlank()) {
+                        blocks.add(
+                            ContentBlock.ToolResult(
+                                toolUseId = event.toolCallId,
+                                output    = event.output,
+                                isError   = false,
+                            )
+                        )
+                    }
                     turns[idx] = turn.copy(contentBlocks = blocks)
                     state.copy(turns = turns)
                 } else {
