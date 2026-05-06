@@ -6,14 +6,19 @@ sealed class ContentBlock {
     data class Text(val markdown: String) : ContentBlock()
     /** Internal reasoning — shown as compact inline strip */
     data class Thinking(val text: String) : ContentBlock()
-    /** Tool invocation card — isRunning=true while in-flight, false after result arrives */
+    /**
+     * Tool invocation card — isRunning=true while in-flight, false after result arrives.
+     *
+     * For delegate tool calls, [childBlocks] holds the interleaved content of the child agent
+     * (Text and ToolUse blocks in order of arrival, mirroring how root-session turns work).
+     * [streamingText] is unused for delegates; tokens are folded directly into childBlocks.
+     */
     data class ToolUse(
         val id: String,
         val name: String,
         val inputJson: String,
         val isRunning: Boolean = true,
-        val streamingText: String = "",
-        /** Nested tool calls from a delegate child session — non-empty only for delegate blocks. */
+        /** Interleaved child content — text and nested tool calls in arrival order. Delegate only. */
         val childBlocks: List<ContentBlock> = emptyList(),
     ) : ContentBlock()
     /** Tool result (paired with ToolUse by id) */

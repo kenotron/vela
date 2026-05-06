@@ -116,7 +116,8 @@ class SessionSseNormalizer @Inject constructor() {
                 val blocks = turn.contentBlocks.toMutableList()
 
                 if (event.childSessionId != null) {
-                    // Child tool call — nest inside the parent delegate block
+                    // Child tool call — append inline into the parent delegate block's childBlocks,
+                    // preserving arrival order so it interleaves with text tokens correctly.
                     val parentId = childToParentBlockId[event.childSessionId]
                     val parentIdx = blocks.indexOfFirst {
                         it is ContentBlock.ToolUse && it.id == parentId
@@ -217,19 +218,28 @@ class SessionSseNormalizer @Inject constructor() {
             }
 
             is StreamEvent.DelegateDelta -> {
-                // Route child session tokens to the active ToolUse block's streamingText.
-                // Also register the childSessionId → parent ToolUse.id mapping here — this is
-                // the first event that tells us which running delegate block owns this child.
+                // Route child session text tokens into the parent delegate block's childBlocks
+                // as an interleaved Text block — the same pattern root turns use for TextDelta.
+                // Also registers the childSessionId → parent ToolUse.id mapping on first token.
                 val idx = state.activeTurnIndex ?: return state
                 val turns = state.turns.toMutableList()
                 val turn = turns[idx]
                 val blocks = turn.contentBlocks.toMutableList()
                 val toolIdx = blocks.indexOfLast { it is ContentBlock.ToolUse && it.isRunning }
                 if (toolIdx >= 0) {
-                    val old = blocks[toolIdx] as ContentBlock.ToolUse
+                    val parent = blocks[toolIdx] as ContentBlock.ToolUse
                     // Register mapping so subsequent child tool events route to this block
-                    childToParentBlockId[event.childSessionId] = old.id
-                    blocks[toolIdx] = old.copy(streamingText = old.streamingText + event.token)
+                    childToParentBlockId[event.childSessionId] = parent.id
+                    // Append token to a trailing Text childBlock, or create one
+                    val childBlocks = parent.childBlocks.toMutableList()
+                    val lastChildTextIdx = childBlocks.indexOfLast { it is ContentBlock.Text }
+                    if (lastChildTextIdx >= 0) {
+                        val prev = (childBlocks[lastChildTextIdx] as ContentBlock.Text).markdown
+                        childBlocks[lastChildTextIdx] = ContentBlock.Text(prev + event.token)
+                    } else {
+                        childBlocks.add(ContentBlock.Text(event.token))
+                    }
+                    blocks[toolIdx] = parent.copy(childBlocks = childBlocks)
                     turns[idx] = turn.copy(contentBlocks = blocks)
                     state.copy(turns = turns)
                 } else {
@@ -244,24 +254,31 @@ class SessionSseNormalizer @Inject constructor() {
                 val blocks = turn.contentBlocks.toMutableList()
 
                 if (event.childSessionId != null) {
-                    // Child tool result — update the nested child block inside the parent delegate
+                    // Child tool result — mark the matching child ToolUse done and attach result
+                    // inline in childBlocks right after the ToolUse (preserving order).
                     val parentId = childToParentBlockId[event.childSessionId]
                     val parentIdx = blocks.indexOfFirst {
                         it is ContentBlock.ToolUse && it.id == parentId
                     }
                     if (parentIdx >= 0) {
                         val parent = blocks[parentIdx] as ContentBlock.ToolUse
-                        val updatedChildren = parent.childBlocks.map { child ->
-                            if (child is ContentBlock.ToolUse && child.id == event.toolCallId) {
-                                child.copy(isRunning = false)
-                            } else child
-                        }.toMutableList()
-                        // Attach child result if not already present
-                        val alreadyHasChildResult = updatedChildren.any {
+                        val childBlocks = parent.childBlocks.toMutableList()
+                        // Mark the child ToolUse done
+                        val childToolIdx = childBlocks.indexOfFirst {
+                            it is ContentBlock.ToolUse && it.id == event.toolCallId
+                        }
+                        if (childToolIdx >= 0) {
+                            childBlocks[childToolIdx] =
+                                (childBlocks[childToolIdx] as ContentBlock.ToolUse).copy(isRunning = false)
+                        }
+                        // Attach result immediately after its ToolUse if not already present
+                        val alreadyHasResult = childBlocks.any {
                             it is ContentBlock.ToolResult && it.toolUseId == event.toolCallId
                         }
-                        if (!alreadyHasChildResult && event.output.isNotBlank()) {
-                            updatedChildren.add(
+                        if (!alreadyHasResult && event.output.isNotBlank()) {
+                            val insertAt = if (childToolIdx >= 0) childToolIdx + 1 else childBlocks.size
+                            childBlocks.add(
+                                insertAt,
                                 ContentBlock.ToolResult(
                                     toolUseId = event.toolCallId,
                                     output    = event.output,
@@ -269,7 +286,7 @@ class SessionSseNormalizer @Inject constructor() {
                                 )
                             )
                         }
-                        blocks[parentIdx] = parent.copy(childBlocks = updatedChildren)
+                        blocks[parentIdx] = parent.copy(childBlocks = childBlocks)
                         turns[idx] = turn.copy(contentBlocks = blocks)
                         state.copy(turns = turns)
                     } else {
@@ -291,6 +308,7 @@ class SessionSseNormalizer @Inject constructor() {
                         }
                         if (!alreadyHasResult && event.output.isNotBlank()) {
                             blocks.add(
+                                toolIdx + 1,
                                 ContentBlock.ToolResult(
                                     toolUseId = event.toolCallId,
                                     output    = event.output,

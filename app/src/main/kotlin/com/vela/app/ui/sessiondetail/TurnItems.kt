@@ -133,11 +133,10 @@ fun AgentTurnItem(
                                     .find { it.toolUseId == block.id }
                                 if (block.name == "delegate" || block.name.contains("delegate", ignoreCase = true)) {
                                     DelegateBlock(
-                                        inputJson     = block.inputJson,
-                                        result        = result?.output,
-                                        isRunning     = block.isRunning,
-                                        streamingText = block.streamingText,
-                                        childBlocks   = block.childBlocks,
+                                        inputJson   = block.inputJson,
+                                        result      = result?.output,
+                                        isRunning   = block.isRunning,
+                                        childBlocks = block.childBlocks,
                                     )
                                 } else {
                                     CollapsibleToolCard(block = block, result = result)
@@ -451,12 +450,21 @@ private fun CollapsibleToolCard(
     }
 }
 
+/**
+ * Renders a delegate (sub-agent) invocation block.
+ *
+ * Collapsed state: shows the header + the latest childBlock as a one-line summary.
+ * Expanded state: shows instruction + all childBlocks interleaved (text + tool calls in
+ * arrival order, mirroring how the root-session turn renders its content blocks) + final result.
+ *
+ * Starts collapsed while running so the parent turn stays readable; expands to show full
+ * detail on tap. Stays collapsed once done so completed delegates don't dominate the view.
+ */
 @Composable
 fun DelegateBlock(
     inputJson: String,
     result: String? = null,
     isRunning: Boolean = false,
-    streamingText: String = "",
     childBlocks: List<ContentBlock> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
@@ -471,33 +479,59 @@ fun DelegateBlock(
         }
     }
 
+    // Collapsed by default — tap header to expand
+    var expanded by remember { mutableStateOf(false) }
+
+    // Derive a one-line summary from the latest childBlock for the collapsed view
+    val latestSummary = remember(childBlocks) {
+        when (val last = childBlocks.lastOrNull()) {
+            is ContentBlock.Text     -> last.markdown.lineSequence().firstOrNull { it.isNotBlank() }
+                                            ?.take(60) ?: ""
+            is ContentBlock.ToolUse  -> "⚙ ${last.name}"
+            is ContentBlock.ToolResult -> null // result paired with tool — don't show separately
+            else                     -> null
+        }
+    }
+
     Row(modifier = modifier.fillMaxWidth()) {
+        // 3dp left accent bar
         Box(
             modifier = Modifier
                 .width(3.dp)
                 .fillMaxHeight()
                 .clip(RoundedCornerShape(2.dp))
-                .background(VelaColors.Waiting.copy(alpha = 0.7f))
+                .background(
+                    if (isRunning && result == null)
+                        VelaColors.Waiting.copy(alpha = 0.7f)
+                    else
+                        VelaColors.TextTertiary.copy(alpha = 0.35f)
+                )
                 .align(Alignment.Top),
         )
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
-            // Header: icon + agent name + done check (no spinner, no chevron)
+
+            // ── Header row (always visible, tappable) ──────────────────────────────
             Row(
-                modifier          = Modifier.fillMaxWidth(),
+                modifier          = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
                     imageVector        = Icons.Default.AccountTree,
                     contentDescription = "Sub-agent",
-                    tint               = VelaColors.Waiting.copy(alpha = 0.8f),
+                    tint               = if (isRunning && result == null)
+                                             VelaColors.Waiting.copy(alpha = 0.8f)
+                                         else VelaColors.TextTertiary,
                     modifier           = Modifier.size(14.dp),
                 )
                 Spacer(Modifier.width(5.dp))
                 Text(
-                    text  = agentName,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (isRunning && result == null) VelaColors.Waiting else VelaColors.TextSecondary,
+                    text     = agentName,
+                    style    = MaterialTheme.typography.labelMedium,
+                    color    = if (isRunning && result == null) VelaColors.Waiting
+                               else VelaColors.TextSecondary,
                     modifier = Modifier.weight(1f),
                 )
                 if (result != null) {
@@ -507,56 +541,76 @@ fun DelegateBlock(
                         tint               = VelaColors.Done,
                         modifier           = Modifier.size(13.dp),
                     )
+                    Spacer(Modifier.width(4.dp))
                 }
-            }
-
-            // Full instruction — no truncation
-            if (instruction.isNotBlank()) {
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    text  = instruction,
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                    color = VelaColors.TextSecondary,
+                Icon(
+                    imageVector        = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    tint               = VelaColors.TextTertiary,
+                    modifier           = Modifier.size(14.dp),
                 )
             }
 
-            // Streaming content — show while running or until the real result loads
-            if (streamingText.isNotEmpty() && result == null) {
-                Spacer(Modifier.height(4.dp))
+            // ── Collapsed summary: latest activity snippet ─────────────────────────
+            if (!expanded && !latestSummary.isNullOrBlank()) {
+                Spacer(Modifier.height(2.dp))
                 Text(
-                    text  = streamingText,
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                    color = VelaColors.TextSecondary.copy(alpha = 0.7f),
+                    text     = latestSummary,
+                    style    = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                    color    = VelaColors.TextTertiary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
 
-            // Nested child tool calls — rendered inline with a left indent
-            if (childBlocks.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
-                Column(
-                    modifier            = Modifier.padding(start = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    childBlocks.filterIsInstance<ContentBlock.ToolUse>().forEach { childTool ->
-                        val childResult = childBlocks
-                            .filterIsInstance<ContentBlock.ToolResult>()
-                            .find { it.toolUseId == childTool.id }
-                        CollapsibleToolCard(block = childTool, result = childResult)
+            // ── Expanded body ──────────────────────────────────────────────────────
+            if (expanded) {
+                // Instruction
+                if (instruction.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text  = instruction,
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                        color = VelaColors.TextSecondary,
+                    )
+                }
+
+                // Interleaved child content — text and tool calls in arrival order
+                if (childBlocks.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        childBlocks.forEach { block ->
+                            when (block) {
+                                is ContentBlock.Text -> MarkdownText(
+                                    markdown = block.markdown,
+                                    color    = VelaColors.TextSecondary,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                is ContentBlock.ToolUse -> {
+                                    val childResult = childBlocks
+                                        .filterIsInstance<ContentBlock.ToolResult>()
+                                        .find { it.toolUseId == block.id }
+                                    CollapsibleToolCard(block = block, result = childResult)
+                                }
+                                is ContentBlock.ToolResult -> { /* rendered via matching ToolUse */ }
+                                else -> { /* thinking/todo not expected in child content */ }
+                            }
+                        }
                     }
                 }
-            }
 
-            // Result — always visible when present, no expand gate
-            if (result != null) {
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text  = result,
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontFamily = FontFamily.Monospace,
-                        fontSize   = 11.sp,
-                    ),
-                    color = VelaColors.TextSecondary,
-                )
+                // Final result from transcript (shows after execution completes)
+                if (result != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text  = result,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontSize   = 11.sp,
+                        ),
+                        color = VelaColors.TextSecondary,
+                    )
+                }
             }
         }
     }
