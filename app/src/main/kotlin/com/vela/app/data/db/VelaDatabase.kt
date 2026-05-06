@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MiniAppRegistryEntity::class,
         MiniAppDocumentEntity::class,
     ],
-    version = 16,
+    version = 17,
     exportSchema = true,
 )
 abstract class VelaDatabase : RoomDatabase() {
@@ -32,6 +32,13 @@ abstract class VelaDatabase : RoomDatabase() {
     abstract fun gitHubIdentityDao(): GitHubIdentityDao
     abstract fun miniAppRegistryDao(): MiniAppRegistryDao
     abstract fun miniAppDocumentDao(): MiniAppDocumentDao
+}
+
+/** v16→v17: add tailscale_url column to ssh_nodes for secondary Tailscale IP URL. */
+val MIGRATION_16_17 = object : Migration(16, 17) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE ssh_nodes ADD COLUMN tailscale_url TEXT NOT NULL DEFAULT ''")
+    }
 }
 
 /** v15→v16: add workspace_dir column to ssh_nodes for per-node working directory. */

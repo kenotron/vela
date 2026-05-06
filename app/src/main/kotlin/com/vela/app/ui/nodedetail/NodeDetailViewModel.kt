@@ -45,16 +45,29 @@ class NodeDetailViewModel @Inject constructor(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading
 
-    // ── Live capabilities (Phase 8) ────────────────────────────────────────
+    // ── Live capabilities (Phase 8) ────────────────────────────────────────────
 
     private val _capabilities = MutableStateFlow<AmplifierdCapabilities?>(null)
     val capabilities: StateFlow<AmplifierdCapabilities?> = _capabilities
+
+    // ── Connectivity (reachability) ────────────────────────────────────────────
+
+    private val _isReachable = MutableStateFlow<Boolean?>(null) // null = unknown
+    val isReachable: StateFlow<Boolean?> = _isReachable
+
+    fun refreshConnectivity() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val n = node.value ?: return@launch
+            _isReachable.value = amplifierd.findReachableUrl(n) != null
+        }
+    }
 
     init {
         viewModelScope.launch {
             node.filterNotNull().first() // wait for node to load
             loadProjects()
             startCapabilitiesPolling()
+            refreshConnectivity()
         }
     }
 
@@ -137,7 +150,7 @@ class NodeDetailViewModel @Inject constructor(
             }
         }
     
-    // ── Repair state ──────────────────────────────────────────────────────
+    // ── Repair state ──────────────────────────────────────────────────────────
 
     private val _repairState = MutableStateFlow(BootstrapUiState())
     val repairState: StateFlow<BootstrapUiState> = _repairState
@@ -165,9 +178,9 @@ class NodeDetailViewModel @Inject constructor(
                         )
                     }
                     is BootstrapEvent.Complete     -> {
-                        // Sync the URL back to Room — Tailscale IP may have changed since first bootstrap
-                        n.copy(url = event.url).let { updated ->
-                            viewModelScope.launch(Dispatchers.IO) { registry.updateConnection(updated) }
+                        // Sync both URLs back — Tailscale IP may have changed since first bootstrap
+                        n.copy(url = event.url, tailscaleUrl = event.tailscaleUrl).let { updated ->
+                            viewModelScope.launch(Dispatchers.IO) { registry.updateNode(updated) }
                         }
                         _repairState.update { it.copy(isBootstrapping = false, isComplete = true) }
                     }

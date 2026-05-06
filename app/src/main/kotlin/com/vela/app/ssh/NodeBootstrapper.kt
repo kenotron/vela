@@ -361,13 +361,13 @@ WantedBy=default.target
         emit(BootstrapEvent.StepStart(BootstrapStep.PROMOTE))
         val tailscale = shell.exec("tailscale ip -4 2>/dev/null")
         val tsIp = tailscale.stdout.lineSequence().firstOrNull { it.isNotBlank() }?.trim()
-        val url = if (tailscale.exitCode == 0 && !tsIp.isNullOrEmpty())
-            "http://$tsIp:8410" else "http://$host:8410"
-        registry.promoteToAmplifierd(nodeId, url, token)
+        val lanUrl = "http://$host:8410"
+        val tailscaleUrl = if (tailscale.exitCode == 0 && !tsIp.isNullOrEmpty()) "http://$tsIp:8410" else ""
+        registry.promoteToAmplifierd(nodeId, lanUrl, tailscaleUrl, token)
         registry.updateBootstrapStatus(nodeId, BootstrapStatus.RUNNING)
         emit(BootstrapEvent.StepComplete(BootstrapStep.PROMOTE))
 
-        emit(BootstrapEvent.Complete(url, token))
+        emit(BootstrapEvent.Complete(url = lanUrl, tailscaleUrl = tailscaleUrl, token = token))
     }
 
     // ── Public repair entry ───────────────────────────────────────────────────────────────────────
@@ -551,9 +551,13 @@ WantedBy=default.target
         }
         emit(BootstrapEvent.StepComplete(BootstrapStep.HEALTH_CHECK))
 
-        // Step 10: Complete — update status to RUNNING, emit Complete with existingToken
+        // Step 10: Complete — detect Tailscale URL, update status to RUNNING, emit Complete
+        val tailscaleR = shell.exec("tailscale ip -4 2>/dev/null")
+        val tsTsIp = tailscaleR.stdout.lineSequence().firstOrNull { it.isNotBlank() }?.trim()
+        val repairLanUrl = "http://$host:8410"
+        val repairTailscaleUrl = if (tailscaleR.exitCode == 0 && !tsTsIp.isNullOrEmpty()) "http://$tsTsIp:8410" else ""
         registry.updateBootstrapStatus(nodeId, BootstrapStatus.RUNNING)
-        emit(BootstrapEvent.Complete("http://$host:8410", existingToken))
+        emit(BootstrapEvent.Complete(url = repairLanUrl, tailscaleUrl = repairTailscaleUrl, token = existingToken))
     }
 
     // ── JSch session factory ──────────────────────────────────────────────────
@@ -644,7 +648,7 @@ WantedBy=default.target
                 override suspend fun updateBootstrapStatus(id: String, status: String) =
                     error("SshNodeDao must not be accessed in NodeBootstrapper helper tests")
                 override suspend fun promoteToAmplifierd(
-                    id: String, type: String, url: String, token: String, status: String,
+                    id: String, type: String, url: String, tailscaleUrl: String, token: String, status: String,
                 ) = error("SshNodeDao must not be accessed in NodeBootstrapper helper tests")
                 override suspend fun updateConnection(
                     id: String, label: String, hosts: String, port: Int, username: String, workspaceDir: String,

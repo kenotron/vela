@@ -134,6 +134,27 @@ class SessionTranscriptNormalizer @Inject constructor() {
             }
         }
 
+        // Also handle the amplifierd transcript format where tool calls are in a top-level
+        // `tool_calls` array (not inside the `content` array).
+        // Format: {"id":"...", "tool":"bash", "arguments":{...}}
+        // Note: field names differ from the SSE format — "tool" (not "name"), "arguments" (not "input").
+        val toolCallsArray = msg.optJSONArray("tool_calls")
+        if (toolCallsArray != null) {
+            for (j in 0 until toolCallsArray.length()) {
+                val tc = toolCallsArray.getJSONObject(j)
+                val id   = tc.optString("id", "")
+                val name = tc.optString("tool", "").ifBlank { tc.optString("name", "") }
+                val inputJson = tc.optJSONObject("arguments")?.toString()
+                    ?: tc.optJSONObject("input")?.toString()
+                    ?: tc.optString("arguments", "{}")
+                if (name == "todo") {
+                    blocks.add(parseTodoBlock(inputJson))
+                } else if (name.isNotBlank()) {
+                    blocks.add(ContentBlock.ToolUse(id = id, name = name, inputJson = inputJson, isRunning = false))
+                }
+            }
+        }
+
         // Pair each ToolUse block with the next role='tool' message in order
         val toolUseBlocks = blocks.filterIsInstance<ContentBlock.ToolUse>()
         var nextIdx = startIdx + 1

@@ -11,10 +11,11 @@ import com.vela.app.ssh.SshNode
 import com.vela.app.ssh.SshNodeRegistry
 import com.vela.app.ui.nodes.BootstrapUiState
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
@@ -101,6 +102,7 @@ class ConnectNodeViewModel @Inject constructor(
                                 username = f.username,
                                 type     = com.vela.app.ssh.NodeType.AMPLIFIERD,
                                 url      = event.url,
+                                tailscaleUrl = event.tailscaleUrl,
                                 token    = event.token,
                                 bootstrapStatus = BootstrapStatus.RUNNING,
                                 workspaceDir    = f.workspaceDir.ifBlank { "~" },
@@ -115,5 +117,52 @@ class ConnectNodeViewModel @Inject constructor(
 
     fun clearBootstrapState() {
         _bootstrapState.value = BootstrapUiState()
+    }
+
+    // ── Tailscale discovery state ──────────────────────────────────────────────
+
+    private val _tailscaleApiKey   = MutableStateFlow("")
+    val tailscaleApiKey: StateFlow<String> = _tailscaleApiKey.asStateFlow()
+
+    private val _tailscaleDevices  = MutableStateFlow<List<com.vela.app.tailscale.TailscaleDevice>?>(null)
+    val tailscaleDevices: StateFlow<List<com.vela.app.tailscale.TailscaleDevice>?> = _tailscaleDevices.asStateFlow()
+
+    private val _tailscaleLoading  = MutableStateFlow(false)
+    val tailscaleLoading: StateFlow<Boolean> = _tailscaleLoading.asStateFlow()
+
+    private val _tailscaleError    = MutableStateFlow<String?>(null)
+    val tailscaleError: StateFlow<String?> = _tailscaleError.asStateFlow()
+
+    fun updateTailscaleApiKey(key: String) { _tailscaleApiKey.value = key }
+
+    fun loadTailscaleDevices() {
+        val key = _tailscaleApiKey.value.trim()
+        if (key.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            _tailscaleLoading.value = true
+            _tailscaleError.value = null
+            _tailscaleDevices.value = null
+            try {
+                _tailscaleDevices.value = com.vela.app.tailscale.TailscaleApiClient(key).listDevices()
+            } catch (e: Exception) {
+                _tailscaleError.value = "Failed: ${e.message?.take(80)}"
+            } finally {
+                _tailscaleLoading.value = false
+            }
+        }
+    }
+
+    /** Pre-fill the SSH form from a Tailscale device. */
+    fun applyTailscaleDevice(device: com.vela.app.tailscale.TailscaleDevice) {
+        _form.update { it.copy(
+            host     = device.tailscaleIp,
+            username = inferUsername(device.os),
+        )}
+    }
+
+    private fun inferUsername(os: String): String = when {
+        os.contains("macOS", ignoreCase = true) -> "ken"  // best guess; user can edit
+        os.contains("linux", ignoreCase = true) -> "ubuntu"
+        else -> ""
     }
 }

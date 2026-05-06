@@ -133,9 +133,10 @@ fun AgentTurnItem(
                                     .find { it.toolUseId == block.id }
                                 if (block.name == "delegate" || block.name.contains("delegate", ignoreCase = true)) {
                                     DelegateBlock(
-                                        inputJson = block.inputJson,
-                                        result    = result?.output,
-                                        isRunning = block.isRunning,
+                                        inputJson     = block.inputJson,
+                                        result        = result?.output,
+                                        isRunning     = block.isRunning,
+                                        streamingText = block.streamingText,
                                     )
                                 } else {
                                     CollapsibleToolCard(block = block, result = result)
@@ -449,38 +450,26 @@ private fun CollapsibleToolCard(
     }
 }
 
-/**
- * Subagent delegation card — shown when the agent calls the `delegate` tool.
- *
- * Single-level indent regardless of nesting depth (sub-sub-agents are still
- * rendered at the same indent level). Left border uses a distinct violet tint
- * to visually separate from tool calls.
- */
 @Composable
 fun DelegateBlock(
     inputJson: String,
     result: String? = null,
     isRunning: Boolean = false,
+    streamingText: String = "",
     modifier: Modifier = Modifier,
 ) {
-    // Parse agent name and instruction from the inputJson
     val (agentName, instruction) = remember(inputJson) {
         try {
             val obj = org.json.JSONObject(inputJson)
             val agent = obj.optString("agent", "sub-agent")
-            val instr = obj.optString("instruction", "").take(120).let {
-                if (it.length == 120) "$it…" else it
-            }
+            val instr = obj.optString("instruction", "")
             Pair(agent, instr)
         } catch (_: Exception) {
-            Pair("sub-agent", inputJson.take(80))
+            Pair("sub-agent", inputJson.take(200))
         }
     }
 
-    var expanded by remember { mutableStateOf(false) }
-
     Row(modifier = modifier.fillMaxWidth()) {
-        // Single left indent bar — violet/purple to distinguish from tool calls
         Box(
             modifier = Modifier
                 .width(3.dp)
@@ -491,9 +480,9 @@ fun DelegateBlock(
         )
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
-            // Header row: icon + agent name + spinner/done
+            // Header: icon + agent name + done check (no spinner, no chevron)
             Row(
-                modifier          = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+                modifier          = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
@@ -504,19 +493,12 @@ fun DelegateBlock(
                 )
                 Spacer(Modifier.width(5.dp))
                 Text(
-                    text     = agentName,
-                    style    = MaterialTheme.typography.labelMedium,
-                    color    = VelaColors.Waiting,
+                    text  = agentName,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (isRunning && result == null) VelaColors.Waiting else VelaColors.TextSecondary,
                     modifier = Modifier.weight(1f),
                 )
-                if (isRunning && result == null) {
-                    CircularProgressIndicator(
-                        modifier    = Modifier.size(12.dp),
-                        color       = VelaColors.Waiting,
-                        strokeWidth = 1.5.dp,
-                        progress    = { 0.3f },
-                    )
-                } else if (result != null) {
+                if (result != null) {
                     Icon(
                         imageVector        = Icons.Default.CheckCircle,
                         contentDescription = "Done",
@@ -524,35 +506,31 @@ fun DelegateBlock(
                         modifier           = Modifier.size(13.dp),
                     )
                 }
-                Spacer(Modifier.width(4.dp))
-                Icon(
-                    imageVector        = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = null,
-                    tint               = VelaColors.TextTertiary,
-                    modifier           = Modifier.size(14.dp),
-                )
             }
 
-            // Instruction preview (always visible, secondary text)
+            // Full instruction — no truncation
             if (instruction.isNotBlank()) {
                 Spacer(Modifier.height(3.dp))
                 Text(
-                    text     = instruction,
-                    style    = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                    color    = VelaColors.TextSecondary,
-                    maxLines = if (expanded) Int.MAX_VALUE else 2,
-                    overflow = TextOverflow.Ellipsis,
+                    text  = instruction,
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                    color = VelaColors.TextSecondary,
                 )
             }
 
-            // Expanded: full result
-            if (expanded && result != null) {
-                Spacer(Modifier.height(6.dp))
+            // Streaming content — show while running or until the real result loads
+            if (streamingText.isNotEmpty() && result == null) {
+                Spacer(Modifier.height(4.dp))
                 Text(
-                    text  = "Result:",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = VelaColors.TextTertiary,
+                    text  = streamingText,
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                    color = VelaColors.TextSecondary.copy(alpha = 0.7f),
                 )
+            }
+
+            // Result — always visible when present, no expand gate
+            if (result != null) {
+                Spacer(Modifier.height(6.dp))
                 Text(
                     text  = result,
                     style = MaterialTheme.typography.bodySmall.copy(

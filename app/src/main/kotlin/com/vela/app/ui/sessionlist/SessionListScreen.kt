@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -67,8 +69,9 @@ fun SessionListScreen(
     navController: NavController,
     viewModel: SessionListViewModel = hiltViewModel(),
 ) {
-    val allSessions       by viewModel.allSessions.collectAsStateWithLifecycle()
-    val createdSessionId  by viewModel.createdSessionId.collectAsStateWithLifecycle()
+    val allSessions        by viewModel.allSessions.collectAsStateWithLifecycle()
+    val createdSessionId   by viewModel.createdSessionId.collectAsStateWithLifecycle()
+    val isCreatingSession  by viewModel.isCreatingSession.collectAsStateWithLifecycle()
 
     var showGearMenu      by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -151,19 +154,31 @@ fun SessionListScreen(
             item {
                 Button(
                     onClick  = { viewModel.createSession() },
+                    enabled  = !isCreatingSession,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape    = RoundedCornerShape(26.dp),
                     colors   = ButtonDefaults.buttonColors(
-                        containerColor = VelaColors.Accent,
-                        contentColor   = VelaColors.Abyss,
+                        containerColor         = VelaColors.Accent,
+                        contentColor           = VelaColors.Abyss,
+                        disabledContainerColor = VelaColors.Accent,
+                        disabledContentColor   = VelaColors.Abyss,
                     ),
                 ) {
-                    Text(
-                        text       = "NEW SESSION",
-                        fontWeight = FontWeight.Bold,
-                        fontSize   = 14.sp,
-                        letterSpacing = 1.sp,
-                    )
+                    if (isCreatingSession) {
+                        CircularProgressIndicator(
+                            modifier    = Modifier.size(20.dp),
+                            color       = VelaColors.Abyss,
+                            trackColor  = VelaColors.Abyss.copy(alpha = 0.25f),
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Text(
+                            text          = "NEW SESSION",
+                            fontWeight    = FontWeight.Bold,
+                            fontSize      = 14.sp,
+                            letterSpacing = 1.sp,
+                        )
+                    }
                 }
             }
 

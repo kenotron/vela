@@ -54,6 +54,7 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val nodes by viewModel.nodes.collectAsState()
+    val nodeConnectivity by viewModel.nodeConnectivity.collectAsState()
 
     Scaffold(
         topBar = {
@@ -115,8 +116,9 @@ fun HomeScreen(
             ) {
                 items(nodes, key = { it.id }) { node ->
                     NodeTileItem(
-                        node    = node,
-                        onClick = { navController.navigate(Routes.nodeDetail(node.id)) },
+                        node         = node,
+                        connectivity = nodeConnectivity[node.id],
+                        onClick      = { navController.navigate(Routes.nodeDetail(node.id)) },
                     )
                 }
             }

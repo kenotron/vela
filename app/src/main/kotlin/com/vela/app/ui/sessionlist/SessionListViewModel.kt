@@ -57,6 +57,10 @@ class SessionListViewModel @Inject constructor(
 
     fun consumeCreatedSession() { _createdSessionId.value = null }
 
+    /** True while [createSession] is in-flight — drives the loading animation on the button. */
+    private val _isCreatingSession = MutableStateFlow(false)
+    val isCreatingSession: StateFlow<Boolean> = _isCreatingSession
+
     /** In-memory cache of session transcript previews (first + last user message). */
     private val previewCache = mutableMapOf<String, Pair<String, String>>()
 
@@ -89,6 +93,7 @@ class SessionListViewModel @Inject constructor(
                         summary.copy(
                             status     = state.status,
                             activeForm = state.currentTodoActiveForm ?: "",
+                            title      = state.sessionName?.takeIf { it.isNotBlank() } ?: summary.title,
                         )
                     }.sortedWith(
                         compareByDescending<SessionSummary> {
@@ -118,9 +123,10 @@ class SessionListViewModel @Inject constructor(
                     } catch (_: Exception) {}
                 }
 
-                // Only show Vela-owned sessions (no native merge)
+                // Show all plugin-tracked sessions; use native status where available,
+                // fall back to IDLE when native amplifierd no longer knows about the session
+                // (e.g. after a daemon restart — the vela plugin still tracks them).
                 val summaries = pluginSessions
-                    .filter { nativeById.containsKey(it.sessionId) } // skip sessions that no longer exist
                     .map { s ->
                         val realStatus = nativeById[s.sessionId]?.status ?: "completed"
                         SessionSummary(
@@ -180,6 +186,7 @@ class SessionListViewModel @Inject constructor(
 
     fun createSession() {
         viewModelScope.launch(Dispatchers.IO) {
+            _isCreatingSession.value = true
             try {
                 val nodeObj = registry.cache.find { it.id == nodeId } ?: return@launch
                 val client = amplifierd.clientForNode(nodeObj) ?: return@launch
@@ -190,6 +197,8 @@ class SessionListViewModel @Inject constructor(
                 loadSessions() // refresh list
             } catch (e: Exception) {
                 Log.w(TAG, "createSession failed: ${e.message}")
+            } finally {
+                _isCreatingSession.value = false
             }
         }
     }

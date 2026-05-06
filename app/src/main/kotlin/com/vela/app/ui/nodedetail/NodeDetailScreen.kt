@@ -85,6 +85,7 @@ fun NodeDetailScreen(
     val projects by viewModel.projects.collectAsState()
     val repairState by viewModel.repairState.collectAsState()
     val capabilities by viewModel.capabilities.collectAsState()
+    val isReachable by viewModel.isReachable.collectAsState()
     val coroutineScope = rememberCoroutineScope()
 
     // Snackbar for transient error / success messages
@@ -301,15 +302,6 @@ fun NodeDetailScreen(
                 },
                 title   = {},
                 actions = {
-                    // Settings — navigates to node config (edit connection, bundle, tools)
-                    IconButton(onClick = { navController.navigate(Routes.nodeConfig(viewModel.nodeId)) }) {
-                        Icon(
-                            imageVector        = Icons.Default.Settings,
-                            contentDescription = "Node settings",
-                            tint               = VelaColors.TextTertiary,
-                        )
-                    }
-
                     var menuExpanded by remember { mutableStateOf(false) }
 
                     Box {
@@ -321,6 +313,16 @@ fun NodeDetailScreen(
                             onDismissRequest = { menuExpanded = false },
                             containerColor   = VelaColors.SurfaceRaised,
                         ) {
+                            DropdownMenuItem(
+                                text    = { Text("Edit node", color = VelaColors.TextPrimary) },
+                                onClick = { menuExpanded = false; navController.navigate(Routes.nodeConfig(viewModel.nodeId)) },
+                                leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null, tint = VelaColors.Accent) },
+                            )
+                            DropdownMenuItem(
+                                text    = { Text("Refresh status", color = VelaColors.TextPrimary) },
+                                onClick = { menuExpanded = false; viewModel.refreshConnectivity() },
+                                leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null, tint = VelaColors.Accent) },
+                            )
                             DropdownMenuItem(
                                 text    = { Text("Repair connection", color = VelaColors.TextPrimary) },
                                 onClick = { menuExpanded = false; viewModel.startRepair() },
@@ -363,7 +365,7 @@ fun NodeDetailScreen(
                 Spacer(modifier = Modifier.height(12.dp))
                 // Telemetry meta — Inter 12sp, TextSecondary
                 Text(
-                    text  = buildNodeTelemetry(node, capabilities),
+                    text  = buildNodeTelemetry(node, capabilities, isReachable),
                     style = MaterialTheme.typography.labelMedium,
                     color = VelaColors.TextSecondary,
                 )
@@ -525,9 +527,15 @@ private fun slugify(name: String, workspaceDir: String): String {
 private fun buildNodeTelemetry(
     node: SshNode?,
     capabilities: com.vela.app.amplifierd.AmplifierdCapabilities? = null,
+    isReachable: Boolean? = null,
 ): String {
     if (node == null) return ""
-    val status    = if (node.bootstrapStatus == BootstrapStatus.RUNNING) "online" else "offline"
+    val status = when {
+        isReachable == true  -> "online"
+        isReachable == false -> "offline"
+        capabilities != null -> "online"  // capabilities loaded = was reachable
+        else -> if (node.bootstrapStatus == BootstrapStatus.RUNNING) "online" else "offline"
+    }
     val sessions  = capabilities?.let { "${it.activeSessions} active" } ?: "0 active"
     val workspace = node.workspaceDir.ifBlank { "~" }
     return "$status · $sessions · $workspace"

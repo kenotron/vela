@@ -42,8 +42,8 @@ open class SshNodeRegistry @Inject constructor(private val dao: SshNodeDao) {
     // ── Bootstrap-lifecycle writers ───────────────────────────────────────────
 
     /** Promote an SSH node to an amplifierd node in a single transaction. */
-    open suspend fun promoteToAmplifierd(nodeId: String, url: String, token: String) {
-        dao.promoteToAmplifierd(nodeId, "amplifierd", url, token, BootstrapStatus.RUNNING.name)
+    open suspend fun promoteToAmplifierd(nodeId: String, url: String, tailscaleUrl: String = "", token: String) {
+        dao.promoteToAmplifierd(nodeId, "amplifierd", url, tailscaleUrl, token, BootstrapStatus.RUNNING.name)
     }
 
     /** Flag a running amplifierd node as stale (newer version available). */
@@ -67,6 +67,7 @@ open class SshNodeRegistry @Inject constructor(private val dao: SshNodeDao) {
         addedAt  = addedAt,
         type     = if (nodeType == "amplifierd") NodeType.AMPLIFIERD else NodeType.SSH,
         url      = url,
+        tailscaleUrl    = tailscaleUrl,
         token    = token,
         bootstrapStatus = parseBootstrapStatus(bootstrapStatus),
         workspaceDir    = workspaceDir,
@@ -81,6 +82,7 @@ open class SshNodeRegistry @Inject constructor(private val dao: SshNodeDao) {
         addedAt  = addedAt,
         nodeType = if (type == NodeType.AMPLIFIERD) "amplifierd" else "ssh",
         url      = url,
+        tailscaleUrl    = tailscaleUrl,
         token    = token,
         bootstrapStatus = bootstrapStatus.name,
         workspaceDir    = workspaceDir,

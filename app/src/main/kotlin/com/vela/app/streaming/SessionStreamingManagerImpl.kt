@@ -122,6 +122,9 @@ class SessionStreamingManagerImpl @Inject constructor(
                         val updated = sseNormalizer.applyEvent(current, event)
                         updateState(sessionId, updated)
                     }
+                    // subscribeEvents ended (session finished) — reload transcript so
+                    // ToolResult blocks (tool output) are paired with their ToolUse blocks.
+                    reloadTranscriptAfterCompletion(sessionId, nodeId)
                 } catch (e: Exception) {
                     Log.e(TAG, "startStreaming: stream error for $sessionId", e)
                     val cur = sessionFlows[sessionId]?.value
@@ -150,6 +153,13 @@ class SessionStreamingManagerImpl @Inject constructor(
         val state = sessionFlows[sessionId]?.value ?: return false
         val node = nodeRegistry.cache.find { it.id == state.nodeId } ?: return false
         val streamClient = amplifierd.streamClientForNode(node) ?: return false
+        val client = amplifierd.clientForNode(node)
+
+        // Ensure the session is loaded into amplifierd memory before streaming.
+        // After a server restart sessions exist on disk but not in memory;
+        // POST /sessions/{id}/resume reloads them so /execute/stream won't 404.
+        // This is a no-op for already-active sessions and safe to call every time.
+        client?.resumeSession(sessionId)
 
         // Optimistic update: add user turn to turns list + persist message for retry
         val userTurn = TurnContent(text = message, isUser = true)

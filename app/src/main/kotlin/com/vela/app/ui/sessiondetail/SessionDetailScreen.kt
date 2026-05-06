@@ -277,7 +277,7 @@ fun SessionDetailScreen(
                 }
             }
 
-            // ── Error retry button ────────────────────────────────────────────
+            // ── Error / ended state ───────────────────────────────────────────
             if (sessionStatus == SessionStatus.ERROR) {
                 OutlinedButton(
                     onClick  = { viewModel.retry() },

@@ -21,8 +21,16 @@ sealed class BootstrapEvent {
         val logs: List<String> = emptyList(),
     ) : BootstrapEvent()
 
-    /** Bootstrap completed; amplifierd is reachable at [url] with shared secret [token]. */
-    data class Complete(val url: String, val token: String) : BootstrapEvent()
+    /**
+         * Bootstrap completed; amplifierd is reachable at [url] with shared secret [token].
+         * [tailscaleUrl] is the Tailscale IP URL if detected on the remote machine, empty otherwise.
+         * [url] is always the LAN/SSH-host URL (http://{sshHost}:8410).
+         */
+        data class Complete(
+            val url:          String,
+            val tailscaleUrl: String = "",
+            val token:        String,
+        ) : BootstrapEvent()
 }
 
 /** Ordered phases of the bootstrap pipeline (see design doc Section 1). */

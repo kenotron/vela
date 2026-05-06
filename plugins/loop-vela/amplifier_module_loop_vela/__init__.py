@@ -2,7 +2,7 @@
 loop-vela orchestrator for Amplifier.
 
 Based on loop-streaming, adds:
-  - content_block:delta events per token (real streaming to clients)
+  - content_block:delta events per token via provider.stream() — no simulation
   - steer-inject: user can inject a message mid-loop via _steer_queues
   - Proper content_block:start / content_block:end during the streaming path
   - No artificial stream_delay
@@ -22,7 +22,6 @@ __amplifier_module_type__ = "orchestrator"
 import asyncio
 import json
 import logging
-import re
 import time
 from collections.abc import AsyncIterator
 from typing import Any
@@ -467,15 +466,9 @@ class VelaOrchestrator:
                             response.content
                         )
 
-                    # Emit per-token delta events so clients can display real-time text.
-                    # content_block:start / end are already emitted above (from content_blocks).
-                    # Deltas sit on the same block_index as the text content_block:end above.
-                    async for token in self._tokenize_stream(response_text):
-                        await hooks.emit(
-                            CONTENT_BLOCK_DELTA,
-                            {"token": token, "block_index": block_index},
-                        )
-                        yield (token, iteration)
+                    # content_block:start / end already emitted above — just
+                    # yield the full text for accumulation; no per-token simulation.
+                    yield (response_text, iteration)
                     block_index += 1
 
                     response_content = getattr(response, "content", None)
@@ -727,17 +720,36 @@ DO NOT mention this iteration limit or reminder to the user explicitly. Simply w
                     tools=tools_list,
                     reasoning_effort=self.config.get("reasoning_effort"),
                 )
-                kwargs = {}
-                if self.extended_thinking:
-                    kwargs["extended_thinking"] = True
-                response = await provider.complete(max_iter_chat_request, **kwargs)
-                content = (
-                    response.content if hasattr(response, "content") else str(response)
-                )
-                if content:
-                    async for token in self._tokenize_stream(content):
-                        yield (token, iteration)
-                    await context.add_message({"role": "assistant", "content": content})
+                if hasattr(provider, "stream"):
+                    # Real streaming — emits content_block:start/delta/end and
+                    # adds the assistant message to context automatically.
+                    async for chunk in self._stream_from_provider(
+                        provider,
+                        max_iter_chat_request,
+                        context,
+                        tools,
+                        hooks,
+                        coordinator,
+                        provider_name=provider_name,
+                        block_index=block_index,
+                    ):
+                        if coordinator and coordinator.cancellation.is_immediate:
+                            return
+                        yield (chunk, iteration)
+                    block_index += 1
+                else:
+                    # Non-streaming fallback — no simulation.
+                    kwargs = {}
+                    if self.extended_thinking:
+                        kwargs["extended_thinking"] = True
+                    response = await provider.complete(max_iter_chat_request, **kwargs)
+                    content = (
+                        response.content if hasattr(response, "content") else str(response)
+                    )
+                    if content:
+                        content_str = content if isinstance(content, str) else str(content)
+                        yield (content_str, iteration)
+                        await context.add_message({"role": "assistant", "content": content_str})
             except LLMError as e:
                 await hooks.emit(
                     PROVIDER_ERROR,
@@ -803,6 +815,8 @@ DO NOT mention this iteration limit or reminder to the user explicitly. Simply w
         self._pending_streaming_tool_calls: list[dict] = []
         self._streaming_full_response = ""
         _current_tool: dict | None = None
+        _current_thinking: dict | None = None
+        _pending_thinking_blocks: list[dict] = []
 
         # Emit block start
         await hooks.emit(
@@ -844,6 +858,10 @@ DO NOT mention this iteration limit or reminder to the user explicitly. Simply w
             chunk_block_type = chunk.get("block_type")
 
             if chunk_block_type == "tool_use":
+                # Finalize any in-progress thinking block before tool accumulation
+                if _current_thinking is not None:
+                    _pending_thinking_blocks.append(_current_thinking)
+                    _current_thinking = None
                 # Accumulate tool_use block data from the stream.
                 # The first chunk for a new tool carries id + name; subsequent
                 # chunks carry only partial JSON content.
@@ -863,10 +881,28 @@ DO NOT mention this iteration limit or reminder to the user explicitly. Simply w
                 _current_tool["input_json"] += partial
                 continue
 
-            # Non-text, non-tool_use block (e.g. thinking) — skip, reset tracker
+            # Accumulate thinking chunks; emitted as SSE events after stream completes
+            if chunk_block_type == "thinking":
+                if _current_thinking is None:
+                    _current_thinking = {"thinking": "", "signature": None}
+                _current_thinking["thinking"] += chunk.get("content", "") or chunk.get("thinking", "")
+                sig = chunk.get("signature")
+                if sig:
+                    _current_thinking["signature"] = sig
+                continue
+
+            # Non-text, non-tool_use, non-thinking block — skip, reset trackers
             if chunk_block_type and chunk_block_type != "text":
+                if _current_thinking is not None:
+                    _pending_thinking_blocks.append(_current_thinking)
+                    _current_thinking = None
                 _current_tool = None
                 continue
+
+            # Text token — finalize any in-progress thinking block
+            if _current_thinking is not None:
+                _pending_thinking_blocks.append(_current_thinking)
+                _current_thinking = None
 
             token = chunk.get("content", "")
             if token:
@@ -878,6 +914,31 @@ DO NOT mention this iteration limit or reminder to the user explicitly. Simply w
                 yield token
                 full_response += token
 
+        # Finalize any remaining in-progress thinking block
+        if _current_thinking is not None:
+            _pending_thinking_blocks.append(_current_thinking)
+            _current_thinking = None
+
+        # Emit thinking block events before the text block end
+        thinking_block_idx = block_index + 1
+        for tb in _pending_thinking_blocks:
+            await hooks.emit(
+                CONTENT_BLOCK_START,
+                {"block_type": "thinking", "block_index": thinking_block_idx},
+            )
+            await hooks.emit(
+                CONTENT_BLOCK_END,
+                {
+                    "block_index": thinking_block_idx,
+                    "block": {
+                        "type": "thinking",
+                        "thinking": tb["thinking"],
+                        "signature": tb["signature"],
+                    },
+                },
+            )
+            thinking_block_idx += 1
+
         # Emit text block end
         await hooks.emit(
             CONTENT_BLOCK_END,
@@ -888,7 +949,7 @@ DO NOT mention this iteration limit or reminder to the user explicitly. Simply w
         )
 
         # Emit tool_use block events (start + end) after the text block
-        tool_block_idx = block_index + 1
+        tool_block_idx = thinking_block_idx
         for tb in self._pending_streaming_tool_calls:
             try:
                 input_data = json.loads(tb["input_json"]) if tb["input_json"] else {}
@@ -940,16 +1001,6 @@ DO NOT mention this iteration limit or reminder to the user explicitly. Simply w
             if type_value == "text" and hasattr(block, "text"):
                 text_parts.append(block.text)
         return "\n\n".join(text_parts)
-
-    async def _tokenize_stream(self, text: str) -> AsyncIterator[str]:
-        """Fallback: simulate streaming for non-streaming provider responses."""
-        lines = text.split("\n")
-        for line_idx, line in enumerate(lines):
-            tokens = re.findall(r"\S+|\s+", line)
-            for token in tokens:
-                yield token
-            if line_idx < len(lines) - 1:
-                yield "\n"
 
     # ──────────────────────────────────────────────────────────────────────────
     # Tool execution (copied from loop-streaming, unchanged)
@@ -1079,6 +1130,16 @@ DO NOT mention this iteration limit or reminder to the user explicitly. Simply w
                     content = str(modified_result)
             else:
                 content = result.get_serialized_output()
+
+            # Emit tool:result so clients can show delegate output immediately
+            await hooks.emit(
+                "tool:result",
+                {
+                    "tool_call_id": tool_call.id,
+                    "tool_name": tool_call.name,
+                    "output": content,
+                },
+            )
             return (tool_call.id, tool_call.name, content)
 
         except Exception as e:

@@ -12,7 +12,7 @@ Vela is a **mobile-first AI orchestration hub** (Android app). The phone is the 
 
 ---
 
-## Current Architecture (as of 2026-05-02)
+## Current Architecture (as of 2026-05-04)
 
 ```
 Phone (Android)                           Mac / Remote Node
@@ -50,11 +50,10 @@ id: 5  event: provider:request   # data.provider = "anthropic", data.iteration =
 id: 6  event: llm:request        # data.model, data.thinking_enabled, data.message_count
 id: 7  event: llm:response       # data.duration_ms, data.status = "ok", data.usage
 id: 8  event: content_block:start  # data.block_index = 0, data.block_type = "text"
-                                   # (may also appear for thinking blocks in non-streaming path)
-id: 9  event: content_block:end    # data.block = {"text": "...", "type": "text"} (full final text)
-id:9a  event: content_block:delta  # *** loop-vela ONLY *** data.token = "word", data.block_index = 0
-                                   # emitted for each token during streaming; arrives AFTER content_block:end
-                                   # due to _tokenize_stream simulating streaming from full response
+id:8a  event: content_block:delta  # *** loop-vela ONLY *** data.token = "word", data.block_index = 0
+                                   # REAL tokens from Anthropic SDK streaming via VelaAnthropicProvider
+                                   # arrives BEFORE content_block:end (correct order)
+id: 9  event: content_block:end    # data.block = {"text": "...", "type": "text"} (full final text, authoritative)
 id:10  event: execution:end
 id:11  event: orchestrator:complete  ← DONE signal; data.orchestrator = "loop-vela"
 ```
@@ -65,19 +64,89 @@ id: 7  event: provider:retry   # data.attempt, data.max_retries, data.error_mess
                                # (repeated up to max_retries times, then execution:end with error)
 ```
 
+---
+
+## ⚠️ Tool Call Format — Two Layers, Different Field Names
+
+**This divergence caused a real bug (2026-05-06): `SessionTranscriptNormalizer` was written
+reading the SSE format but consuming the transcript API — tool blocks silently disappeared
+post-stream. Add this table to your mental model before touching ANY tool-call parsing code.**
+
+amplifierd has two independent serialization paths for tool calls. They use **different field
+names for the same concept**. The origin:
+
+- **SSE format** — mirrors the Anthropic SDK streaming protocol directly
+- **Transcript format** — loop-vela's own storage format using Amplifier core's `ToolCall`
+  dataclass, which uses OpenAI-style names
+
+### The Two Formats Side by Side
+
+**SSE stream** (`content_block:end` event, `data.block`):
+```json
+{
+  "type": "tool_use",
+  "id": "toolu_01ABC",
+  "name": "bash",
+  "input": {"command": "echo hello"}
+}
+```
+Lives inside the `block` field of a `content_block:end` event. The `content` array of the
+assistant message (in SSE) also contains this structure.
+
+**Transcript API** (`GET /sessions/:id/transcript`, assistant message):
+```json
+{
+  "role": "assistant",
+  "content": "",
+  "tool_calls": [
+    {"id": "toolu_01ABC", "tool": "bash", "arguments": {"command": "echo hello"}}
+  ]
+}
+```
+Tool calls are in a **top-level `tool_calls` key** (not inside `content`). `content` is an
+empty string when the only output was tool calls.
+
+### Field Name Mapping
+
+| Concept              | SSE (`content_block:end`) | Transcript (`tool_calls[]`) |
+|----------------------|---------------------------|------------------------------|
+| Block location       | `data.block` (in content) | top-level `tool_calls` array |
+| Tool name            | `block.name`              | `tc.tool`                    |
+| Tool arguments       | `block.input` (object)    | `tc.arguments` (object)      |
+| Tool call ID         | `block.id`                | `tc.id`                      |
+
+**Tool result format is the SAME in both layers:**
+```json
+{"role": "tool", "name": "bash", "tool_call_id": "toolu_01ABC", "content": "...output..."}
+```
+
+### Why Different?
+- **SSE**: `VelaAnthropicProvider.stream()` re-emits Anthropic SDK events verbatim → Anthropic uses `name`/`input`
+- **Transcript**: loop-vela stores via `ToolCall.name` → serialized as `"tool"`, and
+  `ToolCall.arguments` (from Anthropic's `input`, renamed at the provider boundary) → `"arguments"`
+- Amplifier core's `ToolCall` class bridges Anthropic and OpenAI APIs, using OpenAI-style names
+
+### Rule: Which to Trust
+- **Reading SSE events** (`AmplifierdStreamClient`, `SessionSseNormalizer`): use `block.type`,
+  `block.name`, `block.input`, blocks are inside `content` array
+- **Reading transcript** (`SessionTranscriptNormalizer`, any code hitting `/transcript`): use
+  top-level `tool_calls` with `tc.tool`, `tc.arguments`; `content` will be empty string
+
+---
+
 ### Event names that DO NOT EXIST in amplifierd (do not invent these)
 - ❌ `llm:chunk` — does NOT exist
 - ❌ `tool:start`, `tool_start`, `tool:result`, `tool_result`, `tool:done` — none exist
 - ❌ `[DONE]` — amplifierd does not use this SSE pattern
 - ❌ Native tool events are NOT in the SSE stream; tool details come via `content_block:end` with `block_type: "tool_use"`
-- ✅ `content_block:delta` DOES exist (loop-vela only) — per-token streaming via `_tokenize_stream`
+- ✅ `content_block:delta` DOES exist (loop-vela only) — real tokens from Anthropic SDK streaming
 
 ### Response format (loop-vela bundle)
-- **`content_block:delta` IS the per-token streaming event** (loop-vela only). Token is in `data.token`.
-- `content_block:end` still arrives with the complete final text — use as the authoritative fallback.
-- Delta events use `_tokenize_stream` simulation (word/space boundaries at ~10ms delay per token).
+- **`content_block:delta` IS the per-token streaming event** (loop-vela only). Token is in `data.data.token`.
+- `content_block:end` arrives AFTER all deltas with the complete final text — authoritative source.
+- Delta events come from REAL Anthropic API streaming via `VelaAnthropicProvider.stream()` — no simulation.
 - Thinking blocks (`block_type: "thinking"`) exist in `content_block:start/end` — hide from user, don't render.
-- Delta events arrive AFTER `content_block:end` because the non-streaming path returns the full text first.
+- Delta events arrive BEFORE `content_block:end` (correct order: streaming chunks → final block).
 
 ### Steer endpoint (loop-vela sessions only)
 ```
@@ -157,15 +226,29 @@ The `generateLaunchdPlist()` function in `NodeBootstrapper.kt` would embed the A
 ## Room Database Schema (current)
 
 ```
-ssh_nodes (id, label, hosts, port, username, type, url, token, bootstrapStatus, workspaceDir, addedAt)
+ssh_nodes (id, label, hosts, port, username, type, url, tailscale_url, token, bootstrapStatus, workspaceDir, addedAt)
   type: AMPLIFIERD = node bootstrapped and running amplifierd
-  url: "http://10.x.x.x:8410" — used by AmplifierdClient and AmplifierdStreamClient
+  url: "http://{sshHost}:8410" — LAN/SSH IP URL (primary)
+  tailscale_url: "http://100.x.x.x:8410" — Tailscale IP URL (tried first, works cross-network)
   token: vela auth token — sent as x-amplifier-token header
   workspaceDir: default "~" — base dir for all project sessions on this node
 
-DB version: 16
-Migrations: 1→2, ..., 15→16 (workspace_dir column added)
+DB version: 17
+Migrations: 1→2, ..., 16→17 (tailscale_url column added)
 ```
+
+### Multi-URL Connectivity (AmplifierdRepository)
+`candidateUrls(node)` returns URLs in priority order:
+1. `tailscaleUrl` (if set) — Tailscale IP, works across any network with TS running
+2. `url` — LAN IP from bootstrap
+3. Derived from `hosts` list (SSH IPs) using same port
+
+`findReachableUrl(node)` tries each candidate with `GET /health` and returns the first 200.
+`HomeViewModel` polls all AMPLIFIERD nodes every 60s, exposes `nodeConnectivity: StateFlow<Map<String, NodeConnectivity>>`.
+
+### NodeConnectivity states
+`Unknown` → `Checking` → `Reachable(activeUrl)` | `Unreachable`
+Maps to `NodeTileStatus`: Reachable=Idle, Unreachable=Offline (red stripe + "OFFLINE" chip)
 
 ---
 
@@ -176,11 +259,15 @@ AmplifierdClient       — HTTP CRUD: GET/POST /sessions, /projects, /capabiliti
                          + steer(sessionId, message): POST /sessions/{id}/steer for loop-vela
 AmplifierdStreamClient — SSE streaming: opens GET /events first, then POST /execute/stream
                          handles content_block:delta → TextDelta events (loop-vela)
-AmplifierdRepository   — per-node client factory; reads node from SshNodeRegistry.cache
+AmplifierdRepository   — per-node client factory; candidateUrls() + findReachableUrl() for
+                         multi-URL fallback; clientForNode() still works for single-URL callers
 SshNodeRegistry        — @Singleton; .cache: List<SshNode> populated by HomeViewModel
+HomeViewModel          — polls all AMPLIFIERD nodes every 60s; exposes nodeConnectivity StateFlow
+NodeConnectivity       — sealed class: Unknown / Checking / Reachable(activeUrl) / Unreachable
 SessionDetailViewModel — drives chat: sendMessage(), steer(), awaitNode(), turns StateFlow
 ApiKeyStore            — EncryptedSharedPreferences: OPENAI_API_KEY only (for Whisper)
 NodeBootstrapper       — SSH install of amplifierd: bootstrap() and repair() flows
+TailscaleApiClient     — Tailscale REST API client: listDevices() → List<TailscaleDevice>
 ```
 
 ### sendMessage() flow (SessionDetailViewModel)
@@ -305,6 +392,6 @@ adb -s $DEVICE shell am start --user 0 -n com.vela.app/.MainActivity
 ```
 
 ## Current Phone
-Pixel 10 Pro at 10.0.0.106, wireless debugging port changes each session.
-Use `./scripts/vela-device` to discover and connect — never hardcode the port.
-DB: version 16. App package: `com.vela.app`.
+Pixel 10 Pro at 10.0.0.106, hardware serial `58121FDCH002PR` (stable, never changes).
+Wireless debugging port changes each session — use `./scripts/vela-device` to discover it.
+DB: version 17. App package: `com.vela.app`.

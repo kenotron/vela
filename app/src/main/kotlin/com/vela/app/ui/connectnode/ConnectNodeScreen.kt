@@ -38,6 +38,7 @@ package com.vela.app.ui.connectnode
     import androidx.compose.material3.OutlinedTextFieldDefaults
     import androidx.compose.material3.Scaffold
     import androidx.compose.material3.Text
+    import androidx.compose.material3.TextButton
     import androidx.compose.material3.TopAppBar
     import androidx.compose.material3.TopAppBarDefaults
     import androidx.compose.material3.rememberModalBottomSheetState
@@ -71,10 +72,15 @@ package com.vela.app.ui.connectnode
     ) {
         val form           by viewModel.form.collectAsState()
         val bootstrapState by viewModel.bootstrapState.collectAsState()
+        val tailscaleApiKey  by viewModel.tailscaleApiKey.collectAsState()
+        val tailscaleDevices by viewModel.tailscaleDevices.collectAsState()
+        val tailscaleLoading by viewModel.tailscaleLoading.collectAsState()
+        val tailscaleError   by viewModel.tailscaleError.collectAsState()
 
         val context       = LocalContext.current
         val sheetState    = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         var apiKeyVisible by remember { mutableStateOf(false) }
+        var showTailscaleSheet by remember { mutableStateOf(false) }
 
         // Show bootstrap sheet whenever bootstrapping or complete
         val showSheet = bootstrapState.isBootstrapping || bootstrapState.isComplete
@@ -130,6 +136,18 @@ package com.vela.app.ui.connectnode
                     style = MaterialTheme.typography.bodyMedium,
                     color = VelaColors.TextSecondary,
                 )
+
+                TextButton(
+                    onClick  = { showTailscaleSheet = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "Or discover from Tailscale →",
+                        color     = VelaColors.Accent,
+                        style     = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
 
                 // ── SSH credentials form ──────────────────────────────────────────
                 val fieldColors = OutlinedTextFieldDefaults.colors(
@@ -328,7 +346,31 @@ package com.vela.app.ui.connectnode
                 Spacer(Modifier.height(96.dp)) // clear Voice FAB
             }
 
-            // ── Bootstrap progress sheet ──────────────────────────────────────────
+            // ── Tailscale discovery sheet ──────────────────────────────────────
+            if (showTailscaleSheet) {
+                ModalBottomSheet(
+                    onDismissRequest = { showTailscaleSheet = false },
+                    containerColor   = VelaColors.SurfaceRaised,
+                    sheetState       = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                ) {
+                    TailscaleDiscoverySheet(
+                        apiKey            = tailscaleApiKey,
+                        onApiKeyChange    = viewModel::updateTailscaleApiKey,
+                        devices           = tailscaleDevices,
+                        isLoading         = tailscaleLoading,
+                        errorMessage      = tailscaleError,
+                        onFindDevices     = viewModel::loadTailscaleDevices,
+                        onDeviceSelected  = { device ->
+                            viewModel.applyTailscaleDevice(device)
+                            showTailscaleSheet = false
+                        },
+                        onDismiss         = { showTailscaleSheet = false },
+                        modifier          = Modifier.padding(bottom = 32.dp),
+                    )
+                }
+            }
+
+                        // ── Bootstrap progress sheet ──────────────────────────────────────────
             if (showSheet) {
                 ModalBottomSheet(
                     onDismissRequest = {

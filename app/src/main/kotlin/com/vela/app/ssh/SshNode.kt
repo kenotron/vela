@@ -35,6 +35,12 @@ data class SshNode(
     val url:      String = "",
     /** amplifierd x-amplifier-token shared secret. */
     val token:    String = "",
+    /**
+     * Tailscale IP URL (e.g. http://100.x.x.x:8410), if detected during bootstrap.
+     * Tried first during connectivity checks since it works across networks.
+     * Empty when the remote machine is not on Tailscale.
+     */
+    val tailscaleUrl: String = "",
     /** Bootstrap lifecycle state. New SSH nodes default to UNPROVISIONED. */
     val bootstrapStatus: BootstrapStatus = BootstrapStatus.UNPROVISIONED,
     /** Workspace directory used as cwd when amplifierd runs sessions on this node. */

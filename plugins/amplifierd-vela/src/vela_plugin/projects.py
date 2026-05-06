@@ -70,25 +70,88 @@ def make_projects_router(
 
     @router.get("/{project_id}/sessions")
     def list_project_sessions(project_id: str, limit: int = 20) -> dict[str, Any]:
-        """Return sessions for this project split into active and recent."""
+        """Return sessions for this project split into active and recent.
+
+        Status is hydrated from three sources in priority order:
+          1. amplifierd in-memory session manager (live handle — most accurate)
+          2. metadata.json on disk (session exists but not loaded into memory)
+          3. vela-sessions.json snapshot (fallback — may be stale after restart)
+
+        Sessions recorded as "running/waiting" in vela-sessions.json but absent
+        from both memory and disk are surfaced as "completed" so the user can open
+        them and resume execution if desired.
+        """
         from . import session_store
 
-        sessions = session_store.get_sessions(project_id)
+        raw_sessions = session_store.get_sessions(project_id)
+        if not raw_sessions:
+            return {"active": [], "recent": [], "total": 0}
+
+        # Use the state closure passed to make_projects_router to reach the
+        # session manager without needing a Request parameter.
+        manager = getattr(state, "session_manager", None)
+
         now = time.time()
         seven_days = 7 * 24 * 3600
 
-        active = [s for s in sessions if s.status in ("running", "waiting")]
+        hydrated: list[Any] = []
+        for s in raw_sessions:
+            if manager is not None:
+                live_handle = manager.get(s.session_id)
+                if live_handle is not None:
+                    # Session is live in memory — use authoritative status.
+                    live_status = live_handle.status.value  # "idle", "executing", etc.
+                    # Map amplifierd native statuses to vela statuses.
+                    if live_status == "executing":
+                        s.status = "running"
+                    elif live_status in ("idle", "completed"):
+                        s.status = "completed"
+                    elif live_status == "failed":
+                        s.status = "error"
+                    try:
+                        s.last_activity = live_handle.last_activity.timestamp()
+                    except Exception:
+                        pass
+                else:
+                    # Not in memory — try to get info from disk.
+                    session_dir = manager.resolve_session_dir(s.session_id)
+                    if session_dir is None:
+                        # Truly gone: not in memory, not on disk.
+                        # Keep the record but don't treat as active.
+                        if s.status in ("running", "waiting"):
+                            s.status = "completed"
+                    else:
+                        # On disk but not loaded: it was idle/completed.
+                        # Read metadata.json for accurate last_activity / turn_count.
+                        try:
+                            from amplifierd.persistence import load_metadata
+                            meta = load_metadata(session_dir)
+                            last_updated = meta.get("last_updated")
+                            if last_updated:
+                                from datetime import datetime
+                                dt = datetime.fromisoformat(last_updated)
+                                s.last_activity = dt.timestamp()
+                        except Exception:
+                            pass
+                        # Was recorded as running but is now cold on disk →
+                        # mark completed so it shows in recent list.
+                        if s.status in ("running", "waiting"):
+                            s.status = "completed"
+
+            hydrated.append(s)
+
+        active = [s for s in hydrated if s.status in ("running", "waiting")]
         recent = [
             s
-            for s in sessions
-            if s.status in ("completed", "error", "cancelled")
+            for s in hydrated
+            if s.status not in ("running", "waiting")
             and (s.last_activity == 0 or now - s.last_activity <= seven_days)
         ][:limit]
 
         return {
             "active": [_session_dict(s) for s in active],
             "recent": [_session_dict(s) for s in recent],
-            "total": len(sessions),
+            "total": len(hydrated),
         }
 
     @router.post("/{project_id}/sessions")

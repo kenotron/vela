@@ -25,8 +25,8 @@ package com.vela.app.data.db
          * Promote an SSH node to an amplifierd node in a single statement: flips
          * nodeType, sets url + token, and marks bootstrapStatus.
          */
-        @Query("UPDATE ssh_nodes SET nodeType = :type, url = :url, token = :token, bootstrapStatus = :status WHERE id = :id")
-        suspend fun promoteToAmplifierd(id: String, type: String, url: String, token: String, status: String)
+        @Query("UPDATE ssh_nodes SET nodeType = :type, url = :url, tailscale_url = :tailscaleUrl, token = :token, bootstrapStatus = :status WHERE id = :id")
+        suspend fun promoteToAmplifierd(id: String, type: String, url: String, tailscaleUrl: String, token: String, status: String)
 
         /** Update editable connection fields without touching token / bootstrapStatus / url. */
         @Query("UPDATE ssh_nodes SET label = :label, hosts = :hosts, port = :port, username = :username, workspace_dir = :workspaceDir WHERE id = :id")
