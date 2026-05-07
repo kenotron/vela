@@ -48,9 +48,85 @@ private fun post(path: String, body: String): String {
     return http.newCall(req).execute().use { it.body!!.string() }
 }
 
-// ── Renderer ─────────────────────────────────────────────────────────────────
+// ── Renderer ──────────────────────────────────────────────────────────────────
 
 private fun clearScreen() = print("\u001B[H\u001B[2J")
+
+/** Render a single ContentBlock with a given indent prefix. */
+private fun renderBlock(block: ContentBlock, indent: String = "  ") {
+    when (block) {
+        is ContentBlock.Text -> {
+            if (block.markdown.isNotBlank()) println("$indent${block.markdown}")
+        }
+        is ContentBlock.Thinking -> {
+            println("$indent${DIM}[thinking] ${block.text.take(80)}…${RESET}")
+        }
+        is ContentBlock.ToolUse -> {
+            val icon      = if (block.isRunning) "${YELLOW}●${RESET}" else "${GREEN}✓${RESET}"
+            val nameColor = if (block.name == "delegate") PURPLE else CYAN
+            val bar       = if (block.name == "delegate") "${PURPLE}┌${RESET}" else ""
+            println()
+            println("$indent$bar${nameColor}[${block.name}]${RESET}  ${DIM}${block.id.take(14)}${RESET}  $icon")
+            // Abbreviated input
+            val inputPreview = try {
+                val j = JSONObject(block.inputJson)
+                when (block.name) {
+                    "bash"     -> "$ ${j.optString("command", "").take(80)}"
+                    "delegate" -> "→ ${j.optString("agent", "?")}  ${j.optString("instruction","").take(60)}"
+                    else       -> block.inputJson.take(80)
+                }
+            } catch (_: Exception) { block.inputJson.take(80) }
+            println("$indent${DIM}  $inputPreview${RESET}")
+
+            // Render interleaved childBlocks (text + tools in arrival order)
+            if (block.childBlocks.isNotEmpty()) {
+                val childIndent = "$indent${PURPLE}│${RESET} "
+                for (child in block.childBlocks) {
+                    when (child) {
+                        is ContentBlock.Text -> {
+                            val line = child.markdown.lineSequence()
+                                .firstOrNull { it.isNotBlank() }?.take(100) ?: ""
+                            if (line.isNotBlank())
+                                println("$childIndent${DIM}$line${RESET}")
+                        }
+                        is ContentBlock.ToolUse -> {
+                            val childIcon = if (child.isRunning) "${YELLOW}●${RESET}" else "${GREEN}✓${RESET}"
+                            println("$childIndent${CYAN}[${child.name}]${RESET} $childIcon  ${DIM}${child.id.take(12)}${RESET}")
+                            val childInput = try {
+                                val j = JSONObject(child.inputJson)
+                                when (child.name) {
+                                    "bash" -> "$ ${j.optString("command","").take(70)}"
+                                    else   -> child.inputJson.take(70)
+                                }
+                            } catch (_: Exception) { child.inputJson.take(70) }
+                            println("$childIndent  ${DIM}$childInput${RESET}")
+                        }
+                        is ContentBlock.ToolResult -> {
+                            val errMark = if (child.isError) " ${RED}[err]${RESET}" else ""
+                            println("$childIndent  ${DIM}↳ result$errMark: ${child.output.take(80)}${RESET}")
+                        }
+                        else -> {}
+                    }
+                }
+                println("$indent${PURPLE}└${RESET}")
+            }
+        }
+        is ContentBlock.ToolResult -> {
+            val errMark = if (block.isError) " ${RED}[error]${RESET}" else ""
+            println("$indent${DIM}  result$errMark: ${block.output.take(120)}${RESET}")
+        }
+        is ContentBlock.TodoProgress -> {
+            for (todo in block.todos) {
+                val mark = when (todo.status.name) {
+                    "COMPLETED"   -> "${GREEN}✓${RESET}"
+                    "IN_PROGRESS" -> "${YELLOW}●${RESET}"
+                    else          -> "○"
+                }
+                println("$indent$mark ${DIM}${todo.content}${RESET}")
+            }
+        }
+    }
+}
 
 private fun renderState(state: SessionState, eventLog: List<String>) {
     clearScreen()
@@ -72,47 +148,7 @@ private fun renderState(state: SessionState, eventLog: List<String>) {
                 else if (turn.text.isNotBlank()) println("  ${turn.text}")
             } else {
                 for (block in turn.contentBlocks) {
-                    when (block) {
-                        is ContentBlock.Text -> {
-                            if (block.markdown.isNotBlank()) println("  ${block.markdown}")
-                        }
-                        is ContentBlock.Thinking -> {
-                            println("  ${DIM}[thinking] ${block.text.take(80)}…${RESET}")
-                        }
-                        is ContentBlock.ToolUse -> {
-                            val icon = if (block.isRunning) "${YELLOW}●${RESET}" else "${GREEN}✓${RESET}"
-                            val nameColor = if (block.name == "delegate") PURPLE else CYAN
-                            println()
-                            println("  ${nameColor}[${block.name}]${RESET}  ${DIM}${block.id.take(14)}${RESET}  $icon")
-                            // Show abbreviated input
-                            val inputPreview = try {
-                                val j = JSONObject(block.inputJson)
-                                when (block.name) {
-                                    "bash"     -> "$ ${j.optString("command", "").take(80)}"
-                                    "delegate" -> "→ ${j.optString("agent", "?")}  ${j.optString("instruction","").take(60)}"
-                                    else       -> block.inputJson.take(80)
-                                }
-                            } catch (_: Exception) { block.inputJson.take(80) }
-                            println("  ${DIM}  $inputPreview${RESET}")
-                            if (block.streamingText.isNotEmpty()) {
-                                println("  ${DIM}  ▸ ${block.streamingText.take(120)}${RESET}")
-                            }
-                        }
-                        is ContentBlock.ToolResult -> {
-                            val errMark = if (block.isError) " ${RED}[error]${RESET}" else ""
-                            println("  ${DIM}  result$errMark: ${block.output.take(120)}${RESET}")
-                        }
-                        is ContentBlock.TodoProgress -> {
-                            for (todo in block.todos) {
-                                val mark = when (todo.status.name) {
-                                    "COMPLETED"   -> "${GREEN}✓${RESET}"
-                                    "IN_PROGRESS" -> "${YELLOW}●${RESET}"
-                                    else          -> "○"
-                                }
-                                println("  $mark ${DIM}${todo.content}${RESET}")
-                            }
-                        }
-                    }
+                    renderBlock(block, indent = "  ")
                 }
             }
         }
@@ -125,7 +161,7 @@ private fun renderState(state: SessionState, eventLog: List<String>) {
     eventLog.takeLast(12).forEach { println("  ${DIM}$it${RESET}") }
 }
 
-// ── Main ─────────────────────────────────────────────────────────────────────
+// ── Main ──────────────────────────────────────────────────────────────────────
 
 fun main(args: Array<String>): Unit = runBlocking {
     // Args come in via JVM system properties (set by build.gradle.kts from -Pprompt / -PsessionId)
@@ -189,10 +225,10 @@ fun main(args: Array<String>): Unit = runBlocking {
                     is StreamEvent.Thinking       -> "execution:start       → new turn"
                     is StreamEvent.TextDelta      -> "content_block:delta   tok=${event.token.take(20).replace("\n","↵")}"
                     is StreamEvent.TextBlock      -> "content_block:end     [text] len=${event.text.length}"
-                    is StreamEvent.ToolUse        -> "content_block:end     [tool_use] ${event.name} ${event.id.take(12)}"
+                    is StreamEvent.ToolUse        -> "content_block:end     [tool_use] ${event.name} child=${event.childSessionId?.take(8) ?: "—"} ${event.id.take(12)}"
                     is StreamEvent.ThinkingBlock  -> "content_block:end     [thinking]"
-                    is StreamEvent.ToolResult     -> "tool:result           id=${event.toolCallId.take(12)} ${event.toolName}"
-                    is StreamEvent.DelegateDelta  -> "content_block:delta   [child] tok=${event.token.take(20)}"
+                    is StreamEvent.ToolResult     -> "tool:result           id=${event.toolCallId.take(12)} ${event.toolName} child=${event.childSessionId?.take(8) ?: "—"}"
+                    is StreamEvent.DelegateDelta  -> "content_block:delta   [child:${event.childSessionId.take(8)}] tok=${event.token.take(20)}"
                     is StreamEvent.ProviderRetry  -> "${RED}provider:retry        attempt=${event.attempt}${RESET}"
                     is StreamEvent.ApprovalRequest-> "approval:request      ${event.question.take(40)}"
                     is StreamEvent.Named          -> "session:named         ${event.name}"
@@ -215,7 +251,7 @@ fun main(args: Array<String>): Unit = runBlocking {
     done.await()
 
     println()
-    println("${DIM}─────────────────────────────────${RESET}")
+    println("${DIM}${"─".repeat(33)}${RESET}")
     println("${DIM}Session: $sessionId${RESET}")
-    println("${DIM}Reuse:   ./harness --session $sessionId \"follow-up\"${RESET}")
+    println("${DIM}Reuse:   ./harness/harness --session $sessionId \"follow-up\"${RESET}")
 }
