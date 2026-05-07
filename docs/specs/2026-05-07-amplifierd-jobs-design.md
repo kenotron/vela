@@ -388,10 +388,16 @@ session:
 
 ---
 
-## Open Questions
+## Resolved Design Decisions
 
-1. **Concurrency limit**: should the scheduler enforce a max-parallel-jobs cap (like loom's semaphore)? Probably yes for V1 — default 4, configurable via plugin config.
+1. **Concurrency limit**: yes — default max 4 parallel executing jobs, configurable via plugin
+   config (`max_parallel: 4`). Enforced by an asyncio semaphore in the scheduler. Jobs that
+   exceed the cap queue until a slot frees; the queue depth is visible on the status endpoint.
 
-2. **`once` job cleanup**: after a `once` job fires and gets disabled, should it auto-delete after N days? Or stay in the list as disabled? Lean toward keeping it (audit trail).
+2. **`once` job cleanup**: disabled `once` jobs stay in the list forever — deletion is always
+   explicit. They provide audit trail and make it easy to re-trigger the same job manually later.
 
-3. **Tool access to run history**: should `list_jobs` also return the last run status/time? Useful for the AI to answer "did my morning summary run today?" — yes, include `last_run_at` and `last_run_status` on the Job response shape.
+3. **Last run status on responses**: `list_jobs` and `get_job` include `last_run_at` and
+   `last_run_status` denormalized on the Job response. The AI can answer "did my morning
+   summary run today?" without a separate runs query. These fields are updated in place on the
+   Job row when a run completes (no join needed at read time).
