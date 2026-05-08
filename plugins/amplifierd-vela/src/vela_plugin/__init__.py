@@ -7,7 +7,6 @@ import logging
 import time
 from typing import Any
 
-import amplifierd
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
@@ -117,10 +116,16 @@ def _inject_health_override(state: Any, machine_id: str) -> None:
             rust_engine = bool(getattr(amplifier_core, "rust_available", False))
         except Exception:
             rust_engine = False
+        try:
+            import amplifierd as _amplifierd  # only available in amplifierd runtime
+
+            _version = _amplifierd.__version__
+        except Exception:
+            _version = __version__
         return JSONResponse(
             {
                 "status": "healthy",
-                "version": amplifierd.__version__,
+                "version": _version,
                 "uptime_seconds": uptime,
                 "active_sessions": active,
                 "rust_engine": rust_engine,
