@@ -68,8 +68,30 @@ class SessionListViewModelTest {
         override suspend fun getById(id: String): SshNodeEntity? = null
         override suspend fun updateBootstrapStatus(id: String, status: String) {}
         override suspend fun promoteToAmplifierd(
-            id: String, type: String, url: String, token: String, status: String,
+            id: String, type: String, url: String, tailscaleUrl: String, token: String, status: String, machineId: String, endpoints: String,
         ) {}
+        override suspend fun updateConnection(id: String, label: String, hosts: String, port: Int, username: String, workspaceDir: String) {}
+        override suspend fun updateMachineId(id: String, machineId: String) {}
+        override suspend fun updateEndpoints(id: String, endpoints: String) {}
+    }
+
+    private class FakeBootstrapper(
+        registry: SshNodeRegistry,
+    ) : com.vela.app.ssh.NodeBootstrapper(
+        keyManager = com.vela.app.ssh.SshKeyManager(android.content.ContextWrapper(null)),
+        registry = registry,
+    )
+
+    private class FakeStreamingManager : com.vela.app.streaming.SessionStreamingManager {
+        override fun getSessionFlow(sessionId: String): kotlinx.coroutines.flow.StateFlow<com.vela.app.streaming.SessionState?> =
+            kotlinx.coroutines.flow.MutableStateFlow(null)
+        override fun getAllSessionFlows(): kotlinx.coroutines.flow.StateFlow<Map<String, com.vela.app.streaming.SessionState>> =
+            kotlinx.coroutines.flow.MutableStateFlow(emptyMap())
+        override suspend fun startStreaming(sessionId: String, nodeId: String, projectName: String?) {}
+        override fun stopStreaming(sessionId: String) {}
+        override suspend fun resumeSession(sessionId: String): Boolean = false
+        override suspend fun retryLastMessage(sessionId: String): Boolean = false
+        override suspend fun sendMessage(sessionId: String, message: String): Boolean = false
     }
 
     private fun makeVm(
@@ -79,7 +101,13 @@ class SessionListViewModelTest {
     ): SessionListViewModel {
         val savedState = SavedStateHandle(mapOf("nodeId" to nodeId, "projectId" to projectId))
         val registry = SshNodeRegistry(dao)
-        return SessionListViewModel(savedState, registry, AmplifierdRepository(registry))
+        return SessionListViewModel(
+            savedState,
+            registry,
+            AmplifierdRepository(registry),
+            FakeBootstrapper(registry),
+            FakeStreamingManager(),
+        )
     }
 
     // ── Tests ─────────────────────────────────────────────────────────────────

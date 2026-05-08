@@ -43,11 +43,18 @@ class SshNodeRegistryBootstrapTest {
             id: String,
             type: String,
             url: String,
+            tailscaleUrl: String,
             token: String,
             status: String,
+            machineId: String,
+            endpoints: String,
         ) {
             promotions += PromoteCall(id, type, url, token, status)
         }
+
+        override suspend fun updateConnection(id: String, label: String, hosts: String, port: Int, username: String, workspaceDir: String) {}
+        override suspend fun updateMachineId(id: String, machineId: String) {}
+        override suspend fun updateEndpoints(id: String, endpoints: String) {}
     }
 
     // ── Tests ─────────────────────────────────────────────────────────────────

@@ -86,6 +86,49 @@ open class SshNodeRegistry @Inject constructor(private val dao: SshNodeDao) {
     open suspend fun updateBootstrapStatus(nodeId: String, status: BootstrapStatus) =
         dao.updateBootstrapStatus(nodeId, status.name)
 
+    /** Persist a newly-discovered machine_id (read from /health after bootstrap). */
+    suspend fun updateMachineId(nodeId: String, machineId: String) {
+        dao.updateMachineId(nodeId, machineId)
+    }
+
+    /**
+     * Appends [endpoint] to [nodeId]'s endpoint list if not already present.
+     * Used by [MdnsDiscoveryService] to persist a newly-discovered mDNS service name.
+     */
+    suspend fun addEndpoint(nodeId: String, endpoint: NodeEndpoint) {
+        val node = cache.find { it.id == nodeId } ?: return
+        // Idempotent — skip if an equivalent endpoint already exists
+        val alreadyHas = node.endpoints.any { existing ->
+            when {
+                endpoint is NodeEndpoint.Mdns && existing is NodeEndpoint.Mdns ->
+                    existing.serviceName == endpoint.serviceName
+                endpoint is NodeEndpoint.Direct && existing is NodeEndpoint.Direct ->
+                    existing.url == endpoint.url
+                endpoint is NodeEndpoint.Tailscale && existing is NodeEndpoint.Tailscale ->
+                    existing.url == endpoint.url
+                else -> false
+            }
+        }
+        if (alreadyHas) return
+        val updatedJson = serializeEndpoints(node.endpoints + endpoint)
+        dao.updateEndpoints(nodeId, updatedJson)
+    }
+
+    /** Serialize [NodeEndpoint] list to the JSON format used in the DB endpoints column. */
+    private fun serializeEndpoints(endpoints: List<NodeEndpoint>): String {
+        val arr = org.json.JSONArray()
+        endpoints.forEach { ep ->
+            val obj = org.json.JSONObject()
+            when (ep) {
+                is NodeEndpoint.Direct    -> { obj.put("type", "direct");    obj.put("url", ep.url) }
+                is NodeEndpoint.Tailscale -> { obj.put("type", "tailscale"); obj.put("url", ep.url) }
+                is NodeEndpoint.Mdns      -> { obj.put("type", "mdns");      obj.put("serviceName", ep.serviceName) }
+            }
+            arr.put(obj)
+        }
+        return arr.toString()
+    }
+
     // ── Entity ↔ Domain mapping ────────────────────────────────────────────────
 
     private fun SshNodeEntity.toDomain() = SshNode(

@@ -308,7 +308,7 @@ class NodeBootstrapperTest {
         val promotedTo = mutableListOf<Triple<String, String, String>>() // (id, url, token)
         val statusUpdates = mutableListOf<Pair<String, String>>()        // (id, status)
 
-        override suspend fun promoteToAmplifierd(nodeId: String, url: String, token: String) {
+        override suspend fun promoteToAmplifierd(nodeId: String, url: String, tailscaleUrl: String, token: String, machineId: String) {
             promotedTo.add(Triple(nodeId, url, token))
         }
         override suspend fun updateBootstrapStatus(nodeId: String, status: BootstrapStatus) {
@@ -766,8 +766,14 @@ class NodeBootstrapperTest {
                 override suspend fun updateBootstrapStatus(id: String, status: String) =
                     throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
                 override suspend fun promoteToAmplifierd(
-                    id: String, type: String, url: String, token: String, status: String,
+                    id: String, type: String, url: String, tailscaleUrl: String, token: String, status: String, machineId: String, endpoints: String,
                 ) = throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
+                override suspend fun updateConnection(id: String, label: String, hosts: String, port: Int, username: String, workspaceDir: String) =
+                    throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
+                override suspend fun updateMachineId(id: String, machineId: String) =
+                    throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
+                override suspend fun updateEndpoints(id: String, endpoints: String) =
+                    throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
             }
     }
 }

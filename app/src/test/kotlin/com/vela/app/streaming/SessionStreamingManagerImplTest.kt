@@ -28,11 +28,13 @@ class SessionStreamingManagerImplTest {
         override suspend fun getById(id: String): SshNodeEntity? = null
         override suspend fun updateBootstrapStatus(id: String, status: String) {}
         override suspend fun promoteToAmplifierd(
-            id: String, type: String, url: String, token: String, status: String,
+            id: String, type: String, url: String, tailscaleUrl: String, token: String, status: String, machineId: String, endpoints: String,
         ) {}
         override suspend fun updateConnection(
             id: String, label: String, hosts: String, port: Int, username: String, workspaceDir: String,
         ) {}
+        override suspend fun updateMachineId(id: String, machineId: String) {}
+        override suspend fun updateEndpoints(id: String, endpoints: String) {}
     }
 
     private fun makeManager(): SessionStreamingManagerImpl {

@@ -47,4 +47,12 @@ interface SshNodeDao {
         username: String,
         workspaceDir: String,
     )
+
+    /** Write the machine_id discovered from /health. */
+    @Query("UPDATE ssh_nodes SET machine_id = :machineId WHERE id = :id")
+    suspend fun updateMachineId(id: String, machineId: String)
+
+    /** Overwrite the entire endpoints JSON column. */
+    @Query("UPDATE ssh_nodes SET endpoints = :endpoints WHERE id = :id")
+    suspend fun updateEndpoints(id: String, endpoints: String)
 }

@@ -37,7 +37,7 @@ class AppNavigationTest {
             .isEqualTo("node/node-7/project/proj-abc")
     }
     @Test fun `sessionDetail builds correct route`() {
-        assertThat(Routes.sessionDetail("sess-99")).isEqualTo("session/sess-99")
+        assertThat(Routes.sessionDetail("node-7", "sess-99")).isEqualTo("session/node-7/sess-99")
     }
     @Test fun `coordinator builds correct route`() {
         assertThat(Routes.coordinator("sess-99")).isEqualTo("session/sess-99/coordinator")
