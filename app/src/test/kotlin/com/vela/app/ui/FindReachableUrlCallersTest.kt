@@ -5,7 +5,7 @@ import org.junit.Test
 
 /**
  * Structural tests verifying that all callers of the removed `findReachableUrl` method
- * have been migrated to use `clientForNode` instead.
+ * have been migrated to use `clientForNode` (via EndpointResolver) instead.
  *
  * Written in TDD RED phase — before the fix is applied — so these tests fail initially
  * (both files still contain `findReachableUrl`) and pass once the fix lands.
@@ -26,7 +26,7 @@ class FindReachableUrlCallersTest {
         ).readText()
     }
 
-    // ── NodeDetailViewModel ────────────────────────────────────────────────────
+    // ── NodeDetailViewModel ───────────────────────────────────────────────────────────────
 
     @Test fun `NodeDetailViewModel does not call findReachableUrl`() {
         assertThat(nodeDetailVmSrc).doesNotContain("findReachableUrl")
@@ -36,17 +36,22 @@ class FindReachableUrlCallersTest {
         assertThat(nodeDetailVmSrc).contains("amplifierd.clientForNode(n) != null")
     }
 
-    // ── HomeViewModel ──────────────────────────────────────────────────────────
+    // ── HomeViewModel ─────────────────────────────────────────────────────────────────────
 
     @Test fun `HomeViewModel does not call findReachableUrl`() {
         assertThat(homeVmSrc).doesNotContain("findReachableUrl")
     }
 
-    @Test fun `HomeViewModel checkNode uses clientForNode`() {
-        assertThat(homeVmSrc).contains("amplifierd.clientForNode(node)")
+    /**
+     * Connectivity checking has been moved to ConnectivityPoller.
+     * HomeViewModel now delegates to the poller rather than calling clientForNode directly.
+     */
+    @Test fun `HomeViewModel delegates connectivity to ConnectivityPoller`() {
+        assertThat(homeVmSrc).contains("ConnectivityPoller")
+        assertThat(homeVmSrc).contains("poller.nodeConnectivity")
     }
 
-    @Test fun `HomeViewModel Reachable uses client baseUrl`() {
-        assertThat(homeVmSrc).contains("NodeConnectivity.Reachable(client.baseUrl)")
+    @Test fun `HomeViewModel does not call clientForNode directly`() {
+        assertThat(homeVmSrc).doesNotContain("clientForNode")
     }
 }

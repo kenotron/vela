@@ -1,10 +1,10 @@
 package com.vela.app.ui.home
 
 import com.google.common.truth.Truth.assertThat
-import com.vela.app.amplifierd.AmplifierdRepository
 import com.vela.app.amplifierd.EndpointResolver
 import com.vela.app.data.db.SshNodeDao
 import com.vela.app.data.db.SshNodeEntity
+import com.vela.app.ssh.ConnectivityPoller
 import com.vela.app.ssh.SshNodeRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -27,7 +27,7 @@ class HomeViewModelTest {
     @Before fun setUp()    { Dispatchers.setMain(testDispatcher) }
     @After  fun tearDown() { Dispatchers.resetMain() }
 
-    // ── Fake DAO ────────────────────────────────────────────────────────────────
+    // ── Fake DAO ──────────────────────────────────────────────────────────────────────────────
 
     private class FakeSshNodeDao : SshNodeDao {
         val nodeFlow = MutableStateFlow<List<SshNodeEntity>>(emptyList())
@@ -47,10 +47,11 @@ class HomeViewModelTest {
     private fun makeVm(dao: FakeSshNodeDao = FakeSshNodeDao()): HomeViewModel {
         val registry = SshNodeRegistry(dao)
         val resolver = Mockito.mock(EndpointResolver::class.java)
-        return HomeViewModel(registry, AmplifierdRepository(registry, resolver))
+        val poller = ConnectivityPoller(resolver, registry)
+        return HomeViewModel(registry, poller)
     }
 
-    // ── Tests ───────────────────────────────────────────────────────────────────
+    // ── Tests ───────────────────────────────────────────────────────────────────────────────
 
     @Test
     fun `nodes initial value is empty list`() {
@@ -101,7 +102,19 @@ class HomeViewModelTest {
         assertThat(vm.nodes.value).isEmpty()
     }
 
-    // ── Structural: verify composable exists ────────────────────────────────────
+    @Test
+    fun `nodeConnectivity is sourced from ConnectivityPoller`() {
+        val dao = FakeSshNodeDao()
+        val registry = SshNodeRegistry(dao)
+        val resolver = Mockito.mock(EndpointResolver::class.java)
+        val poller = ConnectivityPoller(resolver, registry)
+        val vm = HomeViewModel(registry, poller)
+
+        // nodeConnectivity must be the exact same StateFlow instance as poller.nodeConnectivity
+        assertThat(vm.nodeConnectivity).isSameInstanceAs(poller.nodeConnectivity)
+    }
+
+    // ── Structural: verify composable exists ─────────────────────────────────────────────
 
     @Test fun `HomeScreen source file exists with HomeScreen composable`() {
         val src = java.io.File(

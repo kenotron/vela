@@ -654,6 +654,10 @@ WantedBy=default.target
                 override suspend fun updateConnection(
                     id: String, label: String, hosts: String, port: Int, username: String, workspaceDir: String,
                 ) = error("SshNodeDao must not be accessed in NodeBootstrapper helper tests")
+                override suspend fun updateMachineId(id: String, machineId: String) =
+                    error("SshNodeDao must not be accessed in NodeBootstrapper helper tests")
+                override suspend fun updateEndpoints(id: String, endpoints: String) =
+                    error("SshNodeDao must not be accessed in NodeBootstrapper helper tests")
             }
     }
 }
