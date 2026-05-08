@@ -1,6 +1,7 @@
 package com.vela.app.di
 
 import android.content.Context
+import android.net.nsd.NsdManager
 import androidx.room.Room
 import com.vela.app.ai.AmplifierSession
 import com.vela.app.engine.InferenceSession
@@ -21,6 +22,7 @@ import com.vela.app.hooks.StatusContextHook
     import com.vela.app.hooks.VaultSyncHook
 import com.vela.app.events.EventBus
 import com.vela.app.amplifierd.AmplifierdRepository
+import com.vela.app.amplifierd.EndpointResolver
 import com.vela.app.ssh.SshKeyManager
 import com.vela.app.ssh.SshNodeRegistry
 import com.vela.app.vault.SharedPrefsVaultSettings
@@ -107,11 +109,17 @@ object AppModule {
     fun provideSshKeyManager(@ApplicationContext ctx: Context): SshKeyManager = SshKeyManager(ctx)
 
     @Provides @Singleton
+    fun provideNsdManager(@ApplicationContext ctx: Context): NsdManager =
+        ctx.getSystemService(Context.NSD_SERVICE) as NsdManager
+
+    @Provides @Singleton
     fun provideSshNodeRegistry(dao: SshNodeDao): SshNodeRegistry = SshNodeRegistry(dao)
 
     @Provides @Singleton
-    fun provideAmplifierdRepository(registry: SshNodeRegistry): AmplifierdRepository =
-        AmplifierdRepository(registry)
+    fun provideAmplifierdRepository(
+        registry: SshNodeRegistry,
+        resolver: EndpointResolver,
+    ): AmplifierdRepository = AmplifierdRepository(registry, resolver)
 
     // NodeBootstrapper carries per-run state — NOT @Singleton.
     @Provides
