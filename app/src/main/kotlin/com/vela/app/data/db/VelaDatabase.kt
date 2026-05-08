@@ -52,8 +52,8 @@ val MIGRATION_17_18 = object : Migration(17, 18) {
             val url = cursor.getString(1) ?: ""
             val tailscaleUrl = cursor.getString(2) ?: ""
             val parts = buildList<String> {
-                if (tailscaleUrl.isNotBlank()) add("""{\"type\":\"tailscale\",\"url\":\"$tailscaleUrl\"}""")
-                if (url.isNotBlank()) add("""{\"type\":\"direct\",\"url\":\"$url\"}""")
+                if (tailscaleUrl.isNotBlank()) add("""{"type":"tailscale","url":"$tailscaleUrl"}""")
+                if (url.isNotBlank()) add("""{"type":"direct","url":"$url"}""")
             }
             val json = "[${parts.joinToString(",")}]"
             db.execSQL("UPDATE ssh_nodes SET endpoints = ? WHERE id = ?", arrayOf(json, id))
