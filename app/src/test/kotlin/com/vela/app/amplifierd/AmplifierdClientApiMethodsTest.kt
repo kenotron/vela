@@ -40,4 +40,19 @@ class AmplifierdClientApiMethodsTest {
     @Test fun `executeStream posts to sessions execute stream path`() {
         assertThat(src).contains("\"/sessions/\$sessionId/execute/stream\"")
     }
+
+    // ── task-1: expose baseUrl + healthWithDetails ────────────────────────────
+
+    @Test fun `baseUrl is public (not private val baseUrl)`() {
+        assertThat(src).doesNotContain("private val baseUrl")
+        assertThat(src).contains("val baseUrl: String")
+    }
+
+    @Test fun `source file contains healthWithDetails suspend method returning nullable HealthResponse`() {
+        assertThat(src).contains("suspend fun healthWithDetails(): HealthResponse?")
+    }
+
+    @Test fun `healthWithDetails parses machine_id from JSON`() {
+        assertThat(src).contains("optString(\"machine_id\"")
+    }
 }
