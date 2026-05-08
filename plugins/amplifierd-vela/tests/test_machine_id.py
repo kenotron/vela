@@ -52,7 +52,7 @@ def test_macos_returns_ioreg_uuid(monkeypatch, no_persist):
         result = mid.get_machine_id()
 
     mock_run.assert_called_once_with(
-        ["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"],
+        ["/usr/sbin/ioreg", "-rd1", "-c", "IOPlatformExpertDevice"],
         capture_output=True,
         text=True,
     )

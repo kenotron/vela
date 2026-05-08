@@ -27,14 +27,17 @@ def get_machine_id() -> str:
     # 1. macOS – IOPlatformUUID from ioreg
     # ------------------------------------------------------------------
     if sys.platform == "darwin":
-        result = subprocess.run(
-            ["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"],
-            capture_output=True,
-            text=True,
-        )
-        for line in result.stdout.splitlines():
-            if "IOPlatformUUID" in line:
-                return line.split('"')[-2]
+        try:
+            result = subprocess.run(
+                ["/usr/sbin/ioreg", "-rd1", "-c", "IOPlatformExpertDevice"],
+                capture_output=True,
+                text=True,
+            )
+            for line in result.stdout.splitlines():
+                if "IOPlatformUUID" in line:
+                    return line.split('"')[-2]
+        except (FileNotFoundError, OSError):
+            pass  # fall through to next source
 
     # ------------------------------------------------------------------
     # 2. Linux – /sys/class/dmi/id/product_uuid (requires root on some distros)
