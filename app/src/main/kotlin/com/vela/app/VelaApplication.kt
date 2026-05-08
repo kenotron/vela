@@ -1,11 +1,15 @@
 package com.vela.app
 
 import android.app.Application
-import com.vela.app.notifications.ApprovalNotificationHelper
 import androidx.hilt.work.HiltWorkerFactory
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.work.Configuration
+import com.vela.app.notifications.ApprovalNotificationHelper
 import com.vela.app.server.VelaMiniAppCleaner
 import com.vela.app.server.VelaMiniAppServer
+import com.vela.app.ssh.MdnsDiscoveryService
 import com.vela.app.workers.ProfileWorkerScheduler
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
@@ -25,6 +29,9 @@ class VelaApplication : Application(), Configuration.Provider {
     @Inject
     lateinit var miniAppCleaner: VelaMiniAppCleaner
 
+    @Inject
+    lateinit var mdnsDiscovery: MdnsDiscoveryService
+
     override fun onCreate() {
         super.onCreate()
         ApprovalNotificationHelper.createChannel(this)
@@ -35,6 +42,15 @@ class VelaApplication : Application(), Configuration.Provider {
         profileWorkerScheduler.schedule()
         miniAppCleaner.clearStaleRenderersIfNeeded()
         miniAppServer.start()
+        // Start mDNS discovery when app enters foreground; stop when it fully backgrounds.
+        // ProcessLifecycleOwner fires ON_START/ON_STOP only for true foreground transitions
+        // (not screen rotations or brief pauses) so this is battery-safe.
+        ProcessLifecycleOwner.get().lifecycle.addObserver(
+            object : DefaultLifecycleObserver {
+                override fun onStart(owner: LifecycleOwner) { mdnsDiscovery.start() }
+                override fun onStop(owner: LifecycleOwner)  { mdnsDiscovery.stop() }
+            }
+        )
     }
 
     override val workManagerConfiguration: Configuration
