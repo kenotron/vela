@@ -6,6 +6,7 @@
         alias(libs.plugins.hilt.android)
         alias(libs.plugins.ksp)
         alias(libs.plugins.room)
+        alias(libs.plugins.kotlin.serialization)
     }
 
     android {
@@ -128,6 +129,9 @@
 
         // Coroutines
         implementation(libs.kotlinx.coroutines.android)
+
+        // kotlinx.serialization — JSON for NodeEndpoint sealed class DB storage
+        implementation(libs.kotlinx.serialization.json)
 
             // Security — encrypted shared preferences for API keys
         implementation("androidx.security:security-crypto:1.1.0-alpha06")
