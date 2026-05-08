@@ -122,4 +122,48 @@ class HomeViewModelTest {
         ).readText()
         assertThat(src).contains("fun HomeScreen")
     }
+
+    // ── Lifecycle wiring ──────────────────────────────────────────────────────────────────────
+
+    @Test fun `HomeScreen imports DisposableEffect`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/home/HomeScreen.kt"
+        ).readText()
+        assertThat(src).contains("import androidx.compose.runtime.DisposableEffect")
+    }
+
+    @Test fun `HomeScreen imports LocalLifecycleOwner`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/home/HomeScreen.kt"
+        ).readText()
+        assertThat(src).contains("import androidx.lifecycle.compose.LocalLifecycleOwner")
+    }
+
+    @Test fun `HomeScreen wires ON_RESUME to viewModel onPageVisible`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/home/HomeScreen.kt"
+        ).readText()
+        assertThat(src).contains("Lifecycle.Event.ON_RESUME -> viewModel.onPageVisible()")
+    }
+
+    @Test fun `HomeScreen wires ON_PAUSE to viewModel onPageHidden`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/home/HomeScreen.kt"
+        ).readText()
+        assertThat(src).contains("Lifecycle.Event.ON_PAUSE  -> viewModel.onPageHidden()")
+    }
+
+    @Test fun `HomeScreen uses DisposableEffect with lifecycle and viewModel`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/home/HomeScreen.kt"
+        ).readText()
+        assertThat(src).contains("DisposableEffect(lifecycle, viewModel)")
+    }
+
+    @Test fun `HomeScreen removes observer onDispose`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/home/HomeScreen.kt"
+        ).readText()
+        assertThat(src).contains("onDispose { lifecycle.removeObserver(observer) }")
+    }
 }
