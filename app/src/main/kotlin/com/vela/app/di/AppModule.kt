@@ -117,9 +117,8 @@ object AppModule {
 
     @Provides @Singleton
     fun provideAmplifierdRepository(
-        registry: SshNodeRegistry,
         resolver: EndpointResolver,
-    ): AmplifierdRepository = AmplifierdRepository(registry, resolver)
+    ): AmplifierdRepository = AmplifierdRepository(resolver)
 
     // NodeBootstrapper carries per-run state — NOT @Singleton.
     @Provides

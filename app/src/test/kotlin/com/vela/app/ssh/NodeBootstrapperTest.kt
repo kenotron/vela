@@ -559,10 +559,12 @@ class NodeBootstrapperTest {
         assertThat(failed[0].error).contains("stdout line")
     }
 
-    // ── Tailscale IP detection ─────────────────────────────────────────────────
+    // ── LAN URL is canonical (design A1) ────────────────────────────────
+    // BootstrapEvent.Complete.url always holds the LAN URL used during bootstrap.
+    // EndpointResolver handles Tailscale preference at runtime.
 
     @Test
-    fun bootstrap_promotesUsingTailscaleIp_whenAvailable() = runTest {
+    fun bootstrap_completesWithLanUrl_whenTailscaleAlsoPresent() = runTest {
         val shell = FakeRemoteShell()
         shell.responses["uname -sm"] = "Linux x86_64\n" to 0
         shell.responses["curl -fsS http://127.0.0.1:8410/health"] = "ok" to 0
@@ -580,8 +582,8 @@ class NodeBootstrapperTest {
         ).toList()
 
         val complete = events.last() as BootstrapEvent.Complete
-        assertThat(complete.url).isEqualTo("http://100.64.1.42:8410")
-        assertThat(registry.promotedTo[0].second).isEqualTo("http://100.64.1.42:8410")
+        assertThat(complete.url).isEqualTo("http://1.2.3.4:8410")
+        assertThat(registry.promotedTo[0].second).isEqualTo("http://1.2.3.4:8410")
     }
 
     @Test

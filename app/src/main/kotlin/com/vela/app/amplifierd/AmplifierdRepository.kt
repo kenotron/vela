@@ -1,10 +1,8 @@
 package com.vela.app.amplifierd
 
 import android.util.Log
-import com.vela.app.ssh.NodeEndpoint
 import com.vela.app.ssh.NodeType
 import com.vela.app.ssh.SshNode
-import com.vela.app.ssh.SshNodeRegistry
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -17,7 +15,6 @@ import javax.inject.Singleton
  */
 @Singleton
 class AmplifierdRepository @Inject constructor(
-    private val registry: SshNodeRegistry,
     private val resolver: EndpointResolver,
 ) {
     /**

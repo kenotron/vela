@@ -32,7 +32,7 @@ class MdnsDiscoveryService @Inject constructor(
 ) {
     // Keyed by node ID → live-resolved "http://host:port" URL (ephemeral, not persisted)
     private val resolvedUrls = ConcurrentHashMap<String, String>()
-    private var discoveryListener: NsdManager.DiscoveryListener? = null
+    @Volatile private var discoveryListener: NsdManager.DiscoveryListener? = null
 
     // Private scope for background DB writes (addEndpoint is suspend)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
