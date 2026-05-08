@@ -2,6 +2,7 @@ package com.vela.app.streaming
 
 import android.util.Log
 import com.vela.app.amplifierd.AmplifierdRepository
+import com.vela.app.amplifierd.AmplifierdStreamClient
 import com.vela.app.ssh.SshNodeRegistry
 import com.vela.app.ui.sessiondetail.SessionStatus
 import com.vela.app.ui.sessiondetail.TurnContent
@@ -75,11 +76,11 @@ class SessionStreamingManagerImpl @Inject constructor(
         }
 
         val client = amplifierd.clientForNode(node)
-        val streamClient = amplifierd.streamClientForNode(node)
-        if (client == null || streamClient == null) {
-            Log.w(TAG, "startStreaming: could not build clients for node ${node.label}")
+        if (client == null) {
+            Log.w(TAG, "startStreaming: node '${node.label}' unreachable on all endpoints")
             return
         }
+        val streamClient = AmplifierdStreamClient(client.baseUrl, node.token)
 
         // Load initial transcript (best-effort; stream carries any missing turns)
         val transcriptJson = try {
@@ -152,8 +153,8 @@ class SessionStreamingManagerImpl @Inject constructor(
     override suspend fun sendMessage(sessionId: String, message: String): Boolean {
         val state = sessionFlows[sessionId]?.value ?: return false
         val node = nodeRegistry.cache.find { it.id == state.nodeId } ?: return false
-        val streamClient = amplifierd.streamClientForNode(node) ?: return false
-        val client = amplifierd.clientForNode(node)
+        val client = amplifierd.clientForNode(node) ?: return false
+        val streamClient = AmplifierdStreamClient(client.baseUrl, node.token)
 
         // Ensure the session is loaded into amplifierd memory before streaming.
         // After a server restart sessions exist on disk but not in memory;

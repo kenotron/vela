@@ -148,4 +148,39 @@ class SessionStreamingManagerImplTest {
         ).readText()
         assertThat(src).contains("class SessionStreamingManagerImpl")
     }
+
+    // ── task-11: single-resolve fix (active-URL propagation bug) ──────────────
+
+    @Test fun `source file imports AmplifierdStreamClient directly`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/streaming/SessionStreamingManagerImpl.kt"
+        ).readText()
+        assertThat(src).contains("import com.vela.app.amplifierd.AmplifierdStreamClient")
+    }
+
+    @Test fun `startStreaming and sendMessage build stream client from client baseUrl`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/streaming/SessionStreamingManagerImpl.kt"
+        ).readText()
+        // Both startStreaming and sendMessage should construct AmplifierdStreamClient directly
+        // using client.baseUrl — not via streamClientForNode.
+        assertThat(src).contains("AmplifierdStreamClient(client.baseUrl, node.token)")
+    }
+
+    @Test fun `startStreaming log message reflects single-resolve semantics`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/streaming/SessionStreamingManagerImpl.kt"
+        ).readText()
+        // After the fix the null-client warning uses the new message from the spec.
+        assertThat(src).contains("unreachable on all endpoints")
+    }
+
+    @Test fun `source file does not call streamClientForNode in startStreaming or sendMessage`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/streaming/SessionStreamingManagerImpl.kt"
+        ).readText()
+        // streamClientForNode should no longer appear — both methods now resolve once via
+        // clientForNode and construct AmplifierdStreamClient directly.
+        assertThat(src).doesNotContain("streamClientForNode")
+    }
 }
