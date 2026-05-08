@@ -649,6 +649,7 @@ WantedBy=default.target
                     error("SshNodeDao must not be accessed in NodeBootstrapper helper tests")
                 override suspend fun promoteToAmplifierd(
                     id: String, type: String, url: String, tailscaleUrl: String, token: String, status: String,
+                    machineId: String, endpoints: String,
                 ) = error("SshNodeDao must not be accessed in NodeBootstrapper helper tests")
                 override suspend fun updateConnection(
                     id: String, label: String, hosts: String, port: Int, username: String, workspaceDir: String,
