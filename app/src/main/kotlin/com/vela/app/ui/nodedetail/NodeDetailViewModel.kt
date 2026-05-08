@@ -58,7 +58,7 @@ class NodeDetailViewModel @Inject constructor(
     fun refreshConnectivity() {
         viewModelScope.launch(Dispatchers.IO) {
             val n = node.value ?: return@launch
-            _isReachable.value = amplifierd.findReachableUrl(n) != null
+            _isReachable.value = amplifierd.clientForNode(n) != null
         }
     }
 

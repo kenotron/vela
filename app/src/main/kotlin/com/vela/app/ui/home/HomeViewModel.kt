@@ -85,9 +85,9 @@ class HomeViewModel @Inject constructor(
 
     private suspend fun checkNode(node: SshNode) {
         _nodeConnectivity.update { it + (node.id to NodeConnectivity.Checking) }
-        val reachableUrl = amplifierd.findReachableUrl(node)
-        val connectivity = if (reachableUrl != null)
-            NodeConnectivity.Reachable(reachableUrl)
+        val client = amplifierd.clientForNode(node)
+        val connectivity = if (client != null)
+            NodeConnectivity.Reachable(client.baseUrl)
         else
             NodeConnectivity.Unreachable
         _nodeConnectivity.update { it + (node.id to connectivity) }

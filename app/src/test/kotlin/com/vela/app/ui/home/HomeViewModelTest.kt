@@ -2,6 +2,7 @@ package com.vela.app.ui.home
 
 import com.google.common.truth.Truth.assertThat
 import com.vela.app.amplifierd.AmplifierdRepository
+import com.vela.app.amplifierd.EndpointResolver
 import com.vela.app.data.db.SshNodeDao
 import com.vela.app.data.db.SshNodeEntity
 import com.vela.app.ssh.SshNodeRegistry
@@ -16,6 +17,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import org.mockito.Mockito
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModelTest {
@@ -44,7 +46,8 @@ class HomeViewModelTest {
 
     private fun makeVm(dao: FakeSshNodeDao = FakeSshNodeDao()): HomeViewModel {
         val registry = SshNodeRegistry(dao)
-        return HomeViewModel(registry, AmplifierdRepository(registry))
+        val resolver = Mockito.mock(EndpointResolver::class.java)
+        return HomeViewModel(registry, AmplifierdRepository(registry, resolver))
     }
 
     // ── Tests ───────────────────────────────────────────────────────────────────

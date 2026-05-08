@@ -3,6 +3,7 @@ package com.vela.app.ui.nodedetail
 import androidx.lifecycle.SavedStateHandle
 import com.google.common.truth.Truth.assertThat
 import com.vela.app.amplifierd.AmplifierdRepository
+import com.vela.app.amplifierd.EndpointResolver
 import com.vela.app.data.db.SshNodeDao
 import com.vela.app.data.db.SshNodeEntity
 import com.vela.app.ssh.NodeBootstrapper
@@ -19,6 +20,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import org.mockito.Mockito
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class NodeDetailViewModelTest {
@@ -51,7 +53,8 @@ class NodeDetailViewModelTest {
     ): NodeDetailViewModel {
         val savedState = SavedStateHandle(mapOf("nodeId" to nodeId))
         val registry = SshNodeRegistry(dao)
-        val amplifierd = AmplifierdRepository(registry)
+        val resolver = Mockito.mock(EndpointResolver::class.java)
+        val amplifierd = AmplifierdRepository(registry, resolver)
         val bootstrapper = NodeBootstrapper(
             keyManager = SshKeyManager(android.content.ContextWrapper(null)),
             registry   = registry,

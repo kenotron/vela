@@ -3,6 +3,7 @@ package com.vela.app.ui.sessiondetail
 import androidx.lifecycle.SavedStateHandle
 import com.google.common.truth.Truth.assertThat
 import com.vela.app.amplifierd.AmplifierdRepository
+import com.vela.app.amplifierd.EndpointResolver
 import com.vela.app.data.db.SshNodeDao
 import com.vela.app.data.db.SshNodeEntity
 import com.vela.app.settings.ApiKeyStore
@@ -69,7 +70,8 @@ class SessionDetailViewModelTest {
         val savedState = SavedStateHandle(mapOf("sessionId" to sessionId))
         val dao        = FakeSshNodeDao()
         val registry   = SshNodeRegistry(dao)
-        val amplifierd = AmplifierdRepository(registry)
+        val resolver   = Mockito.mock(EndpointResolver::class.java)
+        val amplifierd = AmplifierdRepository(registry, resolver)
         val apiKeyStore = Mockito.mock(ApiKeyStore::class.java)
         Mockito.`when`(apiKeyStore.openAiKey).thenReturn("")
         return SessionDetailViewModel(
