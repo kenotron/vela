@@ -5,7 +5,7 @@ from __future__ import annotations
 import types
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import FastAPI
@@ -25,15 +25,20 @@ def patched_settings(tmp_path: Path, monkeypatch):
     settings_file = amp / "settings.json"
     projects_file = amp / "projects.json"
 
-    settings_file.write_text(json.dumps({
-        "bundles": [],
-        "vela": {"auth_token": "tok"},
-    }))
+    settings_file.write_text(
+        json.dumps(
+            {
+                "bundles": [],
+                "vela": {"auth_token": "tok"},
+            }
+        )
+    )
 
     monkeypatch.setattr("vela_plugin.settings.DEFAULT_PATH", settings_file)
     monkeypatch.setattr("vela_plugin.projects.DEFAULT_PROJECTS_PATH", projects_file)
 
     from vela_plugin import bundles
+
     bundles._bundle_errors.clear()
     yield settings_file
     bundles._bundle_errors.clear()
@@ -60,10 +65,14 @@ def test_create_router_sets_machine_id_on_state(patched_settings, monkeypatch):
 
     state = _make_state()
 
-    monkeypatch.setattr("vela_plugin.machine_id.get_machine_id", lambda: "test-uuid-0001")
+    monkeypatch.setattr(
+        "vela_plugin.machine_id.get_machine_id", lambda: "test-uuid-0001"
+    )
     # Stub out mDNS to avoid real network ops in tests
     mock_mdns = MagicMock()
-    monkeypatch.setattr("vela_plugin.mdns_service.AmplifierdMdnsService", lambda **kw: mock_mdns)
+    monkeypatch.setattr(
+        "vela_plugin.mdns_service.AmplifierdMdnsService", lambda **kw: mock_mdns
+    )
 
     vela_plugin.create_router(state)
 
@@ -76,7 +85,9 @@ def test_create_router_stores_mdns_service_on_state(patched_settings, monkeypatc
 
     state = _make_state()
 
-    monkeypatch.setattr("vela_plugin.machine_id.get_machine_id", lambda: "test-uuid-0002")
+    monkeypatch.setattr(
+        "vela_plugin.machine_id.get_machine_id", lambda: "test-uuid-0002"
+    )
     mock_mdns_instance = MagicMock()
     mock_mdns_cls = MagicMock(return_value=mock_mdns_instance)
     monkeypatch.setattr("vela_plugin.mdns_service.AmplifierdMdnsService", mock_mdns_cls)
@@ -93,9 +104,13 @@ def test_create_router_calls_mdns_start_with_hostname(patched_settings, monkeypa
 
     state = _make_state()
 
-    monkeypatch.setattr("vela_plugin.machine_id.get_machine_id", lambda: "test-uuid-0003")
+    monkeypatch.setattr(
+        "vela_plugin.machine_id.get_machine_id", lambda: "test-uuid-0003"
+    )
     mock_mdns = MagicMock()
-    monkeypatch.setattr("vela_plugin.mdns_service.AmplifierdMdnsService", lambda **kw: mock_mdns)
+    monkeypatch.setattr(
+        "vela_plugin.mdns_service.AmplifierdMdnsService", lambda **kw: mock_mdns
+    )
 
     vela_plugin.create_router(state)
 
@@ -108,7 +123,9 @@ def test_create_router_passes_machine_id_to_mdns(patched_settings, monkeypatch):
 
     state = _make_state()
 
-    monkeypatch.setattr("vela_plugin.machine_id.get_machine_id", lambda: "test-uuid-0004")
+    monkeypatch.setattr(
+        "vela_plugin.machine_id.get_machine_id", lambda: "test-uuid-0004"
+    )
     mock_mdns_instance = MagicMock()
     mock_mdns_cls = MagicMock(return_value=mock_mdns_instance)
     monkeypatch.setattr("vela_plugin.mdns_service.AmplifierdMdnsService", mock_mdns_cls)

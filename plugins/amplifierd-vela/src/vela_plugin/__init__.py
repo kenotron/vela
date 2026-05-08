@@ -44,6 +44,7 @@ def create_router(state: Any) -> APIRouter:
     # mDNS section
     import socket
     import threading
+
     label = socket.gethostname()
     mdns = AmplifierdMdnsService(machine_id=machine_id)
     # Run start() in a daemon thread: Zeroconf uses asyncio.run_coroutine_threadsafe
@@ -112,17 +113,20 @@ def _inject_health_override(state: Any, machine_id: str) -> None:
         active = len(session_manager.list_sessions()) if session_manager else 0
         try:
             import amplifier_core
+
             rust_engine = bool(getattr(amplifier_core, "rust_available", False))
         except Exception:
             rust_engine = False
-        return JSONResponse({
-            "status": "healthy",
-            "version": amplifierd.__version__,
-            "uptime_seconds": uptime,
-            "active_sessions": active,
-            "rust_engine": rust_engine,
-            "machine_id": _machine_id,
-        })
+        return JSONResponse(
+            {
+                "status": "healthy",
+                "version": amplifierd.__version__,
+                "uptime_seconds": uptime,
+                "active_sessions": active,
+                "rust_engine": rust_engine,
+                "machine_id": _machine_id,
+            }
+        )
 
     health_route = APIRoute("/health", _health_with_machine_id, methods=["GET"])
     app.routes.insert(0, health_route)
