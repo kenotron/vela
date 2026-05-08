@@ -35,6 +35,7 @@ ON job_runs(job_id, started_at DESC)
 class JobStore:
     def __init__(self, db_path: str):
         self._db_path = db_path
+        self._initialized = False
 
     async def init(self) -> None:
         Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -44,8 +45,19 @@ class JobStore:
             await db.execute(CREATE_RUNS_TABLE)
             await db.execute(CREATE_RUN_IDX)
             await db.commit()
+        self._initialized = True
+
+    async def _ensure_init(self) -> None:
+        """Lazily initialize the database on first access.
+
+        This handles the case where the plugin is registered post-startup and
+        the @app.on_event('startup') callback never fires.
+        """
+        if not self._initialized:
+            await self.init()
 
     async def save_job(self, job: Job) -> None:
+        await self._ensure_init()
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute("PRAGMA foreign_keys = ON")
             await db.execute(
@@ -60,6 +72,7 @@ class JobStore:
             await db.commit()
 
     async def get_job(self, job_id: str) -> Optional[Job]:
+        await self._ensure_init()
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
                 "SELECT data FROM jobs WHERE id = ?", (job_id,)
@@ -68,6 +81,7 @@ class JobStore:
                 return Job.from_dict(json.loads(row[0])) if row else None
 
     async def list_jobs(self) -> list[Job]:
+        await self._ensure_init()
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
                 "SELECT data FROM jobs ORDER BY updated_at DESC"
@@ -75,6 +89,7 @@ class JobStore:
                 return [Job.from_dict(json.loads(r[0])) async for r in cur]
 
     async def list_enabled_jobs(self) -> list[Job]:
+        await self._ensure_init()
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
                 "SELECT data FROM jobs WHERE enabled = 1 ORDER BY updated_at DESC"
@@ -82,12 +97,14 @@ class JobStore:
                 return [Job.from_dict(json.loads(r[0])) async for r in cur]
 
     async def delete_job(self, job_id: str) -> None:
+        await self._ensure_init()
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute("PRAGMA foreign_keys = ON")
             await db.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
             await db.commit()
 
     async def save_run(self, run: JobRun) -> None:
+        await self._ensure_init()
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
                 "INSERT OR REPLACE INTO job_runs(id, job_id, data, started_at) VALUES (?,?,?,?)",
@@ -96,6 +113,7 @@ class JobStore:
             await db.commit()
 
     async def get_run(self, run_id: str) -> Optional[JobRun]:
+        await self._ensure_init()
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
                 "SELECT data FROM job_runs WHERE id = ?", (run_id,)
@@ -104,6 +122,7 @@ class JobStore:
                 return JobRun.from_dict(json.loads(row[0])) if row else None
 
     async def list_runs_for_job(self, job_id: str, limit: int = 50) -> list[JobRun]:
+        await self._ensure_init()
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
                 "SELECT data FROM job_runs WHERE job_id = ? "
@@ -113,6 +132,7 @@ class JobStore:
                 return [JobRun.from_dict(json.loads(r[0])) async for r in cur]
 
     async def list_all_runs(self, limit: int = 100) -> list[JobRun]:
+        await self._ensure_init()
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
                 "SELECT data FROM job_runs ORDER BY started_at DESC LIMIT ?",

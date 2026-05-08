@@ -1,6 +1,20 @@
 import pytest
+from pathlib import Path
 from amplifierd_jobs.models import Job, JobRun
 from amplifierd_jobs.store import JobStore
+
+
+@pytest.mark.asyncio
+async def test_store_auto_inits_on_first_access(tmp_path: Path):
+    """Store should work without an explicit init() call (lazy initialization).
+
+    This covers the post-startup plugin registration scenario where the
+    @app.on_event('startup') callback never fires.
+    """
+    store = JobStore(str(tmp_path / "lazy.db"))
+    # Do NOT call store.init() explicitly
+    jobs = await store.list_jobs()
+    assert jobs == []
 
 
 @pytest.mark.asyncio
