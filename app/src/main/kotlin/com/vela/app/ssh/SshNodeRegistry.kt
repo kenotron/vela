@@ -87,7 +87,7 @@ open class SshNodeRegistry @Inject constructor(private val dao: SshNodeDao) {
         dao.updateBootstrapStatus(nodeId, status.name)
 
     /** Persist a newly-discovered machine_id (read from /health after bootstrap). */
-    suspend fun updateMachineId(nodeId: String, machineId: String) {
+    open suspend fun updateMachineId(nodeId: String, machineId: String) {
         dao.updateMachineId(nodeId, machineId)
     }
 
