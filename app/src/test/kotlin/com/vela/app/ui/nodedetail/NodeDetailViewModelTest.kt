@@ -3,6 +3,7 @@ package com.vela.app.ui.nodedetail
 import androidx.lifecycle.SavedStateHandle
 import com.google.common.truth.Truth.assertThat
 import com.vela.app.amplifierd.AmplifierdRepository
+import com.vela.app.amplifierd.EndpointResolver
 import com.vela.app.data.db.SshNodeDao
 import com.vela.app.data.db.SshNodeEntity
 import com.vela.app.ssh.NodeBootstrapper
@@ -19,6 +20,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import org.mockito.Mockito
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class NodeDetailViewModelTest {
@@ -38,8 +40,12 @@ class NodeDetailViewModelTest {
         override suspend fun getById(id: String): SshNodeEntity? = null
         override suspend fun updateBootstrapStatus(id: String, status: String) {}
         override suspend fun promoteToAmplifierd(
-            id: String, type: String, url: String, token: String, status: String,
+            id: String, type: String, url: String, tailscaleUrl: String, token: String, status: String, machineId: String, endpoints: String,
         ) {}
+        override suspend fun updateConnection(id: String, label: String, hosts: String, port: Int, username: String, workspaceDir: String) {}
+        override suspend fun updateMachineId(id: String, machineId: String) {}
+        override suspend fun updateEndpoints(id: String, endpoints: String) {}
+        override suspend fun updateLastKnownReachable(id: String, reachable: Int) = Unit
     }
 
     private fun makeVm(
@@ -48,7 +54,8 @@ class NodeDetailViewModelTest {
     ): NodeDetailViewModel {
         val savedState = SavedStateHandle(mapOf("nodeId" to nodeId))
         val registry = SshNodeRegistry(dao)
-        val amplifierd = AmplifierdRepository(registry)
+        val resolver = Mockito.mock(EndpointResolver::class.java)
+        val amplifierd = AmplifierdRepository(resolver)
         val bootstrapper = NodeBootstrapper(
             keyManager = SshKeyManager(android.content.ContextWrapper(null)),
             registry   = registry,

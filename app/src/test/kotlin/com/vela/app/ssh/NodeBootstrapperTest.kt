@@ -307,12 +307,16 @@ class NodeBootstrapperTest {
     private class FakeRegistry : SshNodeRegistry(dao = throwingDao()) {
         val promotedTo = mutableListOf<Triple<String, String, String>>() // (id, url, token)
         val statusUpdates = mutableListOf<Pair<String, String>>()        // (id, status)
+        val machineIds = mutableMapOf<String, String>()                  // (id, machineId)
 
-        override suspend fun promoteToAmplifierd(nodeId: String, url: String, token: String) {
+        override suspend fun promoteToAmplifierd(nodeId: String, url: String, tailscaleUrl: String, token: String, machineId: String) {
             promotedTo.add(Triple(nodeId, url, token))
         }
         override suspend fun updateBootstrapStatus(nodeId: String, status: BootstrapStatus) {
             statusUpdates.add(nodeId to status.name)
+        }
+        override suspend fun updateMachineId(nodeId: String, machineId: String) {
+            machineIds[nodeId] = machineId
         }
     }
 
@@ -555,10 +559,12 @@ class NodeBootstrapperTest {
         assertThat(failed[0].error).contains("stdout line")
     }
 
-    // ── Tailscale IP detection ─────────────────────────────────────────────────
+    // ── LAN URL is canonical (design A1) ────────────────────────────────
+    // BootstrapEvent.Complete.url always holds the LAN URL used during bootstrap.
+    // EndpointResolver handles Tailscale preference at runtime.
 
     @Test
-    fun bootstrap_promotesUsingTailscaleIp_whenAvailable() = runTest {
+    fun bootstrap_completesWithLanUrl_whenTailscaleAlsoPresent() = runTest {
         val shell = FakeRemoteShell()
         shell.responses["uname -sm"] = "Linux x86_64\n" to 0
         shell.responses["curl -fsS http://127.0.0.1:8410/health"] = "ok" to 0
@@ -576,8 +582,8 @@ class NodeBootstrapperTest {
         ).toList()
 
         val complete = events.last() as BootstrapEvent.Complete
-        assertThat(complete.url).isEqualTo("http://100.64.1.42:8410")
-        assertThat(registry.promotedTo[0].second).isEqualTo("http://100.64.1.42:8410")
+        assertThat(complete.url).isEqualTo("http://1.2.3.4:8410")
+        assertThat(registry.promotedTo[0].second).isEqualTo("http://1.2.3.4:8410")
     }
 
     @Test
@@ -752,6 +758,70 @@ class NodeBootstrapperTest {
         assertThat(shell.commands.none { "nohup" in it }).isTrue()
     }
 
+    // ── machine_id caching after bootstrap ───────────────────────────────────────────────────────
+
+    @Test
+    fun bootstrap_cachesMachineId_whenHealthReturnsIt() = runTest {
+        // RED: fetchMachineId does not exist yet — this test will fail to compile until it is added.
+        val shell = FakeRemoteShell()
+        shell.responses["uname -sm"] = "Linux x86_64\n" to 0
+        shell.responses["curl -fsS http://127.0.0.1:8410/health"] = "ok" to 0
+        shell.responses["tailscale ip -4 2>/dev/null"] = "" to 1
+
+        val registry = FakeRegistry()
+        // Override fetchMachineId to return a known value (bypasses real HTTP in unit tests).
+        val sut = object : NodeBootstrapper(
+            keyManager = SshKeyManager(android.content.ContextWrapper(null)),
+            registry = registry,
+        ) {
+            override suspend fun fetchMachineId(url: String, token: String): String? =
+                "65E872B0-AAAA-BBBB-CCCC-DDDDDDDD1234"
+        }
+
+        val events = sut.bootstrapWithShell(
+            shell = shell,
+            nodeId = "node-1",
+            host = "1.2.3.4",
+            username = "alice",
+            bundle = BundleChoice.SUPERPOWERS,
+            anthropicKey = "sk-ant-XYZ",
+        ).toList()
+
+        // machine_id must be written to the registry
+        assertThat(registry.machineIds["node-1"]).isEqualTo("65E872B0-AAAA-BBBB-CCCC-DDDDDDDD1234")
+
+        // Bootstrap log must include the "✓ machine_id cached" output event
+        val outputs = events.filterIsInstance<BootstrapEvent.Output>().map { it.line }
+        assertThat(outputs.any { "✓ machine_id cached: 65E872B0" in it }).isTrue()
+    }
+
+    @Test
+    fun bootstrap_doesNotFail_whenMachineIdLookupReturnsNull() = runTest {
+        // RED: fetchMachineId does not exist yet — this test verifies graceful failure.
+        val shell = FakeRemoteShell()
+        shell.responses["uname -sm"] = "Linux x86_64\n" to 0
+        shell.responses["curl -fsS http://127.0.0.1:8410/health"] = "ok" to 0
+        shell.responses["tailscale ip -4 2>/dev/null"] = "" to 1
+
+        val registry = FakeRegistry()
+        // Override fetchMachineId to return null (simulates unreachable health endpoint).
+        val sut = object : NodeBootstrapper(
+            keyManager = SshKeyManager(android.content.ContextWrapper(null)),
+            registry = registry,
+        ) {
+            override suspend fun fetchMachineId(url: String, token: String): String? = null
+        }
+
+        val events = sut.bootstrapWithShell(
+            shell = shell, nodeId = "n", host = "h", username = "u",
+            bundle = BundleChoice.TOOLS_ONLY, anthropicKey = "k",
+        ).toList()
+
+        // Bootstrap must still succeed — machine_id caching is best-effort
+        assertThat(events.last()).isInstanceOf(BootstrapEvent.Complete::class.java)
+        assertThat(registry.machineIds).isEmpty()
+    }
+
     companion object {
         private fun throwingDao(): com.vela.app.data.db.SshNodeDao =
             object : com.vela.app.data.db.SshNodeDao {
@@ -766,8 +836,16 @@ class NodeBootstrapperTest {
                 override suspend fun updateBootstrapStatus(id: String, status: String) =
                     throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
                 override suspend fun promoteToAmplifierd(
-                    id: String, type: String, url: String, token: String, status: String,
+                    id: String, type: String, url: String, tailscaleUrl: String, token: String, status: String, machineId: String, endpoints: String,
                 ) = throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
+                override suspend fun updateConnection(id: String, label: String, hosts: String, port: Int, username: String, workspaceDir: String) =
+                    throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
+                override suspend fun updateMachineId(id: String, machineId: String) =
+                    throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
+                override suspend fun updateEndpoints(id: String, endpoints: String) =
+                    throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
+                override suspend fun updateLastKnownReachable(id: String, reachable: Int) =
+                    throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
             }
     }
 }

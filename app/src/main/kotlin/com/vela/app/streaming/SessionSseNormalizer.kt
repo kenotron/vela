@@ -29,6 +29,9 @@ class SessionSseNormalizer @Inject constructor() {
      * child [StreamEvent.ToolUse] and [StreamEvent.ToolResult] events into the correct
      * [ContentBlock.ToolUse.childBlocks] list rather than the parent turn's top-level blocks.
      *
+     * For parallel delegates, each child session claims the first *unclaimed* running ToolUse
+     * block on its first delta, preventing multiple children from racing to claim the same block.
+     *
      * Not part of [SessionState] because it is routing plumbing, not UI state.
      * Cleared on [StreamEvent.Done] so it is fresh for the next execution.
      */
@@ -225,7 +228,22 @@ class SessionSseNormalizer @Inject constructor() {
                 val turns = state.turns.toMutableList()
                 val turn = turns[idx]
                 val blocks = turn.contentBlocks.toMutableList()
-                val toolIdx = blocks.indexOfLast { it is ContentBlock.ToolUse && it.isRunning }
+
+                // Resolve which ToolUse block owns this child session.
+                // If already registered (subsequent tokens), look up directly by id.
+                // If not yet registered (first token), claim the first running ToolUse block that
+                // hasn't been claimed by any other child yet — this prevents parallel delegates
+                // from racing to grab the same last-running block.
+                val claimedIds = childToParentBlockId.values.toSet()
+                val parentId = childToParentBlockId[event.childSessionId]
+                    ?: blocks.firstOrNull {
+                        it is ContentBlock.ToolUse && it.isRunning && it.id !in claimedIds
+                    }?.let { (it as ContentBlock.ToolUse).id }
+
+                val toolIdx = if (parentId != null) {
+                    blocks.indexOfFirst { it is ContentBlock.ToolUse && it.id == parentId }
+                } else -1
+
                 if (toolIdx >= 0) {
                     val parent = blocks[toolIdx] as ContentBlock.ToolUse
                     // Register mapping so subsequent child tool events route to this block

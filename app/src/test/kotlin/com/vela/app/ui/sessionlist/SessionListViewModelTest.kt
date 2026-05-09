@@ -3,6 +3,7 @@ package com.vela.app.ui.sessionlist
 import androidx.lifecycle.SavedStateHandle
 import com.google.common.truth.Truth.assertThat
 import com.vela.app.amplifierd.AmplifierdRepository
+import com.vela.app.amplifierd.EndpointResolver
 import com.vela.app.data.db.SshNodeDao
 import com.vela.app.data.db.SshNodeEntity
 import com.vela.app.ssh.SshNodeRegistry
@@ -18,6 +19,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import org.mockito.Mockito
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SessionListViewModelTest {
@@ -68,8 +70,31 @@ class SessionListViewModelTest {
         override suspend fun getById(id: String): SshNodeEntity? = null
         override suspend fun updateBootstrapStatus(id: String, status: String) {}
         override suspend fun promoteToAmplifierd(
-            id: String, type: String, url: String, token: String, status: String,
+            id: String, type: String, url: String, tailscaleUrl: String, token: String, status: String, machineId: String, endpoints: String,
         ) {}
+        override suspend fun updateConnection(id: String, label: String, hosts: String, port: Int, username: String, workspaceDir: String) {}
+        override suspend fun updateMachineId(id: String, machineId: String) {}
+        override suspend fun updateEndpoints(id: String, endpoints: String) {}
+        override suspend fun updateLastKnownReachable(id: String, reachable: Int) = Unit
+    }
+
+    private class FakeBootstrapper(
+        registry: SshNodeRegistry,
+    ) : com.vela.app.ssh.NodeBootstrapper(
+        keyManager = com.vela.app.ssh.SshKeyManager(android.content.ContextWrapper(null)),
+        registry = registry,
+    )
+
+    private class FakeStreamingManager : com.vela.app.streaming.SessionStreamingManager {
+        override fun getSessionFlow(sessionId: String): kotlinx.coroutines.flow.StateFlow<com.vela.app.streaming.SessionState?> =
+            kotlinx.coroutines.flow.MutableStateFlow(null)
+        override fun getAllSessionFlows(): kotlinx.coroutines.flow.StateFlow<Map<String, com.vela.app.streaming.SessionState>> =
+            kotlinx.coroutines.flow.MutableStateFlow(emptyMap())
+        override suspend fun startStreaming(sessionId: String, nodeId: String, projectName: String?) {}
+        override fun stopStreaming(sessionId: String) {}
+        override suspend fun resumeSession(sessionId: String): Boolean = false
+        override suspend fun retryLastMessage(sessionId: String): Boolean = false
+        override suspend fun sendMessage(sessionId: String, message: String): Boolean = false
     }
 
     private fun makeVm(
@@ -79,7 +104,14 @@ class SessionListViewModelTest {
     ): SessionListViewModel {
         val savedState = SavedStateHandle(mapOf("nodeId" to nodeId, "projectId" to projectId))
         val registry = SshNodeRegistry(dao)
-        return SessionListViewModel(savedState, registry, AmplifierdRepository(registry))
+        val resolver = Mockito.mock(EndpointResolver::class.java)
+        return SessionListViewModel(
+            savedState,
+            registry,
+            AmplifierdRepository(resolver),
+            FakeBootstrapper(registry),
+            FakeStreamingManager(),
+        )
     }
 
     // ── Tests ─────────────────────────────────────────────────────────────────

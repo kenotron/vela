@@ -27,3 +27,9 @@ package com.vela.app.amplifierd
         /** Number of currently active (running/waiting) sessions on this node. */
         val activeSessions: Int = 0,
     )
+
+    data class HealthResponse(
+        val status: String,
+        val machineId: String,
+        val version: String = "",
+    )

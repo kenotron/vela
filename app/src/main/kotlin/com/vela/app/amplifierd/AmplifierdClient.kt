@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit
  * All blocking OkHttp calls run on [Dispatchers.IO] via [withContext].
  * Non-2xx responses throw [IOException] (except [health], which returns false).
  */
-class AmplifierdClient(private val baseUrl: String, private val token: String) {
+class AmplifierdClient(val baseUrl: String, private val token: String) {
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -541,6 +541,28 @@ class AmplifierdClient(private val baseUrl: String, private val token: String) {
     } catch (_: Exception) {
         false
     }
+
+    /**
+     * GET /health → parsed [HealthResponse] including machine_id, or null on any error.
+     */
+    suspend fun healthWithDetails(): HealthResponse? = try {
+        withContext(Dispatchers.IO) {
+            val req = Request.Builder()
+                .url("$baseUrl/health")
+                .header("x-amplifier-token", token)
+                .build()
+            http.newCall(req).execute().use { res ->
+                if (!res.isSuccessful) return@withContext null
+                val body = res.body?.string() ?: return@withContext null
+                val json = JSONObject(body)
+                HealthResponse(
+                    status    = json.optString("status", ""),
+                    machineId = json.optString("machine_id", ""),
+                    version   = json.optString("version", ""),
+                )
+            }
+        }
+    } catch (_: Exception) { null }
 
     // ── JSON mapping helpers ──────────────────────────────────────────────────
 

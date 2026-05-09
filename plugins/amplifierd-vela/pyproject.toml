@@ -3,7 +3,7 @@
     version = "0.1.0"
     description = "Vela-specific plugin for amplifierd: auth, projects, capabilities, bundles."
     requires-python = ">=3.11"
-    dependencies = ["fastapi>=0.100.0"]
+    dependencies = ["fastapi>=0.100.0", "zeroconf>=0.131.0"]
 
     [project.entry-points."amplifierd.plugins"]
     vela = "vela_plugin"

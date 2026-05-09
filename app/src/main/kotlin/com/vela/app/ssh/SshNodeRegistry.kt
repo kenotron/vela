@@ -4,9 +4,18 @@ import com.vela.app.data.db.SshNodeDao
 import com.vela.app.data.db.SshNodeEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** kotlinx.serialization Json instance for NodeEndpoint list encoding/decoding. */
+// matches the JSON format: {"type":"direct",...}
+// forward-compatible: unknown subtypes become empty list
+private val endpointJson = Json {
+    classDiscriminator = "type"
+    ignoreUnknownKeys = true
+}
 
 @Singleton
 open class SshNodeRegistry @Inject constructor(private val dao: SshNodeDao) {
@@ -39,54 +48,164 @@ open class SshNodeRegistry @Inject constructor(private val dao: SshNodeDao) {
         )
     }
 
-    // ── Bootstrap-lifecycle writers ───────────────────────────────────────────
+    // ── Bootstrap-lifecycle writers ────────────────────────────────────────────
 
-    /** Promote an SSH node to an amplifierd node in a single transaction. */
-    open suspend fun promoteToAmplifierd(nodeId: String, url: String, tailscaleUrl: String = "", token: String) {
-        dao.promoteToAmplifierd(nodeId, "amplifierd", url, tailscaleUrl, token, BootstrapStatus.RUNNING.name)
+    /**
+     * Promote an SSH node to an amplifierd node. Builds initial NodeEndpoint list from
+     * url/tailscaleUrl and persists it. machineId defaults to "" — Phase 2 NodeBootstrapper
+     * will pass the real value once it reads machine_id from the /health response.
+     */
+    open suspend fun promoteToAmplifierd(
+        nodeId: String,
+        url: String,
+        tailscaleUrl: String = "",
+        token: String,
+        machineId: String = "",
+    ) {
+        val initialEndpoints = buildList<NodeEndpoint> {
+            if (tailscaleUrl.isNotBlank()) add(NodeEndpoint.Tailscale(tailscaleUrl))
+            if (url.isNotBlank()) add(NodeEndpoint.Direct(url))
+        }
+        val endpointsJson = endpointJson.encodeToString(initialEndpoints)
+        dao.promoteToAmplifierd(
+            id           = nodeId,
+            type         = "amplifierd",
+            url          = url,
+            tailscaleUrl = tailscaleUrl,
+            token        = token,
+            status       = BootstrapStatus.RUNNING.name,
+            machineId    = machineId,
+            endpoints    = endpointsJson,
+        )
     }
 
     /** Flag a running amplifierd node as stale (newer version available). */
-    suspend fun markStale(nodeId: String) {
-        dao.updateBootstrapStatus(nodeId, BootstrapStatus.STALE.name)
-    }
+    suspend fun markStale(nodeId: String) = dao.updateBootstrapStatus(nodeId, BootstrapStatus.STALE.name)
 
     /** Update only the bootstrap lifecycle column. */
-    open suspend fun updateBootstrapStatus(nodeId: String, status: BootstrapStatus) {
+    open suspend fun updateBootstrapStatus(nodeId: String, status: BootstrapStatus) =
         dao.updateBootstrapStatus(nodeId, status.name)
+
+    /** Persist a newly-discovered machine_id (read from /health after bootstrap). */
+    open suspend fun updateMachineId(nodeId: String, machineId: String) {
+        dao.updateMachineId(nodeId, machineId)
     }
 
-    // ── Entity ↔ Domain mapping ───────────────────────────────────────────────
+    /**
+     * Persist the last confirmed connectivity result for a node.
+     * Called by [com.vela.app.ssh.ConnectivityPoller] after each probe so the home
+     * screen can restore the last known state on the next app open without flashing.
+     */
+    open suspend fun updateLastKnownReachable(nodeId: String, reachable: Boolean) {
+        dao.updateLastKnownReachable(nodeId, if (reachable) 1 else 0)
+    }
+
+    /**
+     * Returns a map of node ID → last-known [NodeConnectivity] seeded from the DB.
+     * Nodes with null [SshNode.lastKnownReachable] (never probed) are omitted so
+     * they start as [NodeConnectivity.Unknown] rather than showing stale data.
+     * SSH nodes are omitted — their state is derived purely from [NodeType].
+     */
+    fun lastKnownConnectivity(): Map<String, NodeConnectivity> =
+        cache
+            .filter { it.type == NodeType.AMPLIFIERD }
+            .mapNotNull { node ->
+                val lastKnown = node.lastKnownReachable ?: return@mapNotNull null
+                val connectivity: NodeConnectivity = if (lastKnown) {
+                    NodeConnectivity.Reachable(node.url.ifBlank { node.primaryHost })
+                } else {
+                    NodeConnectivity.Unreachable
+                }
+                node.id to connectivity
+            }
+            .toMap()
+
+    /**
+     * Appends [endpoint] to [nodeId]'s endpoint list if not already present.
+     * Used by [MdnsDiscoveryService] to persist a newly-discovered mDNS service name.
+     */
+    suspend fun addEndpoint(nodeId: String, endpoint: NodeEndpoint) {
+        val node = cache.find { it.id == nodeId } ?: return
+        // Idempotent — skip if an equivalent endpoint already exists
+        val alreadyHas = node.endpoints.any { existing ->
+            when {
+                endpoint is NodeEndpoint.Mdns && existing is NodeEndpoint.Mdns ->
+                    existing.serviceName == endpoint.serviceName
+                endpoint is NodeEndpoint.Direct && existing is NodeEndpoint.Direct ->
+                    existing.url == endpoint.url
+                endpoint is NodeEndpoint.Tailscale && existing is NodeEndpoint.Tailscale ->
+                    existing.url == endpoint.url
+                else -> false
+            }
+        }
+        if (alreadyHas) return
+        val updatedJson = serializeEndpoints(node.endpoints + endpoint)
+        dao.updateEndpoints(nodeId, updatedJson)
+    }
+
+    /** Serialize [NodeEndpoint] list to the JSON format used in the DB endpoints column. */
+    private fun serializeEndpoints(endpoints: List<NodeEndpoint>): String {
+        val arr = org.json.JSONArray()
+        endpoints.forEach { ep ->
+            val obj = org.json.JSONObject()
+            when (ep) {
+                is NodeEndpoint.Direct    -> { obj.put("type", "direct");    obj.put("url", ep.url) }
+                is NodeEndpoint.Tailscale -> { obj.put("type", "tailscale"); obj.put("url", ep.url) }
+                is NodeEndpoint.Mdns      -> { obj.put("type", "mdns");      obj.put("serviceName", ep.serviceName) }
+            }
+            arr.put(obj)
+        }
+        return arr.toString()
+    }
+
+    // ── Entity ↔ Domain mapping ────────────────────────────────────────────────
 
     private fun SshNodeEntity.toDomain() = SshNode(
-        id       = id,
-        label    = label,
-        hosts    = hosts.split(",").map { it.trim() }.filter { it.isNotBlank() },
-        port     = port,
-        username = username,
-        addedAt  = addedAt,
-        type     = if (nodeType == "amplifierd") NodeType.AMPLIFIERD else NodeType.SSH,
-        url      = url,
-        tailscaleUrl    = tailscaleUrl,
-        token    = token,
-        bootstrapStatus = parseBootstrapStatus(bootstrapStatus),
-        workspaceDir    = workspaceDir,
+        id                 = id,
+        label              = label,
+        hosts              = hosts.split(",").map { it.trim() }.filter { it.isNotBlank() },
+        port               = port,
+        username           = username,
+        addedAt            = addedAt,
+        type               = if (nodeType == "amplifierd") NodeType.AMPLIFIERD else NodeType.SSH,
+        url                = url,
+        tailscaleUrl       = tailscaleUrl,
+        token              = token,
+        machineId          = machineId,
+        endpoints          = parseEndpoints(endpoints),
+        bootstrapStatus    = parseBootstrapStatus(bootstrapStatus),
+        workspaceDir       = workspaceDir,
+        lastKnownReachable = when (lastKnownReachable) {
+            1    -> true
+            0    -> false
+            else -> null
+        },
     )
 
     private fun SshNode.toEntity() = SshNodeEntity(
-        id       = id,
-        label    = label,
-        hosts    = hosts.joinToString(","),
-        port     = port,
-        username = username,
-        addedAt  = addedAt,
-        nodeType = if (type == NodeType.AMPLIFIERD) "amplifierd" else "ssh",
-        url      = url,
-        tailscaleUrl    = tailscaleUrl,
-        token    = token,
-        bootstrapStatus = bootstrapStatus.name,
-        workspaceDir    = workspaceDir,
+        id                 = id,
+        label              = label,
+        hosts              = hosts.joinToString(","),
+        port               = port,
+        username           = username,
+        addedAt            = addedAt,
+        nodeType           = if (type == NodeType.AMPLIFIERD) "amplifierd" else "ssh",
+        url                = url,
+        tailscaleUrl       = tailscaleUrl,
+        token              = token,
+        machineId          = machineId,
+        endpoints          = endpointJson.encodeToString(endpoints),
+        bootstrapStatus    = bootstrapStatus.name,
+        workspaceDir       = workspaceDir,
+        lastKnownReachable = when (lastKnownReachable) {
+            true  -> 1
+            false -> 0
+            null  -> null
+        },
     )
+
+    private fun parseEndpoints(json: String): List<NodeEndpoint> =
+        runCatching { endpointJson.decodeFromString<List<NodeEndpoint>>(json) }.getOrDefault(emptyList())
 
     /** Tolerant parse — unknown / corrupt strings fall back to UNPROVISIONED. */
     private fun parseBootstrapStatus(raw: String): BootstrapStatus =

@@ -1,6 +1,7 @@
 package com.vela.app.di
 
 import android.content.Context
+import android.net.nsd.NsdManager
 import androidx.room.Room
 import com.vela.app.ai.AmplifierSession
 import com.vela.app.engine.InferenceSession
@@ -21,6 +22,7 @@ import com.vela.app.hooks.StatusContextHook
     import com.vela.app.hooks.VaultSyncHook
 import com.vela.app.events.EventBus
 import com.vela.app.amplifierd.AmplifierdRepository
+import com.vela.app.amplifierd.EndpointResolver
 import com.vela.app.ssh.SshKeyManager
 import com.vela.app.ssh.SshNodeRegistry
 import com.vela.app.vault.SharedPrefsVaultSettings
@@ -59,7 +61,13 @@ object AppModule {
     @Provides @Singleton
     fun provideDatabase(@ApplicationContext ctx: Context): VelaDatabase =
         Room.databaseBuilder(ctx, VelaDatabase::class.java, "vela_database")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17)
+            .addMigrations(
+                MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
+                MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9,
+                MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13,
+                MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17,
+                MIGRATION_17_18, MIGRATION_18_19,
+            )
             .build()
 
     @Provides fun provideMessageDao(db: VelaDatabase): MessageDao          = db.messageDao()
@@ -101,11 +109,16 @@ object AppModule {
     fun provideSshKeyManager(@ApplicationContext ctx: Context): SshKeyManager = SshKeyManager(ctx)
 
     @Provides @Singleton
+    fun provideNsdManager(@ApplicationContext ctx: Context): NsdManager =
+        ctx.getSystemService(Context.NSD_SERVICE) as NsdManager
+
+    @Provides @Singleton
     fun provideSshNodeRegistry(dao: SshNodeDao): SshNodeRegistry = SshNodeRegistry(dao)
 
     @Provides @Singleton
-    fun provideAmplifierdRepository(registry: SshNodeRegistry): AmplifierdRepository =
-        AmplifierdRepository(registry)
+    fun provideAmplifierdRepository(
+        resolver: EndpointResolver,
+    ): AmplifierdRepository = AmplifierdRepository(resolver)
 
     // NodeBootstrapper carries per-run state — NOT @Singleton.
     @Provides

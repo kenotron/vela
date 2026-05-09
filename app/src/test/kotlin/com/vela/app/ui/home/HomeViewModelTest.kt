@@ -1,8 +1,10 @@
 package com.vela.app.ui.home
 
 import com.google.common.truth.Truth.assertThat
+import com.vela.app.amplifierd.EndpointResolver
 import com.vela.app.data.db.SshNodeDao
 import com.vela.app.data.db.SshNodeEntity
+import com.vela.app.ssh.ConnectivityPoller
 import com.vela.app.ssh.SshNodeRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -15,6 +17,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import org.mockito.Mockito
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModelTest {
@@ -24,7 +27,7 @@ class HomeViewModelTest {
     @Before fun setUp()    { Dispatchers.setMain(testDispatcher) }
     @After  fun tearDown() { Dispatchers.resetMain() }
 
-    // ── Fake DAO ────────────────────────────────────────────────────────────────
+    // ── Fake DAO ──────────────────────────────────────────────────────────────────────────────
 
     private class FakeSshNodeDao : SshNodeDao {
         val nodeFlow = MutableStateFlow<List<SshNodeEntity>>(emptyList())
@@ -34,14 +37,22 @@ class HomeViewModelTest {
         override suspend fun getById(id: String): SshNodeEntity? = null
         override suspend fun updateBootstrapStatus(id: String, status: String) {}
         override suspend fun promoteToAmplifierd(
-            id: String, type: String, url: String, token: String, status: String,
+            id: String, type: String, url: String, tailscaleUrl: String, token: String, status: String, machineId: String, endpoints: String,
         ) {}
+        override suspend fun updateConnection(id: String, label: String, hosts: String, port: Int, username: String, workspaceDir: String) {}
+        override suspend fun updateMachineId(id: String, machineId: String) {}
+        override suspend fun updateEndpoints(id: String, endpoints: String) {}
+        override suspend fun updateLastKnownReachable(id: String, reachable: Int) = Unit
     }
 
-    private fun makeVm(dao: FakeSshNodeDao = FakeSshNodeDao()) =
-        HomeViewModel(SshNodeRegistry(dao))
+    private fun makeVm(dao: FakeSshNodeDao = FakeSshNodeDao()): HomeViewModel {
+        val registry = SshNodeRegistry(dao)
+        val resolver = Mockito.mock(EndpointResolver::class.java)
+        val poller = ConnectivityPoller(resolver, registry)
+        return HomeViewModel(registry, poller)
+    }
 
-    // ── Tests ───────────────────────────────────────────────────────────────────
+    // ── Tests ───────────────────────────────────────────────────────────────────────────────
 
     @Test
     fun `nodes initial value is empty list`() {
@@ -92,12 +103,68 @@ class HomeViewModelTest {
         assertThat(vm.nodes.value).isEmpty()
     }
 
-    // ── Structural: verify composable exists ────────────────────────────────────
+    @Test
+    fun `nodeConnectivity is sourced from ConnectivityPoller`() {
+        val dao = FakeSshNodeDao()
+        val registry = SshNodeRegistry(dao)
+        val resolver = Mockito.mock(EndpointResolver::class.java)
+        val poller = ConnectivityPoller(resolver, registry)
+        val vm = HomeViewModel(registry, poller)
+
+        // nodeConnectivity must be the exact same StateFlow instance as poller.nodeConnectivity
+        assertThat(vm.nodeConnectivity).isSameInstanceAs(poller.nodeConnectivity)
+    }
+
+    // ── Structural: verify composable exists ─────────────────────────────────────────────
 
     @Test fun `HomeScreen source file exists with HomeScreen composable`() {
         val src = java.io.File(
             "src/main/kotlin/com/vela/app/ui/home/HomeScreen.kt"
         ).readText()
         assertThat(src).contains("fun HomeScreen")
+    }
+
+    // ── Lifecycle wiring ──────────────────────────────────────────────────────────────────────
+
+    @Test fun `HomeScreen imports DisposableEffect`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/home/HomeScreen.kt"
+        ).readText()
+        assertThat(src).contains("import androidx.compose.runtime.DisposableEffect")
+    }
+
+    @Test fun `HomeScreen imports LocalLifecycleOwner`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/home/HomeScreen.kt"
+        ).readText()
+        assertThat(src).contains("import androidx.lifecycle.compose.LocalLifecycleOwner")
+    }
+
+    @Test fun `HomeScreen wires ON_RESUME to viewModel onPageVisible`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/home/HomeScreen.kt"
+        ).readText()
+        assertThat(src).contains("Lifecycle.Event.ON_RESUME -> viewModel.onPageVisible()")
+    }
+
+    @Test fun `HomeScreen wires ON_PAUSE to viewModel onPageHidden`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/home/HomeScreen.kt"
+        ).readText()
+        assertThat(src).contains("Lifecycle.Event.ON_PAUSE  -> viewModel.onPageHidden()")
+    }
+
+    @Test fun `HomeScreen uses DisposableEffect with lifecycle and viewModel`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/home/HomeScreen.kt"
+        ).readText()
+        assertThat(src).contains("DisposableEffect(lifecycle, viewModel)")
+    }
+
+    @Test fun `HomeScreen removes observer onDispose`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/ui/home/HomeScreen.kt"
+        ).readText()
+        assertThat(src).contains("onDispose { lifecycle.removeObserver(observer) }")
     }
 }

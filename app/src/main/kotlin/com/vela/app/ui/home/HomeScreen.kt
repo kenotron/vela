@@ -25,8 +25,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -55,6 +59,22 @@ fun HomeScreen(
 ) {
     val nodes by viewModel.nodes.collectAsState()
     val nodeConnectivity by viewModel.nodeConnectivity.collectAsState()
+
+    // Wire page-visibility into ConnectivityPoller via the ViewModel.
+    // ON_RESUME: reset backoff, start polling immediately.
+    // ON_PAUSE:  stop polling (navigated away or app backgrounded).
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> viewModel.onPageVisible()
+                Lifecycle.Event.ON_PAUSE  -> viewModel.onPageHidden()
+                else                      -> {}
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
 
     Scaffold(
         topBar = {

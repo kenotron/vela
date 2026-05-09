@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MiniAppRegistryEntity::class,
         MiniAppDocumentEntity::class,
     ],
-    version = 17,
+    version = 19,
     exportSchema = true,
 )
 abstract class VelaDatabase : RoomDatabase() {
@@ -32,6 +32,46 @@ abstract class VelaDatabase : RoomDatabase() {
     abstract fun gitHubIdentityDao(): GitHubIdentityDao
     abstract fun miniAppRegistryDao(): MiniAppRegistryDao
     abstract fun miniAppDocumentDao(): MiniAppDocumentDao
+}
+
+/**
+ * v18→v19: add last_known_reachable column to ssh_nodes.
+ * Null means "never checked." 1 = was reachable, 0 = was unreachable.
+ * Used by ConnectivityPoller to seed the home screen with the last confirmed
+ * state on app open, preventing a flash from Unknown→Idle→Offline.
+ */
+val MIGRATION_18_19 = object : Migration(18, 19) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE ssh_nodes ADD COLUMN last_known_reachable INTEGER")
+    }
+}
+
+/**
+ * v17→v18: add machine_id + endpoints columns to ssh_nodes.
+ * machine_id: stable hardware UUID from amplifierd /health (empty for pre-v18 rows).
+ * endpoints: JSON array of NodeEndpoint objects, backfilled from existing url + tailscale_url
+ * columns so existing nodes remain reachable. Backfill order: Tailscale first (tried first by
+ * EndpointResolver), then Direct. Old url + tailscale_url columns are kept but no longer written.
+ */
+val MIGRATION_17_18 = object : Migration(17, 18) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE ssh_nodes ADD COLUMN machine_id TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE ssh_nodes ADD COLUMN endpoints TEXT NOT NULL DEFAULT '[]'")
+        // Backfill endpoints from existing url + tailscale_url columns
+        val cursor = db.query("SELECT id, url, tailscale_url FROM ssh_nodes")
+        while (cursor.moveToNext()) {
+            val id = cursor.getString(0)
+            val url = cursor.getString(1) ?: ""
+            val tailscaleUrl = cursor.getString(2) ?: ""
+            val parts = buildList<String> {
+                if (tailscaleUrl.isNotBlank()) add("""{"type":"tailscale","url":"$tailscaleUrl"}""")
+                if (url.isNotBlank()) add("""{"type":"direct","url":"$url"}""")
+            }
+            val json = "[${parts.joinToString(",")}]"
+            db.execSQL("UPDATE ssh_nodes SET endpoints = ? WHERE id = ?", arrayOf(json, id))
+        }
+        cursor.close()
+    }
 }
 
 /** v16→v17: add tailscale_url column to ssh_nodes for secondary Tailscale IP URL. */

@@ -1,5 +1,6 @@
 package com.vela.app.ssh
 
+import com.vela.app.amplifierd.AmplifierdClient
 import javax.inject.Inject
 
 // ── RemoteShell abstraction ───────────────────────────────────────────────────
@@ -196,6 +197,18 @@ WantedBy=default.target
 
     internal fun buildUvInstallCommandForTest(bundle: BundleChoice) = buildUvInstallCommand(bundle)
 
+    /**
+     * Reads machine_id from the node's /health endpoint.
+     * Returns the non-blank machine_id string, or null if unavailable or blank.
+     *
+     * Declared `internal open` so unit tests can override it to inject a known value
+     * without requiring a live HTTP server.
+     */
+    internal open suspend fun fetchMachineId(url: String, token: String): String? {
+        val health = AmplifierdClient(url, token).healthWithDetails()
+        return health?.machineId?.takeIf { it.isNotBlank() }
+    }
+
     // ── Public bootstrap entry ────────────────────────────────────────────────
 
     /** Public entry: opens a real JSch session, then delegates to [bootstrapWithShell]. */
@@ -365,6 +378,20 @@ WantedBy=default.target
         val tailscaleUrl = if (tailscale.exitCode == 0 && !tsIp.isNullOrEmpty()) "http://$tsIp:8410" else ""
         registry.promoteToAmplifierd(nodeId, lanUrl, tailscaleUrl, token)
         registry.updateBootstrapStatus(nodeId, BootstrapStatus.RUNNING)
+
+        // Persist machine_id so mDNS can match this node by identity on future app starts.
+        // Best-effort: failure here does not affect connectivity (mDNS will still work via
+        // repeated discovery, it just won't persist until the next successful resolve).
+        try {
+            val machineId = fetchMachineId(lanUrl, token)
+            if (!machineId.isNullOrBlank()) {
+                registry.updateMachineId(nodeId, machineId)
+                emit(BootstrapEvent.Output("✓ machine_id cached: ${machineId.take(8)}…"))
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("NodeBootstrapper", "Could not read machine_id from /health: ${e.message}")
+        }
+
         emit(BootstrapEvent.StepComplete(BootstrapStep.PROMOTE))
 
         emit(BootstrapEvent.Complete(url = lanUrl, tailscaleUrl = tailscaleUrl, token = token))
@@ -649,10 +676,17 @@ WantedBy=default.target
                     error("SshNodeDao must not be accessed in NodeBootstrapper helper tests")
                 override suspend fun promoteToAmplifierd(
                     id: String, type: String, url: String, tailscaleUrl: String, token: String, status: String,
+                    machineId: String, endpoints: String,
                 ) = error("SshNodeDao must not be accessed in NodeBootstrapper helper tests")
                 override suspend fun updateConnection(
                     id: String, label: String, hosts: String, port: Int, username: String, workspaceDir: String,
                 ) = error("SshNodeDao must not be accessed in NodeBootstrapper helper tests")
+                override suspend fun updateMachineId(id: String, machineId: String) =
+                    error("SshNodeDao must not be accessed in NodeBootstrapper helper tests")
+                override suspend fun updateEndpoints(id: String, endpoints: String) =
+                    error("SshNodeDao must not be accessed in NodeBootstrapper helper tests")
+                override suspend fun updateLastKnownReachable(id: String, reachable: Int) =
+                    error("SshNodeDao must not be accessed in NodeBootstrapper helper tests")
             }
     }
 }

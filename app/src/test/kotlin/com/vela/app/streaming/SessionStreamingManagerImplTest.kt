@@ -2,6 +2,7 @@ package com.vela.app.streaming
 
 import com.google.common.truth.Truth.assertThat
 import com.vela.app.amplifierd.AmplifierdRepository
+import com.vela.app.amplifierd.EndpointResolver
 import com.vela.app.data.db.SshNodeDao
 import com.vela.app.data.db.SshNodeEntity
 import com.vela.app.ssh.SshNodeRegistry
@@ -10,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
+import org.mockito.Mockito
 
 /**
  * Tests for [SessionStreamingManagerImpl].
@@ -28,17 +30,21 @@ class SessionStreamingManagerImplTest {
         override suspend fun getById(id: String): SshNodeEntity? = null
         override suspend fun updateBootstrapStatus(id: String, status: String) {}
         override suspend fun promoteToAmplifierd(
-            id: String, type: String, url: String, token: String, status: String,
+            id: String, type: String, url: String, tailscaleUrl: String, token: String, status: String, machineId: String, endpoints: String,
         ) {}
         override suspend fun updateConnection(
             id: String, label: String, hosts: String, port: Int, username: String, workspaceDir: String,
         ) {}
+        override suspend fun updateMachineId(id: String, machineId: String) {}
+        override suspend fun updateEndpoints(id: String, endpoints: String) {}
+        override suspend fun updateLastKnownReachable(id: String, reachable: Int) = Unit
     }
 
     private fun makeManager(): SessionStreamingManagerImpl {
         val dao = FakeSshNodeDao()
         val registry = SshNodeRegistry(dao)
-        val amplifierd = AmplifierdRepository(registry)
+        val resolver = Mockito.mock(EndpointResolver::class.java)
+        val amplifierd = AmplifierdRepository(resolver)
         return SessionStreamingManagerImpl(
             amplifierd = amplifierd,
             nodeRegistry = registry,
@@ -142,5 +148,40 @@ class SessionStreamingManagerImplTest {
             "src/main/kotlin/com/vela/app/streaming/SessionStreamingManagerImpl.kt"
         ).readText()
         assertThat(src).contains("class SessionStreamingManagerImpl")
+    }
+
+    // ── task-11: single-resolve fix (active-URL propagation bug) ──────────────
+
+    @Test fun `source file imports AmplifierdStreamClient directly`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/streaming/SessionStreamingManagerImpl.kt"
+        ).readText()
+        assertThat(src).contains("import com.vela.app.amplifierd.AmplifierdStreamClient")
+    }
+
+    @Test fun `startStreaming and sendMessage build stream client from client baseUrl`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/streaming/SessionStreamingManagerImpl.kt"
+        ).readText()
+        // Both startStreaming and sendMessage should construct AmplifierdStreamClient directly
+        // using client.baseUrl — not via streamClientForNode.
+        assertThat(src).contains("AmplifierdStreamClient(client.baseUrl, node.token)")
+    }
+
+    @Test fun `startStreaming log message reflects single-resolve semantics`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/streaming/SessionStreamingManagerImpl.kt"
+        ).readText()
+        // After the fix the null-client warning uses the new message from the spec.
+        assertThat(src).contains("unreachable on all endpoints")
+    }
+
+    @Test fun `source file does not call streamClientForNode in startStreaming or sendMessage`() {
+        val src = java.io.File(
+            "src/main/kotlin/com/vela/app/streaming/SessionStreamingManagerImpl.kt"
+        ).readText()
+        // streamClientForNode should no longer appear — both methods now resolve once via
+        // clientForNode and construct AmplifierdStreamClient directly.
+        assertThat(src).doesNotContain("streamClientForNode")
     }
 }
