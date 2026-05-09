@@ -55,6 +55,7 @@ class SshNodeRegistryBootstrapTest {
         override suspend fun updateConnection(id: String, label: String, hosts: String, port: Int, username: String, workspaceDir: String) {}
         override suspend fun updateMachineId(id: String, machineId: String) {}
         override suspend fun updateEndpoints(id: String, endpoints: String) {}
+        override suspend fun updateLastKnownReachable(id: String, reachable: Int) = Unit
     }
 
     // ── Tests ─────────────────────────────────────────────────────────────────

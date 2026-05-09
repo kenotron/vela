@@ -32,4 +32,7 @@ data class SshNodeEntity(
      *  Backfilled from url + tailscale_url during MIGRATION_17_18.
      *  Empty array "[]" for SSH-only nodes. */
     val endpoints: String = "[]",
+    // ── v19 columns ──
+    /** Last confirmed connectivity result: 1 = reachable, 0 = unreachable, null = never checked. */
+    @ColumnInfo(name = "last_known_reachable") val lastKnownReachable: Int? = null,
 )

@@ -92,6 +92,35 @@ open class SshNodeRegistry @Inject constructor(private val dao: SshNodeDao) {
     }
 
     /**
+     * Persist the last confirmed connectivity result for a node.
+     * Called by [com.vela.app.ssh.ConnectivityPoller] after each probe so the home
+     * screen can restore the last known state on the next app open without flashing.
+     */
+    open suspend fun updateLastKnownReachable(nodeId: String, reachable: Boolean) {
+        dao.updateLastKnownReachable(nodeId, if (reachable) 1 else 0)
+    }
+
+    /**
+     * Returns a map of node ID → last-known [NodeConnectivity] seeded from the DB.
+     * Nodes with null [SshNode.lastKnownReachable] (never probed) are omitted so
+     * they start as [NodeConnectivity.Unknown] rather than showing stale data.
+     * SSH nodes are omitted — their state is derived purely from [NodeType].
+     */
+    fun lastKnownConnectivity(): Map<String, NodeConnectivity> =
+        cache
+            .filter { it.type == NodeType.AMPLIFIERD }
+            .mapNotNull { node ->
+                val lastKnown = node.lastKnownReachable ?: return@mapNotNull null
+                val connectivity: NodeConnectivity = if (lastKnown) {
+                    NodeConnectivity.Reachable(node.url.ifBlank { node.primaryHost })
+                } else {
+                    NodeConnectivity.Unreachable
+                }
+                node.id to connectivity
+            }
+            .toMap()
+
+    /**
      * Appends [endpoint] to [nodeId]'s endpoint list if not already present.
      * Used by [MdnsDiscoveryService] to persist a newly-discovered mDNS service name.
      */
@@ -132,37 +161,47 @@ open class SshNodeRegistry @Inject constructor(private val dao: SshNodeDao) {
     // ── Entity ↔ Domain mapping ────────────────────────────────────────────────
 
     private fun SshNodeEntity.toDomain() = SshNode(
-        id              = id,
-        label           = label,
-        hosts           = hosts.split(",").map { it.trim() }.filter { it.isNotBlank() },
-        port            = port,
-        username        = username,
-        addedAt         = addedAt,
-        type            = if (nodeType == "amplifierd") NodeType.AMPLIFIERD else NodeType.SSH,
-        url             = url,
-        tailscaleUrl    = tailscaleUrl,
-        token           = token,
-        machineId       = machineId,
-        endpoints       = parseEndpoints(endpoints),
-        bootstrapStatus = parseBootstrapStatus(bootstrapStatus),
-        workspaceDir    = workspaceDir,
+        id                 = id,
+        label              = label,
+        hosts              = hosts.split(",").map { it.trim() }.filter { it.isNotBlank() },
+        port               = port,
+        username           = username,
+        addedAt            = addedAt,
+        type               = if (nodeType == "amplifierd") NodeType.AMPLIFIERD else NodeType.SSH,
+        url                = url,
+        tailscaleUrl       = tailscaleUrl,
+        token              = token,
+        machineId          = machineId,
+        endpoints          = parseEndpoints(endpoints),
+        bootstrapStatus    = parseBootstrapStatus(bootstrapStatus),
+        workspaceDir       = workspaceDir,
+        lastKnownReachable = when (lastKnownReachable) {
+            1    -> true
+            0    -> false
+            else -> null
+        },
     )
 
     private fun SshNode.toEntity() = SshNodeEntity(
-        id              = id,
-        label           = label,
-        hosts           = hosts.joinToString(","),
-        port            = port,
-        username        = username,
-        addedAt         = addedAt,
-        nodeType        = if (type == NodeType.AMPLIFIERD) "amplifierd" else "ssh",
-        url             = url,
-        tailscaleUrl    = tailscaleUrl,
-        token           = token,
-        machineId       = machineId,
-        endpoints       = endpointJson.encodeToString(endpoints),
-        bootstrapStatus = bootstrapStatus.name,
-        workspaceDir    = workspaceDir,
+        id                 = id,
+        label              = label,
+        hosts              = hosts.joinToString(","),
+        port               = port,
+        username           = username,
+        addedAt            = addedAt,
+        nodeType           = if (type == NodeType.AMPLIFIERD) "amplifierd" else "ssh",
+        url                = url,
+        tailscaleUrl       = tailscaleUrl,
+        token              = token,
+        machineId          = machineId,
+        endpoints          = endpointJson.encodeToString(endpoints),
+        bootstrapStatus    = bootstrapStatus.name,
+        workspaceDir       = workspaceDir,
+        lastKnownReachable = when (lastKnownReachable) {
+            true  -> 1
+            false -> 0
+            null  -> null
+        },
     )
 
     private fun parseEndpoints(json: String): List<NodeEndpoint> =

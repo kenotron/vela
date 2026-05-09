@@ -55,4 +55,8 @@ interface SshNodeDao {
     /** Overwrite the entire endpoints JSON column. */
     @Query("UPDATE ssh_nodes SET endpoints = :endpoints WHERE id = :id")
     suspend fun updateEndpoints(id: String, endpoints: String)
+
+    /** Persist last confirmed reachability: 1 = reachable, 0 = unreachable. */
+    @Query("UPDATE ssh_nodes SET last_known_reachable = :reachable WHERE id = :id")
+    suspend fun updateLastKnownReachable(id: String, reachable: Int)
 }

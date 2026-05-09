@@ -52,6 +52,7 @@ class SessionDetailViewModelTest {
         ) {}
         override suspend fun updateMachineId(id: String, machineId: String) {}
         override suspend fun updateEndpoints(id: String, endpoints: String) {}
+        override suspend fun updateLastKnownReachable(id: String, reachable: Int) = Unit
     }
 
     private class FakeStreamingManager : SessionStreamingManager {
@@ -71,7 +72,7 @@ class SessionDetailViewModelTest {
         val dao        = FakeSshNodeDao()
         val registry   = SshNodeRegistry(dao)
         val resolver   = Mockito.mock(EndpointResolver::class.java)
-        val amplifierd = AmplifierdRepository(registry, resolver)
+        val amplifierd = AmplifierdRepository(resolver)
         val apiKeyStore = Mockito.mock(ApiKeyStore::class.java)
         Mockito.`when`(apiKeyStore.openAiKey).thenReturn("")
         return SessionDetailViewModel(

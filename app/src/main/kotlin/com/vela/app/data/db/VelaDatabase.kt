@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MiniAppRegistryEntity::class,
         MiniAppDocumentEntity::class,
     ],
-    version = 18,
+    version = 19,
     exportSchema = true,
 )
 abstract class VelaDatabase : RoomDatabase() {
@@ -32,6 +32,18 @@ abstract class VelaDatabase : RoomDatabase() {
     abstract fun gitHubIdentityDao(): GitHubIdentityDao
     abstract fun miniAppRegistryDao(): MiniAppRegistryDao
     abstract fun miniAppDocumentDao(): MiniAppDocumentDao
+}
+
+/**
+ * v18→v19: add last_known_reachable column to ssh_nodes.
+ * Null means "never checked." 1 = was reachable, 0 = was unreachable.
+ * Used by ConnectivityPoller to seed the home screen with the last confirmed
+ * state on app open, preventing a flash from Unknown→Idle→Offline.
+ */
+val MIGRATION_18_19 = object : Migration(18, 19) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE ssh_nodes ADD COLUMN last_known_reachable INTEGER")
+    }
 }
 
 /**

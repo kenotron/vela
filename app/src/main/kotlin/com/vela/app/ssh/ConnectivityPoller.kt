@@ -28,6 +28,19 @@ import kotlin.time.Duration.Companion.seconds
  * All nodes are checked in parallel within each tick.
  *
  * Owns [nodeConnectivity] — the [StateFlow] consumed by [HomeViewModel].
+ *
+ * ## Persistence / no-flash strategy
+ * On the first [onPageVisible] call, the StateFlow is seeded from each node's
+ * [SshNode.lastKnownReachable] value stored in the DB. This means the home screen
+ * renders the last-confirmed state immediately (Ready / Offline) rather than Unknown,
+ * eliminating the false "everything looks connected" flash.
+ *
+ * Nodes with no history (null lastKnownReachable) still start as Unknown → Checking
+ * so the tile shows the neutral Checking state instead of incorrectly looking Ready.
+ *
+ * During re-verification (subsequent polls), nodes that already have a known state are
+ * NOT moved to Checking — they keep showing their last result while the probe runs
+ * silently, then update only if the result changed.
  */
 @Singleton
 class ConnectivityPoller @Inject constructor(
@@ -37,6 +50,7 @@ class ConnectivityPoller @Inject constructor(
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var pollJob: Job? = null
     private var currentInterval: Duration = INITIAL_INTERVAL
+    private var seeded = false
 
     private val _nodeConnectivity = MutableStateFlow<Map<String, NodeConnectivity>>(emptyMap())
 
@@ -45,9 +59,18 @@ class ConnectivityPoller @Inject constructor(
 
     /**
      * Call when the home screen becomes visible (ON_RESUME).
-     * Cancels any running poll, resets backoff to immediate, starts a fresh loop.
+     * Seeds from DB on the first call, then cancels any running poll,
+     * resets backoff to immediate, and starts a fresh loop.
      */
     fun onPageVisible() {
+        if (!seeded) {
+            seeded = true
+            val lastKnown = registry.lastKnownConnectivity()
+            if (lastKnown.isNotEmpty()) {
+                _nodeConnectivity.value = lastKnown
+                Log.d(TAG, "onPageVisible: seeded ${lastKnown.size} nodes from DB")
+            }
+        }
         pollJob?.cancel()
         currentInterval = INITIAL_INTERVAL
         pollJob = scope.launch { pollLoop() }
@@ -72,7 +95,7 @@ class ConnectivityPoller @Inject constructor(
         scope.launch { checkAllNodes() }
     }
 
-    // ── Internal ───────────────────────────────────────────────────────────
+    // ── Internal ─────────────────────────────────────────────────────────────
 
     private suspend fun pollLoop() {
         while (true) {
@@ -89,14 +112,22 @@ class ConnectivityPoller @Inject constructor(
         amplifierdNodes
             .map { node ->
                 async {
-                    _nodeConnectivity.update { it + (node.id to NodeConnectivity.Checking) }
+                    val currentState = _nodeConnectivity.value[node.id]
+                    // Show Checking state only when we have no history.
+                    // Nodes with a known last state keep their current visual while
+                    // the probe runs — the tile updates only if the result changes.
+                    if (currentState == null || currentState is NodeConnectivity.Unknown) {
+                        _nodeConnectivity.update { it + (node.id to NodeConnectivity.Checking) }
+                    }
                     val client = resolver.resolve(node)
-                    val state = if (client != null)
+                    val newState = if (client != null)
                         NodeConnectivity.Reachable(client.baseUrl)
                     else
                         NodeConnectivity.Unreachable
-                    _nodeConnectivity.update { it + (node.id to state) }
-                    Log.d(TAG, "checkNode '${node.label}': $state")
+                    _nodeConnectivity.update { it + (node.id to newState) }
+                    // Persist so the next app open starts from this confirmed state
+                    registry.updateLastKnownReachable(node.id, client != null)
+                    Log.d(TAG, "checkNode '${node.label}': $newState")
                 }
             }
             .awaitAll()

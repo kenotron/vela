@@ -57,6 +57,13 @@ data class SshNode(
     val bootstrapStatus: BootstrapStatus = BootstrapStatus.UNPROVISIONED,
     /** Workspace directory used as cwd when amplifierd runs sessions on this node. */
     val workspaceDir: String = "~",
+    /**
+     * Last confirmed connectivity result persisted across app restarts.
+     * true = was reachable, false = was unreachable, null = never probed.
+     * Used by [com.vela.app.ssh.ConnectivityPoller] to seed the home screen on open
+     * so the tile starts from the last known truth instead of Unknown.
+     */
+    val lastKnownReachable: Boolean? = null,
 ) {
     val primaryHost: String get() = hosts.firstOrNull() ?: ""
 }

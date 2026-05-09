@@ -39,6 +39,7 @@ class SshNodeRegistryEndpointTest {
         override suspend fun updateEndpoints(id: String, endpoints: String) {
             endpointUpdates += id to endpoints
         }
+        override suspend fun updateLastKnownReachable(id: String, reachable: Int) = Unit
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────

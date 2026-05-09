@@ -844,6 +844,8 @@ class NodeBootstrapperTest {
                     throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
                 override suspend fun updateEndpoints(id: String, endpoints: String) =
                     throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
+                override suspend fun updateLastKnownReachable(id: String, reachable: Int) =
+                    throw AssertionError("SshNodeDao must not be accessed in NodeBootstrapper unit tests")
             }
     }
 }

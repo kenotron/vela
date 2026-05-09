@@ -45,6 +45,7 @@ class NodeDetailViewModelTest {
         override suspend fun updateConnection(id: String, label: String, hosts: String, port: Int, username: String, workspaceDir: String) {}
         override suspend fun updateMachineId(id: String, machineId: String) {}
         override suspend fun updateEndpoints(id: String, endpoints: String) {}
+        override suspend fun updateLastKnownReachable(id: String, reachable: Int) = Unit
     }
 
     private fun makeVm(
@@ -54,7 +55,7 @@ class NodeDetailViewModelTest {
         val savedState = SavedStateHandle(mapOf("nodeId" to nodeId))
         val registry = SshNodeRegistry(dao)
         val resolver = Mockito.mock(EndpointResolver::class.java)
-        val amplifierd = AmplifierdRepository(registry, resolver)
+        val amplifierd = AmplifierdRepository(resolver)
         val bootstrapper = NodeBootstrapper(
             keyManager = SshKeyManager(android.content.ContextWrapper(null)),
             registry   = registry,
