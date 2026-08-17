@@ -1100,3 +1100,190 @@ Lane 0.1  ───────────────────────�
 **Do not batch `3.1` and `3.2`.** The C2 protocol is defined by `3.1`; running them
 concurrently means `3.2` codes against a guess. This is the one place in the plan where
 sequencing beats parallelism.
+
+---
+
+## 13. Headless Android Development & Testing (for `/goal-batch` lanes)
+
+Every Stage 1 and Stage 3 lane that touches the Android app must produce a working artifact
+**with zero human touching a device** — a `/goal-batch` agent cannot tap a screen. This section
+specifies the toolchain, the honest limits, and the structured feedback contract each lane's
+harness must emit. Treat this as binding on Lanes 1.1–1.3, 1.5, and 3.2; the ops-only lanes
+(1.4, 2.1, 4.1) don't need it.
+
+### 13.1 The tool for each job — do not default to the emulator GUI or a human tester
+
+| Need | Use | Why |
+|---|---|---|
+| Headless VM lifecycle | `android emulator create/start/stop` (Android CLI) or raw `emulator -no-window` | Full adb + gRPC control surface, no display required |
+| Build artifact discovery | `android describe --project_dir=.` | JSON with APK output paths — no path-guessing in scripts |
+| Install + launch, all perms granted | `adb install -r -t -g <apk>` then `adb shell am start -n <pkg>/<activity>` | `-g` grants every runtime permission in one shot |
+| Read the live UI as data | `android layout --pretty --diff` | JSON tree; `--diff` bounds output to what changed, keeping an agent's context cheap across a long drive |
+| Scripted taps without coordinate math | `android screen capture --annotate` + `android screen resolve` | Label → coordinate translation; use this before hand-computing tap positions |
+| Deterministic UI assertions (CI gate) | Compose `performTouchInput` + `onNodeWithTag` in an instrumented test | Fast, hermetic, no AI judgment in the loop — **this is what gates a merge, not an AI-driven flow** |
+| Exploratory / self-healing UI drives | Android CLI + **Journeys** | Useful for triage; **never gate a merge on it** — see §13.7 |
+| Synthetic mic / speaker | Emulator gRPC `injectAudio` / `streamAudio` | The only first-party way to feed/capture audio without real hardware |
+| Proving a host tool actually wrote to Android | `adb shell content query --uri content://...` | Proves the write landed in the **real system provider**, out-of-process — nothing else proves this |
+| Proving a notification actually posted | `adb shell dumpsys notification --noredact` (smoke) + `NotificationManager.getActiveNotifications()` in an instrumented test (gate) | `dumpsys` for cheap agent-side smoke checks; the typed API for the thing that blocks a merge |
+| Android Auto | Google's DHU, `--headless` flag, scripted via stdin | See §13.6 — partially automatable only |
+| Nightly real-device matrix | `gcloud firebase test android run` | Cloud device farm; **no ADB access**, cannot host an interactive agent loop — use for coverage breadth, not for lane feedback |
+
+### 13.2 Headless emulator, concretely
+
+```bash
+emulator -avd vela_lane_${LANE_ID} \
+  -port $((5554 + LANE_ID * 2)) -grpc $((8554 + LANE_ID)) \
+  -no-window -no-boot-anim -no-snapshot -wipe-data \
+  -gpu swiftshader_indirect -memory 4096 &
+adb wait-for-device
+timeout 300 adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
+```
+
+**Device hygiene, run before every lane** (each of these has bitten someone in production and is
+worth taking on faith rather than rediscovering):
+
+```bash
+adb shell locksettings set-disabled true          # a locked screen silently fails every flow
+adb shell settings put global package_verifier_user_consent -1
+for s in window_animation_scale transition_animation_scale animator_duration_scale; do
+  adb shell settings put global $s 0               # animation timing is a flakiness source
+done
+adb shell svc power stayon true
+```
+
+**Lane isolation is non-negotiable, for three concrete reasons:** (1) `injectAudio` permits
+**exactly one active microphone per emulator instance** — concurrent lanes sharing an emulator
+will fail with `FAILED_PRECONDITION`; (2) ADB's auto-detection heuristic creates phantom devices
+when ports collide — give every lane an explicit `-port` and set `ANDROID_SERIAL`; (3) `pm clear`
+or `-wipe-data` from one lane will destroy another's state. Each `/goal-batch` lane needs its own
+emulator instance, not a shared one.
+
+**Container caveat:** Gradle Managed Devices and hardware-accelerated emulators need `/dev/kvm`.
+If lanes run in Docker without `--device /dev/kvm`, fall back to a self-hosted runner or a
+cloud-hosted device with SSH access (Genymotion Cloud is the one confirmed working option;
+Firebase Test Lab and AWS Device Farm do not expose ADB and cannot host this loop).
+
+### 13.3 Verifying host tools without a human (Lane 1.3, informed by Spike S-2)
+
+The strongest verification for any host tool is proving its effect landed in the **real,
+out-of-process Android system provider** — not a mock, not an in-app assertion:
+
+```bash
+# calendar_create wrote a UUID-stamped test event; prove it exists in the real provider
+adb shell content query \
+  --uri content://com.android.calendar/events \
+  --projection _id:title:dtstart:calendar_id \
+  --where "title LIKE '%${TEST_UUID}%'"
+```
+
+Design every host-tool test around this pattern: stamp a UUID into the test prompt, have the
+tool's real Android write include it, then query the real provider for it out-of-band. This is
+also the pattern that proves `dispatch_to_fleet`'s ledger write (G2) actually happened — query
+the ledger's own store the same way, not the app's in-memory state.
+
+**Runtime permissions are fully automatable** (`pm grant`/`pm revoke` covers `RECORD_AUDIO`,
+`READ/WRITE_CALENDAR`, `POST_NOTIFICATIONS`). **AppOps / "special app access"** (battery
+exemption, usage-stats access) is *mostly* automatable via `adb shell cmd appops set` but
+coverage varies by API level — verify each one empirically on the target emulator image rather
+than assuming.
+
+### 13.4 Verifying the voice pipeline without a microphone (Lane 1.2)
+
+The emulator's gRPC `EmulatorController` service is the only first-party mechanism for synthetic
+audio, and it supports exactly the round-trip this app needs to prove:
+
+```python
+# inject a WAV as the guest microphone, capture what the app plays back via TTS
+stub.injectAudio(wav_packets("assets/whats_on_my_calendar.wav"))
+captured = collect(stub.streamAudio(AudioFormat(samplingRate=16000, channels=Mono)), seconds=10)
+assert rms(captured) > SILENCE_THRESHOLD          # the app produced audio out
+```
+
+Combined with the content-query check from §13.3, this proves the full loop — synthetic voice in,
+real calendar write, synthetic TTS out — with no human and no real hardware. This is the strongest
+zero-touch evidence available for "the voice pipeline actually works," and it should be the core
+assertion behind Lane 1.2's "full spoken round-trip" done-when criterion.
+
+**One thing to spike, not assume:** whether `injectAudio` behaves correctly under `-no-window`
+with no audio device attached. This is foundational enough to this whole testing strategy that
+it's worth confirming on real CI hardware in Lane 1.2's first days, not discovering it late.
+
+### 13.5 Card-deck UI verification (Lane 1.1, cheapest tier first)
+
+1. **Compose semantics tests** (`onNodeWithTag("card_deck").performTouchInput { swipeLeft() }`)
+   — deterministic, hermetic, this is what CI gates on.
+2. **`android layout --pretty`** as a live, agent-readable JSON UI tree — tag every card with
+   `Modifier.testTag(...)` and a real `contentDescription` from day one so the tree stays
+   machine-legible, not just human-legible.
+3. **`uiautomator dump` + `adb shell input tap/swipe`** as a last-resort fallback only.
+
+### 13.6 Android Auto — the honest limit, stated plainly
+
+**Do not promise full headless automation for the Auto surface.** Google's own Desktop Head
+Unit supports `--headless` and stdin-driven scripting for *steady-state* interaction — but
+first-connect requires a real, previously-provisioned phone with a human accepting the Auto
+terms of service and Play Store sign-in on-screen, once. This is a one-time manual step per
+test device, not a per-run one: provision one physical or long-lived emulator image by hand,
+snapshot or dedicate it, and script everything after that point through DHU's headless mode.
+Do not architect Lane 1.2 or any CI gate around Auto being provisionable from a cold, freshly
+wiped image — it isn't.
+
+### 13.7 AI-driven UI exploration (Journeys) — useful, but never a merge gate
+
+Android CLI's Journeys feature (LLM-driven, self-healing UI flows) is genuinely valuable for
+exploratory "does this flow still make sense" checks that survive UI refactors — but real
+production experience with it reports **~10% flakiness** and, more importantly, a documented
+failure mode where **an AI-judged assertion returns green on an ambiguous instruction even when
+the underlying behavior is wrong** (e.g., "verify the tab is selected" being satisfied by the
+agent *selecting* the tab itself, rather than checking it was already selected). The mitigation
+that worked in practice: word every Journey assertion in the negative-constrained form ("verify
+X **without** doing X"), and **deliberately break every new Journey once to confirm it can
+actually fail** before trusting a pass. Use Journeys for agent-driven triage and exploration;
+keep the actual `/goal-batch` merge gate on deterministic Compose + instrumented tests +
+`content query`/`dumpsys` checks (§13.1–13.5).
+
+### 13.8 Structured feedback contract
+
+Every lane's test harness should emit machine-readable JSON on stdout (exit code still 0/1 for
+shell ergonomics) so an agent driving `/goal-batch` can reason about *which* check failed without
+re-running the whole lane:
+
+```json
+{
+  "lane": "1.2-voice-transport",
+  "checks": [
+    {"id": "app_launch",       "ok": true},
+    {"id": "voice_roundtrip",  "ok": true,  "detail": "TTS RMS above silence threshold"},
+    {"id": "calendar_write",   "ok": true,  "detail": "UUID a3f1... found via content query"},
+    {"id": "notification_post","ok": false, "detail": "no entry in dumpsys for com.vela.app"}
+  ],
+  "artifacts": {
+    "logcat": "artifacts/logcat.txt",
+    "screenshots": ["artifacts/00_launch.png", "artifacts/01_after_voice.png"],
+    "ui_tree": "artifacts/layout.json",
+    "audio_out": "artifacts/tts_capture.wav"
+  }
+}
+```
+
+Always emit artifacts even on success — screenshots and the `android layout` JSON let an agent
+reason visually about a passing lane without re-running it.
+
+### 13.9 What is genuinely not automatable — set expectations honestly
+
+| Limit | Why | Workaround |
+|---|---|---|
+| Android Auto first-connect ToS + Play sign-in | Requires a human on the physical screen, by Google's own design | One-time manual provisioning of a dedicated long-lived test device (§13.6) |
+| Firebase Test Lab as an interactive loop | Managed runner, no ADB access | Use for nightly real-device coverage breadth only, never for lane feedback |
+| GMD / hardware-accelerated emulators in plain Docker | Needs `/dev/kvm`, unavailable in unprivileged containers | `--device /dev/kvm`, a self-hosted runner, or a cloud device with SSH |
+| AI-judged (Journeys) assertions | ~10% flakiness; can return false-green on ambiguous phrasing | Exploratory use only; deterministic tests gate the merge (§13.7) |
+| `injectAudio` across parallel lanes on one emulator | Exactly one active microphone per instance | Lane isolation — one emulator per lane (§13.2) |
+
+### 13.10 Cross-references
+
+This section is binding on: Lane 1.1's done-when (card-deck verification, §13.5), Lane 1.2's
+done-when (voice round-trip, §13.4, plus the `injectAudio`-under-`-no-window` spike called out
+above), Lane 1.3's done-when (host-tool verification, §13.3), and Lane 3.2's done-when (live
+activity + approval prompts, extend §13.5's tiering to the C2-driven UI). Each lane's harness
+should emit the §13.8 JSON contract as part of its CI job, independent of whether it also runs a
+Journeys-based exploratory pass.
