@@ -1,0 +1,207 @@
+diff --git a/src/amplifier_agent_http/routes/chat_completions.py b/src/amplifier_agent_http/routes/chat_completions.py
+index 8ef1d2c..16e07f6 100644
+--- a/src/amplifier_agent_http/routes/chat_completions.py
++++ b/src/amplifier_agent_http/routes/chat_completions.py
+@@ -24,9 +24,11 @@ from __future__ import annotations
+ import asyncio
+ import json
+ import logging
++import os
+ import time
+ from collections.abc import AsyncGenerator
+ from decimal import Decimal, InvalidOperation
++from pathlib import Path
+ from typing import Any
+ 
+ from fastapi import APIRouter, Depends, HTTPException, Request, status
+@@ -63,9 +65,42 @@ logger = logging.getLogger("amplifier_agent_http.chat_completions")
+ # flooding the wire when the model is producing output normally.
+ _KEEPALIVE_INTERVAL_SECONDS: float = 3.0
+ 
++# Spike S-1: bounded size for the tee queue. Deliberately small -- the tee is
++# a best-effort side channel; if the tee consumer (here, the JSONL writer)
++# falls behind, we drop tee'd events rather than let the buffer grow
++# unbounded or apply backpressure to the primary (C1) path.
++_TEE_QUEUE_MAXSIZE: int = 256
++
+ router = APIRouter()
+ 
+ 
++async def _drain_tee_to_jsonl(tee_queue: asyncio.Queue[Any], path: Path) -> None:
++    """Spike S-1 second consumer: drain the tee queue to a JSONL file.
++
++    Stands in for "a second consumer" per the spike brief. Runs concurrently
++    with the primary drain loop in ``_stream_chat_completion``, reading from
++    its OWN queue (``tee_queue``) that ``HttpQueueDisplaySystem.emit()`` fans
++    events out to. Never touches ``event_queue`` (the primary/C1 queue), so
++    it cannot perturb the C1 path by construction -- there is no shared
++    mutable state between the two consumers other than the event objects
++    themselves (read-only from this side).
++
++    Terminates when the sentinel (``None``) is read, mirroring the primary
++    drain loop's sentinel protocol.
++    """
++    path.parent.mkdir(parents=True, exist_ok=True)
++    with path.open("a", encoding="utf-8") as f:
++        while True:
++            event = await tee_queue.get()
++            if event is None:
++                break
++            try:
++                f.write(json.dumps(event, default=str) + "\n")
++                f.flush()
++            except Exception:
++                logger.debug("_drain_tee_to_jsonl: failed to write event; dropping")
++
++
+ def _split_history_and_prompt(messages: list[ChatMessage]) -> tuple[list[dict[str, Any]], str]:
+     """Separate the conversation history from the current user prompt.
+ 
+@@ -293,6 +328,7 @@ async def _stream_chat_completion(
+     event_queue: asyncio.Queue[Any],
+     display: HttpQueueDisplaySystem,
+     host_tool_yield_state: dict[str, Any],
++    tee_task: asyncio.Task[None] | None = None,
+ ) -> AsyncGenerator[str, None]:
+     """Drive a single chat completion and yield SSE chunks.
+ 
+@@ -463,6 +499,16 @@ async def _stream_chat_completion(
+         # Best-effort: drain remaining cancellations so they don't leak.
+         await asyncio.gather(turn_task, signal_task, return_exceptions=True)
+         display.close()
++        # Spike S-1: give the tee drain task a moment to consume its sentinel
++        # (posted by display.close() above) and flush; then cancel if it's
++        # somehow still running so we never leak the task.
++        if tee_task is not None:
++            try:
++                await asyncio.wait_for(tee_task, timeout=1.0)
++            except (TimeoutError, asyncio.CancelledError):
++                if not tee_task.done():
++                    tee_task.cancel()
++                await asyncio.gather(tee_task, return_exceptions=True)
+ 
+ 
+ async def _collect_completion(
+@@ -654,7 +700,20 @@ async def chat_completions(
+     # before iterating the body generator, making it impossible to switch to 502.
+     # By doing the pre-flight check here we still have a clean slate.
+     event_queue: asyncio.Queue[Any] = asyncio.Queue()
+-    display = HttpQueueDisplaySystem(event_queue)
++
++    # Spike S-1: optional tee of the raw kernel display event stream to a
++    # second consumer, alongside the existing (C1, wire-filtering) consumer.
++    # Opt-in via env var so default behavior (no tee) is unchanged.
++    # Bounded + drop-under-pressure: see HttpQueueDisplaySystem docstring.
++    tee_queue: asyncio.Queue[Any] | None = None
++    tee_task: asyncio.Task[None] | None = None
++    if os.environ.get("AMPLIFIER_AGENT_EVENT_TEE_PATH"):
++        tee_queue = asyncio.Queue(maxsize=_TEE_QUEUE_MAXSIZE)
++        tee_task = asyncio.create_task(
++            _drain_tee_to_jsonl(tee_queue, Path(os.environ["AMPLIFIER_AGENT_EVENT_TEE_PATH"]))
++        )
++
++    display = HttpQueueDisplaySystem(event_queue, tee_queue=tee_queue)
+     approval = HttpAutoApprovalSystem()
+     host_tool_yield_state: dict[str, Any] = {"yielded": False, "tool_name": "", "tool_call_id": ""}
+ 
+@@ -718,6 +777,7 @@ async def chat_completions(
+         event_queue=event_queue,
+         display=display,
+         host_tool_yield_state=host_tool_yield_state,
++        tee_task=tee_task,
+     )
+ 
+     # Edit B: honor the ``stream`` flag.
+diff --git a/src/amplifier_agent_lib/protocol_points/defaults_http.py b/src/amplifier_agent_lib/protocol_points/defaults_http.py
+index c1a0e87..e77abb6 100644
+--- a/src/amplifier_agent_lib/protocol_points/defaults_http.py
++++ b/src/amplifier_agent_lib/protocol_points/defaults_http.py
+@@ -42,11 +42,39 @@ class HttpQueueDisplaySystem:
+       crash the agent loop. We treat the SSE side as best-effort.
+     - After ``close()``, further ``emit()`` calls are no-ops (no exception,
+       no queue churn).
++
++    Spike S-1 tee
++    -------------
++    An optional ``tee_queue`` fans out a *copy* of every event (pre-filter,
++    pre-translation -- the raw kernel display event) to a second consumer
++    alongside the primary (C1, wire-filtering) consumer. This directly
++    answers the spike's central question: can a second consumer read the
++    internal event stream without perturbing C1?
++
++    Design choices that make the tee provably non-perturbing to C1:
++    - The tee write happens in ``emit()`` AFTER the primary ``queue.put``
++      succeeds, so a slow or full tee queue cannot delay or block the
++      primary queue.put.
++    - ``tee_queue.put_nowait()`` is used (never ``await put``): if the tee
++      consumer falls behind and its bounded queue is full, the event is
++      DROPPED for the tee side only. This is the "bounded buffer that drops
++      tee'd events under pressure rather than blocking the primary consumer"
++      requirement from the spike brief.
++    - Any exception from the tee side (queue misconfigured, consumer closed)
++      is swallowed exactly like the primary queue's own defensive swallow --
++      it can never propagate into the kernel's hook chain.
+     """
+ 
+-    def __init__(self, queue: asyncio.Queue[DisplayEvent | None]) -> None:
++    def __init__(
++        self,
++        queue: asyncio.Queue[DisplayEvent | None],
++        *,
++        tee_queue: asyncio.Queue[DisplayEvent | None] | None = None,
++    ) -> None:
+         self._queue = queue
+         self._closed = False
++        self._tee_queue = tee_queue
++        self._tee_dropped = 0
+ 
+     async def emit(self, event: DisplayEvent) -> None:
+         """Push event to the queue, ignoring any failure.
+@@ -64,6 +92,22 @@ class HttpQueueDisplaySystem:
+             # agent loop continues.
+             logger.debug("HttpQueueDisplaySystem.emit: queue.put failed; dropping event")
+ 
++        # Tee: best-effort, non-blocking fan-out of the SAME event object to
++        # a second consumer. Deliberately placed AFTER the primary put and
++        # using put_nowait so it can never add latency or backpressure to
++        # the C1 path above. A full tee queue drops the event silently.
++        if self._tee_queue is not None:
++            try:
++                self._tee_queue.put_nowait(event)
++            except asyncio.QueueFull:
++                self._tee_dropped += 1
++                logger.debug(
++                    "HttpQueueDisplaySystem tee: queue full, dropping event (total dropped=%d)",
++                    self._tee_dropped,
++                )
++            except Exception:
++                logger.debug("HttpQueueDisplaySystem tee: put_nowait failed; dropping event")
++
+     def close(self) -> None:
+         """Signal end-of-stream to the drain loop via the sentinel.
+ 
+@@ -78,6 +122,11 @@ class HttpQueueDisplaySystem:
+             # The drain loop is far behind; in that case end-of-stream is
+             # implicit when the turn task completes. Not fatal.
+             logger.debug("HttpQueueDisplaySystem.close: queue full, sentinel not posted")
++        if self._tee_queue is not None:
++            try:
++                self._tee_queue.put_nowait(None)
++            except asyncio.QueueFull:
++                logger.debug("HttpQueueDisplaySystem.close: tee queue full, sentinel not posted")
+ 
+ 
+ class HttpAutoApprovalSystem:
+diff --git a/uv.lock b/uv.lock
+index 233d99c..23adbe7 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -10,7 +10,7 @@ members = [
+ 
+ [[package]]
+ name = "amplifier-agent"
+-version = "0.8.0"
++version = "0.9.0"
+ source = { editable = "." }
+ dependencies = [
+     { name = "amplifier-foundation" },
