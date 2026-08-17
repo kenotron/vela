@@ -1,0 +1,15 @@
+[Unit]
+Description=vela-ledger-service — durable C3 job ledger REST + SSE (Lane 2.1)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/share/vela-ledger-service/.venv/bin/python -m ledger_service --bind 0.0.0.0 --port 9199 --log-level info
+Restart=on-failure
+RestartSec=5s
+EnvironmentFile=-%h/.amplifier/vela-ledger-service/env
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=LEDGER_DB_PATH=%h/.vela/ledger/ledger.db
+
+[Install]
+WantedBy=default.target
