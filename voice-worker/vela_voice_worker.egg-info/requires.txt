@@ -1,0 +1,5 @@
+livekit-agents>=0.11.0
+livekit-plugins-turn-detector>=0.3.0
+
+[dev]
+pytest>=8.0.0

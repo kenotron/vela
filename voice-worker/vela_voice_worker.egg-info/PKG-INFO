@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: vela-voice-worker
+Version: 0.1.0
+Summary: LiveKit Agents worker: STT -> stock LLM -> TTS voice round-trip for Vela, with semantic turn detection (V2) and no preemptive generation (V3).
+Requires-Python: >=3.11
+Requires-Dist: livekit-agents>=0.11.0
+Requires-Dist: livekit-plugins-turn-detector>=0.3.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0.0; extra == "dev"

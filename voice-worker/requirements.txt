@@ -1,0 +1,8 @@
+# Production dependencies. See pyproject.toml for the canonical dependency
+# spec; this file is provided for tooling that expects requirements.txt.
+livekit-agents>=0.11.0
+livekit-plugins-turn-detector>=0.3.0
+livekit-plugins-openai>=0.11.0
+
+# Dev/test
+pytest>=8.0.0
