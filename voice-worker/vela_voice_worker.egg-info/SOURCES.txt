@@ -1,0 +1,14 @@
+README.md
+pyproject.toml
+vela_voice_worker.egg-info/PKG-INFO
+vela_voice_worker.egg-info/SOURCES.txt
+vela_voice_worker.egg-info/dependency_links.txt
+vela_voice_worker.egg-info/requires.txt
+vela_voice_worker.egg-info/top_level.txt
+voice_worker/__init__.py
+voice_worker/agent.py
+voice_worker/config.py
+voice_worker/turn_detection.py
+voice_worker/tests/__init__.py
+voice_worker/tests/test_config.py
+voice_worker/tests/test_turn_detection.py
