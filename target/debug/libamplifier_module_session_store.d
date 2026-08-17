@@ -1,1 +1,0 @@
-/Users/ken/workspace/vela/target/debug/libamplifier_module_session_store.rlib: /Users/ken/workspace/vela/crates/amplifier-module-session-store/src/file.rs /Users/ken/workspace/vela/crates/amplifier-module-session-store/src/format.rs /Users/ken/workspace/vela/crates/amplifier-module-session-store/src/lib.rs

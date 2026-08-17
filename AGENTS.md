@@ -1,397 +1,420 @@
-# Vela — Agent Context
+# Vela — AI Chief of Staff (S4′ Rebuild) — Agent Context
 
 > **Read this first before making any changes.**
 > This file is the source of truth for any AI agent working on this codebase.
-> **EVIDENCE RULE: Don't invent API shapes, event names, or status values. Verify with curl or logcat first.**
+> **This file documents the *new* system, not the previous one.** Refer to the archive branch (`archive/pre-rebuild-2026-08`) and `docs/PRESERVED_LESSONS.md` for lessons from the old architecture.
 
 ---
 
-## What Vela Is
+## What Vela Is (New Architecture)
 
-Vela is a **mobile-first AI orchestration hub** (Android app). The phone is the UI and controller. Intelligence runs on remote amplifierd nodes (SSH-accessible machines). The app talks to amplifierd via HTTP + SSE.
-
----
-
-## Current Architecture (as of 2026-05-04)
-
-```
-Phone (Android)                           Mac / Remote Node
-┌─────────────────────────────┐           ┌──────────────────────────────┐
-│ Vela App                    │           │ amplifierd daemon             │
-│                             │  HTTP     │  port 8410                   │
-│ SessionDetailViewModel  ────┼──────────►│  /sessions  (CRUD)           │
-│   ├─ sendMessage()          │  SSE      │  /events?session=ID (stream) │
-│   └─ AmplifierdStreamClient─┼──────────►│  /projects  (vela plugin)    │
-│                             │           │  /capabilities               │
-│ SshNodeRegistry (@Singleton)│           │                              │
-│   └─ cache: List<SshNode>   │           │  Uses Anthropic API          │
-│      url, token, workspaceDir           │  Key: from launchd plist env │
-└─────────────────────────────┘           └──────────────────────────────┘
-```
+Vela is a **mobile-first AI chief of staff** for real work across a fleet of machines. The primary interaction is **real-time voice** on an Android phone. The intelligence runs on a remote service (`vela-agentd`). The phone surfaces a durable ledger of ongoing work via a swipeable card deck and chat interface. Notifications alert to genuine decisions needed, not progress noise.
 
 ---
 
-## Proven amplifierd SSE Event Vocabulary
+## Architecture at a Glance (S4′)
 
-**Verified by live curl on 2026-05-01 against `http://10.0.0.143:8410`**
-
-### Protocol (order matters)
-1. Open `GET /events?session={sessionId}` SSE stream **FIRST** — server replays from seq 1
-2. Then `POST /sessions/{id}/execute/stream` with `{"prompt": "..."}` — returns `{"correlation_id":"...","status":"accepted"}`
-3. Collect events from GET /events until `execution:end` or `orchestrator:complete`
-
-### Event sequence (successful turn — loop-vela bundle)
 ```
-id: 1  event: session:start      # lightweight, just session_id + timestamp
-id: 2  event: session:start      # full config dump (agents, hooks, providers, tools)
-id: 3  event: prompt:submit      # data.prompt = the submitted text
-id: 4  event: execution:start    # data.prompt = the submitted text
-id: 5  event: provider:request   # data.provider = "anthropic", data.iteration = 1
-id: 6  event: llm:request        # data.model, data.thinking_enabled, data.message_count
-id: 7  event: llm:response       # data.duration_ms, data.status = "ok", data.usage
-id: 8  event: content_block:start  # data.block_index = 0, data.block_type = "text"
-id:8a  event: content_block:delta  # *** loop-vela ONLY *** data.token = "word", data.block_index = 0
-                                   # REAL tokens from Anthropic SDK streaming via VelaAnthropicProvider
-                                   # arrives BEFORE content_block:end (correct order)
-id: 9  event: content_block:end    # data.block = {"text": "...", "type": "text"} (full final text, authoritative)
-id:10  event: execution:end
-id:11  event: orchestrator:complete  ← DONE signal; data.orchestrator = "loop-vela"
-```
-
-### On provider failure (retries)
-```
-id: 7  event: provider:retry   # data.attempt, data.max_retries, data.error_message, data.delay
-                               # (repeated up to max_retries times, then execution:end with error)
+Android Phone                          Remote Host (vela-agentd)
+┌──────────────────────────┐           ┌─────────────────────────────────┐
+│ Vela App                 │           │ vela-agentd (thin fork)          │
+│                          │  C1 HTTP  │ of amplifier-agent HTTP face     │
+│ ├─ Voice transport       │◄─────────►│                                  │
+│ ├─ Host tools            │ C2 SSE    │ ├─ chat-completions (C1)        │
+│ ├─ Card deck (attention) │◄─────────►│ ├─ events + approval (C2)       │
+│ ├─ Chat/transcript       │ C3 REST   │ ├─ ledger (C3 proxy/impl)       │
+│ └─ Notifications         │◄─────────►│ └─ approval gate (F2)           │
+│                          │           │                                  │
+│ Ledger:                  │           │ Ledger store (durable):         │
+│ ├─ Local SQLite mirror   │           │ ├─ Job tracking                 │
+│ └─ Sync with server      │           │ └─ Event history                │
+└──────────────────────────┘           └─────────────────────────────────┘
+                                                │
+                                         (contract only)
+                                                │
+                                      ┌─────────▼──────────┐
+                                      │ Fleet execution    │
+                                      │ plane (separate)   │
+                                      │ muxterm/Claude/... │
+                                      └────────────────────┘
 ```
 
 ---
 
-## ⚠️ Tool Call Format — Two Layers, Different Field Names
+## Design Document
 
-**This divergence caused a real bug (2026-05-06): `SessionTranscriptNormalizer` was written
-reading the SSE format but consuming the transcript API — tool blocks silently disappeared
-post-stream. Add this table to your mental model before touching ANY tool-call parsing code.**
+**Full design:** `docs/designs/2026-08-16-vela-chief-of-staff-rebuild.md`
 
-amplifierd has two independent serialization paths for tool calls. They use **different field
-names for the same concept**. The origin:
+**Preserve this reference.** The design document is the authoritative specification for the entire system — architecture, components, boundaries, assumptions, success metrics, and stage-wise rollout plan.
 
-- **SSE format** — mirrors the Anthropic SDK streaming protocol directly
-- **Transcript format** — loop-vela's own storage format using Amplifier core's `ToolCall`
-  dataclass, which uses OpenAI-style names
+---
 
-### The Two Formats Side by Side
+## Stage 0 Status
 
-**SSE stream** (`content_block:end` event, `data.block`):
-```json
+**Stage 0 — Preservation and clearing** is COMPLETE.
+
+- ✅ Archive branch created: `archive/pre-rebuild-2026-08` (preserves full pre-rebuild tree)
+- ✅ Lessons extracted: `docs/PRESERVED_LESSONS.md` (8 critical lessons from the old system)
+- ✅ Documentation carried forward: `docs/reference/` (phase plans, openapi.json)
+- ✅ `main` cleared for fresh start (old code, old gradle, old rust crates deleted)
+- ✅ New `AGENTS.md` written (this file)
+
+**What lives on the archive branch (preserved but unused):**
+- Old Kotlin Android app (~40K LOC)
+- Old Rust crates (~8.7K LOC, proof-of-concept engine)
+- Old amplifierd integration code
+- All phase docs (now also in `docs/reference/` for easy access)
+
+**When to consult the archive branch:**
+- Understanding how the old app handled connectivity/notifications/streaming
+- Reference implementation of SSE parsing (with anti-patterns documented)
+- Rust crate designs (fallback if assumption A1 becomes false)
+- Lessons in `docs/PRESERVED_LESSONS.md` (linked from this file below)
+
+---
+
+## Critical Lessons (from `docs/PRESERVED_LESSONS.md`)
+
+Read these BEFORE implementing any code that touches:
+
+### 1. **Tool-Call Serialization Format Divergence**
+- SSE format: `{name, input}` inside `content` array
+- Transcript format: `{tool, arguments}` in top-level `tool_calls` array
+- **Confusing them silently drops tool calls in production**
+- Reference: `docs/PRESERVED_LESSONS.md` §1, archive branch `SessionTranscriptNormalizer`
+
+### 2. **Session Status Strings**
+- Correct values: `"executing"`, `"idle"`, `"failed"`, `"completed"`
+- WRONG (and never used): `"running"`, `"active"`, `"waiting"`
+- **Using wrong values produces permanently-empty active-session list**
+- Lesson: Hard-code constants, use them everywhere, add compile-time assertions
+- Reference: `docs/PRESERVED_LESSONS.md` §2
+
+### 3. **SSE Stream Ordering: Must Open Before POST**
+- **WRONG**: POST `/execute`, then GET `/events` — early events lost to race
+- **CORRECT**: GET `/events` first (opens stream, server replays from seq 1), then POST
+- **Why**: amplifierd's event stream is durable with sequence numbers; clients get full replay when they connect
+- Reference: `docs/PRESERVED_LESSONS.md` §3
+
+### 4. **Multi-Network Connectivity Model (5-State Machine)**
+- States: Unknown → Checking → {Reachable(url), Unreachable}
+- Must try multiple URL candidates: Tailscale → LAN → SSH, in order
+- Must persist last-known state (survives app kill)
+- **Why**: Node can move between networks; LAN-only state machine breaks when WiFi is lost
+- Reference: `docs/PRESERVED_LESSONS.md` §4, archive branch `AmplifierdRepository.candidateUrls()`
+
+### 5. **Foreground Service + Notification Pattern**
+- Hold FGS lock only during active sessions (user speaking, listening, events flowing)
+- Release immediately when done (respects Android's 6h/day FGS budget)
+- Notification channel persists, service cycles on/off
+- **Why**: Voice sessions that drain battery or block other apps fail; app gets force-stopped by OS
+- Reference: `docs/PRESERVED_LESSONS.md` §5, archive branch `SessionStreamingService`
+
+### 6. **Parallel-Delegate Streaming Chunk Correlation**
+- When multiple sub-agents run in parallel, streaming tokens arrive out-of-order
+- Correct fix: "Claim first unclaimed tool call" semantics (not round-robin)
+- **Lesson**: This bug recurs when C2 event processing is built; the fix is documented
+- Reference: `docs/PRESERVED_LESSONS.md` §7, archive commit `eb207e74`
+
+### 7. **Rust Crates as Fallback (Not Code Reuse)**
+- 6 Rust crates preserved on archive branch (~8.7K LOC, 141 tests)
+- **Why preserved**: If assumption A1 becomes false (amplifier-agent abandoned), these are the starting point for an engine redesign
+- **Why not used in S4′**: A1 confidence is high; fork of Python amplifier-agent is the better bet
+- **Read them if**: A1 breaks and a new engine is being considered; then re-learn what they encode
+- Reference: `docs/PRESERVED_LESSONS.md` §6
+
+### 8. **API Surface Regression Checking**
+- `docs/reference/amplifierd-openapi.json` is the previous system's API
+- When finalizing C1/C2/C3 surfaces, audit against it for unintentional feature loss
+- Reference: `docs/PRESERVED_LESSONS.md` §8
+
+---
+
+## Three Channels: C1, C2, C3
+
+All three are implemented by the **same service (`vela-agentd`)**, but they have distinct protocols and purposes.
+
+### C1: Chat-Completions (stock OpenAI protocol)
+
+**What it is:** Stock HTTP chat-completions API (Anthropic-compatible). **Unmodified from upstream `amplifier-agent`.**
+
+**Used for:**
+- Sending prompts and receiving streaming LLM output
+- Client-declared host tools (the OpenCode pattern): calendar, notes, reminders, dispatch_to_fleet
+- Streaming text and tool calls
+
+**Protocol:**
+```
+POST /v1/messages
 {
-  "type": "tool_use",
-  "id": "toolu_01ABC",
-  "name": "bash",
-  "input": {"command": "echo hello"}
-}
-```
-Lives inside the `block` field of a `content_block:end` event. The `content` array of the
-assistant message (in SSE) also contains this structure.
-
-**Transcript API** (`GET /sessions/:id/transcript`, assistant message):
-```json
-{
-  "role": "assistant",
-  "content": "",
-  "tool_calls": [
-    {"id": "toolu_01ABC", "tool": "bash", "arguments": {"command": "echo hello"}}
+  "model": "claude-3-5-sonnet-20241022",
+  "messages": [{role, content}],
+  "tools": [
+    {
+      "name": "dispatch_to_fleet",
+      "description": "...",
+      "input_schema": {...}
+    }
   ]
 }
-```
-Tool calls are in a **top-level `tool_calls` key** (not inside `content`). `content` is an
-empty string when the only output was tool calls.
 
-### Field Name Mapping
-
-| Concept              | SSE (`content_block:end`) | Transcript (`tool_calls[]`) |
-|----------------------|---------------------------|------------------------------|
-| Block location       | `data.block` (in content) | top-level `tool_calls` array |
-| Tool name            | `block.name`              | `tc.tool`                    |
-| Tool arguments       | `block.input` (object)    | `tc.arguments` (object)      |
-| Tool call ID         | `block.id`                | `tc.id`                      |
-
-**Tool result format is the SAME in both layers:**
-```json
-{"role": "tool", "name": "bash", "tool_call_id": "toolu_01ABC", "content": "...output..."}
+→ SSE stream: delta events (text, tool_calls, etc.)
 ```
 
-### Why Different?
-- **SSE**: `VelaAnthropicProvider.stream()` re-emits Anthropic SDK events verbatim → Anthropic uses `name`/`input`
-- **Transcript**: loop-vela stores via `ToolCall.name` → serialized as `"tool"`, and
-  `ToolCall.arguments` (from Anthropic's `input`, renamed at the provider boundary) → `"arguments"`
-- Amplifier core's `ToolCall` class bridges Anthropic and OpenAI APIs, using OpenAI-style names
+**Tool-call response pattern (OpenCode / client-executed):**
+1. Client receives `delta.tool_calls` chunk
+2. Client executes tool locally (calendar lookup, etc.)
+3. Client re-POSTs: `{role: "tool", name, tool_call_id, content}`
+4. Turn resumes
 
-### Rule: Which to Trust
-- **Reading SSE events** (`AmplifierdStreamClient`, `SessionSseNormalizer`): use `block.type`,
-  `block.name`, `block.input`, blocks are inside `content` array
-- **Reading transcript** (`SessionTranscriptNormalizer`, any code hitting `/transcript`): use
-  top-level `tool_calls` with `tc.tool`, `tc.arguments`; `content` will be empty string
+**Why stock?** Keeps the fork minimal (B2), allows host-tool execution on the client, and lets `vela-agentd` be a drop-in replacement for stock `amplifier-agent serve`.
+
+### C2: Events + Control (tee'd internal queue + approval gate)
+
+**What it is:** A new channel exposing amplifier-agent's internal events (tool/started, tool/completed, sub-agent attribution) plus a real approval gate (replacing auto-approve).
+
+**Used for:**
+- Visibility: See what work is running (sub-agent name, tool name, timing)
+- Narration: "Asking the database...", "Checking your calendar..." in real time
+- Approval: Block privileged tools until user explicitly approves (voice + touch)
+- Mid-turn steering: Eventually send messages mid-loop (Stage 4)
+
+**Protocol:**
+```
+GET /events?session={sessionId}&types=tool%2Fstarted%2Ctool%2Fcompleted
+→ SSE stream:
+  event: tool/started
+  data: {
+    "tool_call_id": "toolu_01ABC",
+    "tool": "bash",
+    "agent_name": "research-delegate",
+    "timestamp": "2026-08-16T20:15:00Z"
+  }
+
+  event: tool/completed
+  data: {
+    "tool_call_id": "toolu_01ABC",
+    "status": "success",
+    "duration_ms": 2340,
+    "result_size_bytes": 4096
+  }
+
+  (approval gate fires if tool is privileged)
+  event: approval/requested
+  data: {
+    "tool": "write_file",
+    "reason": "PRIVILEGED",
+    "timeout_seconds": 30
+  }
+
+  (client sends decision)
+  event: approval/responded
+  data: {
+    "decision": "approve" | "deny",
+    "response_time_ms": 2150
+  }
+```
+
+**Why this channel?** The internal event queue inside amplifier-agent's HTTP face already captures these events (it has to, for logging). C2 just tees it before discarding it, adds an approval gate, and exposes it. This is what makes B2 achievable: a thin fork with a bounded delta.
+
+### C3: Ledger (durable job tracking, separate from conversation)
+
+**What it is:** A REST API + SSE stream for a durable ledger of fleet work.
+
+**Used for:**
+- Persistent job tracking (survives process restart)
+- Visibility in the card deck (what work is pending, completed, failed)
+- Correlation: Which LLM turn spawned which fleet job
+- Replay: On app restart, fetch full ledger state without replaying conversation
+
+**Protocol:**
+
+```
+POST /v1/ledger/jobs
+{
+  "origin": {
+    "tool_call_id": "toolu_01ABC",
+    "session_id": "sess_...",
+    "tool_name": "dispatch_to_fleet",
+    "turn_number": 3
+  },
+  "work_spec": {
+    "target": "machine-42",
+    "operation": "run_test_suite",
+    "args": {...}
+  }
+}
+
+→ {
+  "id": "job_xyz",
+  "status": "pending" | "running" | "completed" | "failed",
+  "created_at": "...",
+  "updated_at": "...",
+  "result": {...}
+}
+
+GET /v1/ledger/jobs?session_id=sess_...
+→ [{job objects}]
+
+GET /v1/ledger/events?session_id=sess_...
+→ SSE stream of job status changes
+```
+
+**Why separate from conversation?** Assumption A6: amplifier-agent's transcript reconciliation deletes orphaned `tool_use` blocks with no paired result. A pending fleet job with no result would be silently wiped on restart. The ledger is the source of truth, independent of the transcript.
 
 ---
 
-### Event names that DO NOT EXIST in amplifierd (do not invent these)
-- ❌ `llm:chunk` — does NOT exist
-- ❌ `tool:start`, `tool_start`, `tool:result`, `tool_result`, `tool:done` — none exist
-- ❌ `[DONE]` — amplifierd does not use this SSE pattern
-- ❌ Native tool events are NOT in the SSE stream; tool details come via `content_block:end` with `block_type: "tool_use"`
-- ✅ `content_block:delta` DOES exist (loop-vela only) — real tokens from Anthropic SDK streaming
+## Assumptions and Risks
 
-### Response format (loop-vela bundle)
-- **`content_block:delta` IS the per-token streaming event** (loop-vela only). Token is in `data.data.token`.
-- `content_block:end` arrives AFTER all deltas with the complete final text — authoritative source.
-- Delta events come from REAL Anthropic API streaming via `VelaAnthropicProvider.stream()` — no simulation.
-- Thinking blocks (`block_type: "thinking"`) exist in `content_block:start/end` — hide from user, don't render.
-- Delta events arrive BEFORE `content_block:end` (correct order: streaming chunks → final block).
+**Refer to `docs/designs/2026-08-16-vela-chief-of-staff-rebuild.md` §2 for the full list with confidence levels.**
 
-### Steer endpoint (loop-vela sessions only)
-```
-POST /sessions/{id}/steer
-Body: {"message": "redirect message here"}
-Auth: x-amplifier-token header
-Returns: {"status": "queued", "session_id": "..."}  or 404 if session not using loop-vela
-```
-The message is injected as a user turn at the next tool-call boundary in the running loop.
-
-### Session statuses (from `GET /sessions`)
-```
-"executing"  ← active, currently running LLM loop
-"idle"       ← session exists, no current execution (maps to "completed" in Vela UI)
-"failed"     ← error state
-"completed"  ← done
-```
-**WRONG values (do not use):** `"running"`, `"waiting"` — these don't exist in amplifierd.
-
-### Execute endpoint
-```
-POST /sessions/{id}/execute/stream
-Body: {"prompt": "the message"}   ← field is "prompt" NOT "message"
-Auth: x-amplifier-token header
-Returns immediately: {"correlation_id":"...", "session_id":"...", "status":"accepted"}
-```
+Key load-bearing assumptions:
+- **A1** (high): `amplifier-agent` remains actively maintained. If false, the thin-fork strategy breaks.
+- **A3** (medium): Event tee doesn't perturb the chat-completions path. **V0 Spike S-1 must verify.**
+- **A4** (high): Client-declared host tools work from Android over stock chat-completions. **V0 Spike S-2 must verify.**
+- **A5** (high): Host tool completes the turn immediately even if the tool runs long. Means `dispatch_to_fleet` must return a handle, not a result.
+- **A6** (high): Transcript reconciliation deletes orphaned tool_use blocks. Hence ledger must be separate.
 
 ---
 
-## Server-Side Components (on Mac at 10.0.0.143)
+## Success Criteria
 
-### loop-vela orchestrator
-Custom amplifierd orchestrator based on `loop-streaming` with additions:
-- **Per-token delta events**: emits `content_block:delta {token, block_index}` for each word/token
-- **Steer queue**: each session gets an `asyncio.Queue`; `POST /sessions/{id}/steer` enqueues messages
-- **Mid-loop injection**: between LLM iterations, drains the steer queue and injects messages as user turns
-- Source: `/Users/ken/workspace/vela/plugins/loop-vela/`
-- Installed: editable install in amplifierd Python env (`uv pip install -e`)
-- Entry point: `loop-vela = amplifier_module_loop_vela:mount`
+**Binary gates (any failure blocks the milestone):**
+- **G1**: Zero lost ledger events across app kill, server restart, network partition
+- **G2**: Zero fleet dispatches with no ledger record (ledger write before fleet handshake)
+- **G3**: Zero host tools exceeding 2s without handle-registration
+- **G4**: Zero privileged tools reachable without approval gate consent
 
-### vela bundle
-Registered at `~/.amplifier/bundles/vela.md`. Inherits `distro` (all tools/providers/context) but
-overrides the orchestrator to `loop-vela`. Sessions must be created with `bundle_name: "vela"`.
-
-### Vela plugin steer endpoint
-Added to `plugins/amplifierd-vela/src/vela_plugin/steer.py`.
-Route: `POST /sessions/{id}/steer` — imports `_steer_queues` from `amplifier_module_loop_vela`
-(same process), puts message in the session's asyncio.Queue.
-
-### How to re-install after changes
-```bash
-# Reinstall loop-vela (editable install — changes take effect on next amplifierd restart)
-cd /Users/ken/workspace/vela/plugins/loop-vela && \
-  uv pip install -e . --python ~/.local/share/uv/tools/amplifierd/bin/python
-
-# Reinstall Vela plugin (not editable — must reinstall to pick up source changes)
-cd /Users/ken/workspace/vela/plugins/amplifierd-vela && \
-  uv pip install . --python ~/.local/share/uv/tools/amplifierd/bin/python
-
-# Restart amplifierd
-launchctl unload ~/Library/LaunchAgents/com.vela.amplifierd.plist
-launchctl load ~/Library/LaunchAgents/com.vela.amplifierd.plist
-```
+**Experience targets:**
+- Voice turn-taking: p50 < 800ms, p99 < 1.5s (user stops → assistant begins)
+- Dead air during work: p99 < 5s (gap between narration events)
+- Approval → notification: p99 < 60s
+- dispatch_to_fleet return: p99 < 1s (handle, not result)
+- Turn-detection false interruptions: < 1 per 50 turns (this determines perceived quality)
 
 ---
 
-## Known Plist Bug (Fixed 2026-05-01)
+## Roadmap (Stage Lanes)
 
-The `generateLaunchdPlist()` function in `NodeBootstrapper.kt` would embed the ANTHROPIC_API_KEY AND the VELA_AUTH_TOKEN concatenated with a newline in a single plist `<string>` tag if the inputs weren't trimmed. This made the Anthropic API key invalid, causing all sessions to fail with "Connection error." provider:retry events.
+**Full roadmap:** `docs/designs/2026-08-16-vela-chief-of-staff-rebuild.md` §12
 
-**Fix:** `generateLaunchdPlist` now calls `.trim()` on both `anthropicKey` and `token` before interpolating.
+### Stage 0 (COMPLETE)
+- Preserve old tree on archive branch
+- Extract lessons to `docs/PRESERVED_LESSONS.md`
+- Clear main for fresh start
 
-**The CORRECT key is in `~/.amplifier/keys.env` on the Mac.** The launchd plist at `~/Library/LaunchAgents/com.vela.amplifierd.plist` must have separate `<key>` entries for `ANTHROPIC_API_KEY` and `VELA_AUTH_TOKEN`.
+### Stage 1 (Foundations — parallel, 5 lanes + 3 spikes)
+- **Lane 1.1**: Android scaffold (Compose, DI, navigation, interface contracts)
+- **Lane 1.2**: Voice transport (LiveKit integration, turn detection, FGS)
+- **Lane 1.3**: Host tools (calendar, notes, reminders, dispatch_to_fleet stub)
+- **Lane 1.4**: Agent serve ops (stock amplifier-agent, supervised, reachable)
+- **Lane 1.5**: Phone ledger (local SQLite, mirroring C3 schema)
+- **Spike S-1**: Event tee (verify no chat-completions perturbation)
+- **Spike S-2**: Host tool roundtrip (verify OpenCode pattern works from Android)
+- **Spike S-3**: Handle dispatch (verify ledger survives transcript reconciliation)
 
----
+**Deliverable:** D+ milestone = working voice product, no fork yet, phone-local ledger
 
-## Room Database Schema (current)
+### Stage 2 (Server ledger)
+- **Lane 2.1**: Durable ledger service (C3 implementation, REST + SSE)
+- Parallel with late Stage 1; no fork required
 
-```
-ssh_nodes (id, label, hosts, port, username, type, url, tailscale_url, token, bootstrapStatus, workspaceDir, addedAt)
-  type: AMPLIFIERD = node bootstrapped and running amplifierd
-  url: "http://{sshHost}:8410" — LAN/SSH IP URL (primary)
-  tailscale_url: "http://100.x.x.x:8410" — Tailscale IP URL (tried first, works cross-network)
-  token: vela auth token — sent as x-amplifier-token header
-  workspaceDir: default "~" — base dir for all project sessions on this node
+### Stage 3 (The fork + visibility)
+- **Lane 3.1**: `vela-agentd` fork (event tee F1, approval gate F2, C2 route, C3 wiring)
+- **Lane 3.2**: Android C2 client (consume tee'd events, narration, approval UI)
+- Gated on S-1 and S-3 passing
 
-DB version: 17
-Migrations: 1→2, ..., 16→17 (tailscale_url column added)
-```
+**Deliverable:** S4′ milestone = fork works, full visibility, approval gate, narration
 
-### Multi-URL Connectivity (AmplifierdRepository)
-`candidateUrls(node)` returns URLs in priority order:
-1. `tailscaleUrl` (if set) — Tailscale IP, works across any network with TS running
-2. `url` — LAN IP from bootstrap
-3. Derived from `hosts` list (SSH IPs) using same port
-
-`findReachableUrl(node)` tries each candidate with `GET /health` and returns the first 200.
-`HomeViewModel` polls all AMPLIFIERD nodes every 60s, exposes `nodeConnectivity: StateFlow<Map<String, NodeConnectivity>>`.
-
-### NodeConnectivity states
-`Unknown` → `Checking` → `Reachable(activeUrl)` | `Unreachable`
-Maps to `NodeTileStatus`: Reachable=Idle, Unreachable=Offline (red stripe + "OFFLINE" chip)
-
----
-
-## Key Classes (current, not the old Rust JNI architecture)
-
-```
-AmplifierdClient       — HTTP CRUD: GET/POST /sessions, /projects, /capabilities, /transcript
-                         + steer(sessionId, message): POST /sessions/{id}/steer for loop-vela
-AmplifierdStreamClient — SSE streaming: opens GET /events first, then POST /execute/stream
-                         handles content_block:delta → TextDelta events (loop-vela)
-AmplifierdRepository   — per-node client factory; candidateUrls() + findReachableUrl() for
-                         multi-URL fallback; clientForNode() still works for single-URL callers
-SshNodeRegistry        — @Singleton; .cache: List<SshNode> populated by HomeViewModel
-HomeViewModel          — polls all AMPLIFIERD nodes every 60s; exposes nodeConnectivity StateFlow
-NodeConnectivity       — sealed class: Unknown / Checking / Reachable(activeUrl) / Unreachable
-SessionDetailViewModel — drives chat: sendMessage(), steer(), awaitNode(), turns StateFlow
-ApiKeyStore            — EncryptedSharedPreferences: OPENAI_API_KEY only (for Whisper)
-NodeBootstrapper       — SSH install of amplifierd: bootstrap() and repair() flows
-TailscaleApiClient     — Tailscale REST API client: listDevices() → List<TailscaleDevice>
-```
-
-### sendMessage() flow (SessionDetailViewModel)
-```
-sendMessage(message) called
-  → if streaming or blank: return early
-  → clearInputText() + clearAttachments()
-  → launch(Dispatchers.IO):
-      → _isStreaming = true
-      → append user TurnContent to _turns
-      → awaitNode() — polls registry.cache up to 5s (10× 500ms)
-      → streamClientForNode(node) — needs type=AMPLIFIERD and url non-blank
-      → append empty assistant TurnContent to _turns
-      → streamClient.stream(sessionId, message).collect { event → ... }
-          → Thinking → update assistant slot with "…"
-          → TextDelta → append token to assistant slot text (real-time streaming)
-          → TextBlock → replace assistant slot with final complete text
-          → ToolUse → append ToolCall to assistant slot
-          → ProviderRetry → show statusMessage
-          → Done → _isStreaming = false
-          → Error → _isStreaming = false
-```
+### Stage 4 (Upstream steering)
+- **Lane 4.1**: Contribute steering to amplifier-agent (mid-turn message injection)
+- Independent long-lead; lands when upstream accepts
 
 ---
 
-## Antipatterns Discovered (Never Reintroduce)
+## Running the Code
 
-| Antipattern | Symptom | Fix |
-|---|---|---|
-| Wrong SSE event names | Chat shows nothing, no errors | Use ONLY the event vocabulary above |
-| POST before GET /events | Race condition, miss early events | Always open SSE stream FIRST |
-| `registry.cache` read without waiting | awaitNode returns null silently | Use awaitNode() with retry loop |
-| Plist API key with untrimmed trailing newline | "Connection error." retries forever | .trim() both key and token before interpolating |
-| `"running"/"waiting"` status strings | ACTIVE session list always empty | Use `"executing"` for active status comparison |
-| `"message"` field name in execute body | 422 from amplifierd | Use `"prompt"` field name |
-| SFTP writes for plist/config | Silent failures on some SSH configs | Use execWrite() (base64 via exec channel) |
-| `AmplifierdRepository.clientFor(nodeId)` cache race | Null client, silent no-op | Use `clientForNode(node: SshNode?)` — pass the already-loaded SshNode directly |
+### Prerequisites
 
----
+- Android device (Pixel 10 Pro or similar) with wireless debugging enabled
+- Mac host running amplifier-agent (or muxterm sessiond, for fleet work)
+- Tailscale network (for cross-network connectivity)
+- Python 3.11+ for amplifier-agent and vela-agentd
 
-## ADB Debugging Commands
-
-**Device discovery (run this first — port changes every session):**
-```bash
-DEVICE=$(./scripts/vela-device)   # auto-discovers IP:port, connects if needed
-```
-
-If `vela-device` fails (device not advertising yet), enable wireless debugging on the phone,
-then `adb connect 10.0.0.106:<port>` once — after that `vela-device` will find it via `adb devices`.
+### Building the Android App
 
 ```bash
-# Discover device (agents should always run this first)
+cd android
+./gradlew assembleDebug
+```
+
+### Running amplifier-agent (stock, for D+ milestone)
+
+```bash
+amplifier-agent serve chat-completions \
+  --port 8410 \
+  --bundle vela \
+  --env ANTHROPIC_API_KEY=$API_KEY
+```
+
+### Running vela-agentd (forked, for S4′ milestone)
+
+```bash
+cd services/vela-agentd
+./run-server.sh --port 8410
+```
+
+---
+
+## ADB Commands (Debugging)
+
+```bash
+# Discover device
 DEVICE=$(./scripts/vela-device)
 
-# Get app PID (use this, not package-name grep which misses log lines)
-APP_PID=$(adb -s $DEVICE shell pidof com.vela.app | tr -d ' \r\n')
+# Watch app logs
+adb -s $DEVICE logcat --pid=$(adb -s $DEVICE shell pidof com.vela.app)
 
-# Watch ALL app logs by PID (most reliable)
-adb -s $DEVICE logcat --pid=$APP_PID
+# Screenshot
+adb -s $DEVICE shell screencap /sdcard/vela.png && adb -s $DEVICE pull /sdcard/vela.png .
 
-# Screenshot (exec-out returns black if screen locked; use shell+pull instead)
-adb -s $DEVICE shell screencap /sdcard/vela.png
-adb -s $DEVICE pull /sdcard/vela.png /tmp/vela.png
-
-# Wake screen (needed before any screenshot)
-adb -s $DEVICE shell input keyevent KEYCODE_WAKEUP
-
-# Check if screen is locked
-adb -s $DEVICE shell dumpsys window | grep mDreamingLockscreen
-
-# SQLite DB inspection
-adb -s $DEVICE shell run-as com.vela.app \
-  sqlite3 /data/data/com.vela.app/databases/vela_database "SELECT * FROM ssh_nodes"
+# SQLite inspection
+adb -s $DEVICE shell run-as com.vela.app sqlite3 /data/data/com.vela.app/databases/vela.db \
+  "SELECT * FROM jobs ORDER BY created_at DESC LIMIT 10;"
 ```
 
 ---
 
-## amplifierd Node Management
+## Preserved Knowledge
 
-### Launchd plist location
-`~/Library/LaunchAgents/com.vela.amplifierd.plist`
+**All 8 lessons from the old system are in `docs/PRESERVED_LESSONS.md`.** Read that file when:
 
-### Correct plist structure (no concatenation bugs)
-```xml
-<key>EnvironmentVariables</key>
-<dict>
-  <key>PATH</key><string>/Users/ken/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
-  <key>ANTHROPIC_API_KEY</key><string>sk-ant-api03-...</string>    ← one key ONLY per tag
-  <key>VELA_AUTH_TOKEN</key><string>cjpOWhq...</string>            ← separate tag
-</dict>
-```
-
-### Verify amplifierd is working
-```bash
-curl -s http://10.0.0.143:8410/health   # should return {"status":"healthy",...}
-curl -s -H "x-amplifier-token: TOKEN" http://10.0.0.143:8410/projects
-```
-
-### Reload after plist changes
-```bash
-launchctl bootout gui/$(id -u)/com.vela.amplifierd 2>/dev/null || true
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.vela.amplifierd.plist
-```
+- Building the Android C2 event client (reference the parallel-delegate bug fix)
+- Implementing connectivity to vela-agentd (reference the 5-state machine)
+- Implementing foreground services (reference the FGS lifecycle)
+- Parsing tool calls (reference the SSE format divergence table)
+- Comparing against the old API (reference docs/reference/amplifierd-openapi.json)
 
 ---
 
-## Build and Deploy
+## Git Workflow
 
-```bash
-# Build (skip tests for speed)
-cd /Users/ken/workspace/vela
-./gradlew assembleDebug -x test
+- **Main branch** is the active branch for Stage 1+ work
+- **Per-stage lanes branch from main** (e.g., `lane/1-1-android-scaffold`)
+- **Archive branch** (`archive/pre-rebuild-2026-08`) is read-only; preserves the full pre-rebuild tree
+- Rebasing lanes onto main is safe and encouraged (keeps history clean)
 
-# Discover device (port changes every session — always do this first)
-DEVICE=$(./scripts/vela-device)
+---
 
-# Install
-adb -s $DEVICE install -r app/build/outputs/apk/debug/app-debug.apk
+## Questions?
 
-# Launch
-adb -s $DEVICE shell am start --user 0 -n com.vela.app/.MainActivity
-```
+1. **What was the old system?** See the archive branch and `docs/PRESERVED_LESSONS.md`
+2. **What am I building?** See `docs/designs/2026-08-16-vela-chief-of-staff-rebuild.md`
+3. **What's my current lane?** Check the lane definition in §12 of the design doc
+4. **What's my stop condition?** Check the "Done when" section for your lane
+5. **Did something similar fail before?** Search `docs/PRESERVED_LESSONS.md`
 
-## Current Phone
-Pixel 10 Pro at 10.0.0.106, hardware serial `58121FDCH002PR` (stable, never changes).
-Wireless debugging port changes each session — use `./scripts/vela-device` to discover it.
-DB: version 17. App package: `com.vela.app`.
+---
+
+Last updated: 2026-08-16
+Design owner: Ken Kraatz
