@@ -3,7 +3,7 @@
   "session_id": "86228d39-db54-423d-a390-f4a677cb3039",
   "verdict": "COMPLETE",
   "branch": "lane/s3-spike-handle-dispatch",
-  "head": null,
+  "head": "59bcd1d1f26f1bb6ba0b90264f6941dbc519b537",
   "pushed": true,
   "items": [
     {
