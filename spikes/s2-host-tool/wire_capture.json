@@ -1,0 +1,392 @@
+[
+  {
+    "request": {
+      "model": "claude-haiku-4-5-20251001",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a test harness. When asked for the time, you MUST call the get_current_time tool. Do not answer without calling it."
+        },
+        {
+          "role": "user",
+          "content": "What time is it in UTC? Use the tool to find out."
+        }
+      ],
+      "stream": true,
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_current_time",
+            "description": "Get the current time in a given timezone.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "timezone": {
+                  "type": "string",
+                  "description": "IANA timezone name, e.g. 'UTC'"
+                }
+              },
+              "required": [
+                "timezone"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "raw_sse_chunks": [
+      {
+        "id": "chatcmpl-21bc97dcbfc0440794e710b8",
+        "object": "chat.completion.chunk",
+        "created": 1786947443,
+        "model": "amplifier",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "role": "assistant"
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-21bc97dcbfc0440794e710b8",
+        "object": "chat.completion.chunk",
+        "created": 1786947445,
+        "model": "amplifier",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "reasoning_content": "The user is"
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-21bc97dcbfc0440794e710b8",
+        "object": "chat.completion.chunk",
+        "created": 1786947446,
+        "model": "amplifier",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "reasoning_content": " asking me \"What time is it in UTC? Use the tool to find out.\"\n\nThey also provided instructions that say \"When asked for the time, you MUST call the get_current_time tool"
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-21bc97dcbfc0440794e710b8",
+        "object": "chat.completion.chunk",
+        "created": 1786947446,
+        "model": "amplifier",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "reasoning_content": ". Do not answer without calling it.\"\n\nThis is straightforward - I need to call the get_current_time tool with timezone \"UTC\" to get"
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-21bc97dcbfc0440794e710b8",
+        "object": "chat.completion.chunk",
+        "created": 1786947446,
+        "model": "amplifier",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "reasoning_content": " the current time.\n\nLet me make that call."
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-21bc97dcbfc0440794e710b8",
+        "object": "chat.completion.chunk",
+        "created": 1786947446,
+        "model": "amplifier",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "id": "toolu_01BkY2V9JyDutWcecLFrXExe",
+                  "type": "function",
+                  "function": {
+                    "name": "get_current_time",
+                    "arguments": "{\"timezone\":\"UTC\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-21bc97dcbfc0440794e710b8",
+        "object": "chat.completion.chunk",
+        "created": 1786947446,
+        "model": "amplifier",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {},
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "activeMode": null,
+        "usage": {
+          "prompt_tokens": 22222,
+          "completion_tokens": 151,
+          "total_tokens": 22373,
+          "prompt_tokens_details": {
+            "cached_tokens": 10768
+          },
+          "cost_usd": "0.0025178"
+        }
+      },
+      {
+        "event": "DONE"
+      }
+    ],
+    "response_status": 200,
+    "reassembled": {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "toolu_01BkY2V9JyDutWcecLFrXExe",
+          "type": "function",
+          "function": {
+            "name": "get_current_time",
+            "arguments": "{\"timezone\":\"UTC\"}"
+          }
+        }
+      ],
+      "finish_reason": "tool_calls"
+    }
+  },
+  {
+    "request": {
+      "model": "claude-haiku-4-5-20251001",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a test harness. When asked for the time, you MUST call the get_current_time tool. Do not answer without calling it."
+        },
+        {
+          "role": "user",
+          "content": "What time is it in UTC? Use the tool to find out."
+        },
+        {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "toolu_01BkY2V9JyDutWcecLFrXExe",
+              "type": "function",
+              "function": {
+                "name": "get_current_time",
+                "arguments": "{\"timezone\":\"UTC\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "toolu_01BkY2V9JyDutWcecLFrXExe",
+          "content": "{\"timezone\": \"UTC\", \"time\": \"12:00:00 (stub)\"}"
+        }
+      ],
+      "stream": true,
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_current_time",
+            "description": "Get the current time in a given timezone.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "timezone": {
+                  "type": "string",
+                  "description": "IANA timezone name, e.g. 'UTC'"
+                }
+              },
+              "required": [
+                "timezone"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "raw_sse_chunks": [
+      {
+        "id": "chatcmpl-a055803e5f5949a896a3c61d",
+        "object": "chat.completion.chunk",
+        "created": 1786947446,
+        "model": "amplifier",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "role": "assistant"
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-a055803e5f5949a896a3c61d",
+        "object": "chat.completion.chunk",
+        "created": 1786947449,
+        "model": "amplifier",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "reasoning_content": "The user asked"
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-a055803e5f5949a896a3c61d",
+        "object": "chat.completion.chunk",
+        "created": 1786947449,
+        "model": "amplifier",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "reasoning_content": " \"What time is it in UTC? Use the tool to find out.\" \n\nI've already called the `get_current_time` tool with the timezone parameter"
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-a055803e5f5949a896a3c61d",
+        "object": "chat.completion.chunk",
+        "created": 1786947449,
+        "model": "amplifier",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "reasoning_content": " set to \"UTC\" and got the result: `{\"timezone\": \"UTC\", \"time\": \"12:00:00 (stub)\"}`.\n\nNow"
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-a055803e5f5949a896a3c61d",
+        "object": "chat.completion.chunk",
+        "created": 1786947450,
+        "model": "amplifier",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "reasoning_content": " I should provide the answer to the user. The time in UTC according to the tool is 12:00:00 (stub).\n\nThis was"
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-a055803e5f5949a896a3c61d",
+        "object": "chat.completion.chunk",
+        "created": 1786947450,
+        "model": "amplifier",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "reasoning_content": " a simple request and I've completed it by calling the tool as instructed in the user-provided instructions. The answer is straight"
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-a055803e5f5949a896a3c61d",
+        "object": "chat.completion.chunk",
+        "created": 1786947450,
+        "model": "amplifier",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "reasoning_content": "forward."
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-a055803e5f5949a896a3c61d",
+        "object": "chat.completion.chunk",
+        "created": 1786947450,
+        "model": "amplifier",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "content": "The current time in UTC is **12:00:00** (according to the tool)."
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-a055803e5f5949a896a3c61d",
+        "object": "chat.completion.chunk",
+        "created": 1786947450,
+        "model": "amplifier",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {},
+            "finish_reason": "stop"
+          }
+        ],
+        "activeMode": null,
+        "usage": {
+          "prompt_tokens": 22314,
+          "completion_tokens": 160,
+          "total_tokens": 22474,
+          "prompt_tokens_details": {
+            "cached_tokens": 10768
+          },
+          "cost_usd": "0.00267605"
+        }
+      },
+      {
+        "event": "DONE"
+      }
+    ],
+    "response_status": 200,
+    "reassembled": {
+      "content": "The current time in UTC is **12:00:00** (according to the tool).",
+      "tool_calls": [],
+      "finish_reason": "stop"
+    }
+  }
+]
