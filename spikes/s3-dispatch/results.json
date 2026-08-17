@@ -1,0 +1,45 @@
+{
+  "item1": {
+    "n_calls": 12,
+    "latencies_ms": [
+      0.0025639310479164124,
+      0.0026349443942308426,
+      0.0026759225875139236,
+      0.002700136974453926,
+      0.0028009526431560516,
+      0.0028191134333610535,
+      0.002998160198330879,
+      0.0030158553272485733,
+      0.0030370429158210754,
+      0.004626112058758736,
+      0.008074101060628891,
+      0.014890916645526886
+    ],
+    "p99_ms": 0.014890916645526886,
+    "max_ms": 0.014890916645526886,
+    "verdict": "PASS"
+  },
+  "item2": {
+    "verdict": "PASS",
+    "final_assistant_message": "\u2713 Job dispatched successfully!\n\n**Job ID:** `3a2891eb-5cf9-4d9e-ae58-376c90cfd452`",
+    "tool_call_log": [
+      "dispatch_to_fleet({\"summary\":\"exercise the handle-return path for spike S-3\",\"title\":\"S-3 spike test job\"}) -> {\"job_id\": \"3a2891eb-5cf9-4d9e-ae58-376c90cfd452\", \"status\": \"accepted\"}"
+    ],
+    "message_count_after_turn1": 3
+  },
+  "item3": {
+    "verdict": "PASS",
+    "final_assistant_message": "The job is currently in **PENDING** status. It was successfully dispatched and is awaiting execution on the fleet.",
+    "tool_call_log": [
+      "query_ledger({\"job_id\":\"3a2891eb-5cf9-4d9e-ae58-376c90cfd452\"}) -> {\"id\": \"3a2891eb-5cf9-4d9e-ae58-376c90cfd452\", \"title\": \"S-3 spike test job\", \"summary\": \"exercise the handle-return path for spike S-3\", \"created_at_epoch_ms\": 1786948616461, \"source\": \"dispatch_to_fleet\", \"status\": \"PENDING\"}"
+    ],
+    "dispatched_job_id": "3a2891eb-5cf9-4d9e-ae58-376c90cfd452",
+    "ledger_entry_present_before_turn2": true,
+    "message_count_after_turn2": 6,
+    "reason": null
+  },
+  "item4": {
+    "verdict": "DOCUMENTED",
+    "finding": "The ledger record lives in a process-local Python object entirely outside the chat `messages` transcript that is POSTed to amplifier-agent serve. amplifier-agent is a stateless-per-request HTTP server (each /v1/chat/completions call receives the full `messages` array from the client and returns a response; it does not itself persist or reconcile any store on the caller's behalf). Therefore transcript reconciliation -- whatever internal bookkeeping the server does with the `messages` it receives on turn 2 -- has no code path that could touch this spike's external ledger. F-6 ('ledger record silently lost') cannot manifest via server-side transcript reconciliation for an external ledger store; it could only manifest from a CLIENT bug (e.g. the client itself failing to append/replay the tool_use+tool_result pair correctly on the second POST, which item 3's live test above directly exercises and verifies). See item3's verdict for whether that client-side replay + the live server round-trip completed normally."
+  }
+}
