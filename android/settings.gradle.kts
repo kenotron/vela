@@ -19,3 +19,4 @@ rootProject.name = "vela-android"
 include(":app")
 include(":core-ui")
 include(":core-domain")
+include(":host-tools")
