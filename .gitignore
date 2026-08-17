@@ -1,3 +1,6 @@
 DONE.json
 android/local.properties
 __pycache__/
+services/vela-agentd/.venv/
+services/vela-agentd/.pytest_cache/
+**/__pycache__/
