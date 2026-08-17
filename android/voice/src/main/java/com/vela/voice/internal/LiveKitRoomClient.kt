@@ -36,6 +36,16 @@ internal interface LiveKitRoomClient {
     /** Publish a chunk of outgoing PCM16 audio at the given sample rate. */
     suspend fun publishAudio(pcm16: ByteArray, sampleRateHz: Int)
 
+    /**
+     * Signal a client-initiated barge-in to the worker side (e.g. over the
+     * room's data channel), instructing it to stop any in-flight TTS
+     * playback immediately. This is distinct from [publishAudio] - it must
+     * not be implemented as "publish zero-length/silent audio", which is not
+     * a real interrupt signal and would not reliably stop server-side
+     * playback in time.
+     */
+    suspend fun signalBargeIn()
+
     enum class RoomConnectionState {
         DISCONNECTED,
         CONNECTING,

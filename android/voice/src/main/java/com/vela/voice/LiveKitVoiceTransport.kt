@@ -62,7 +62,7 @@ public class LiveKitVoiceTransport internal constructor(
                 // worker side by signalling over the data channel. The room client
                 // is responsible for the actual signalling mechanism; this class
                 // simply forwards the intent without adding latency of its own.
-                roomClient.publishAudio(ByteArray(0), 0)
+                roomClient.signalBargeIn()
             }
             is VoiceTransport.VoiceEvent.TranscriptDelta -> {
                 // Outgoing transcript deltas are not part of this transport's
