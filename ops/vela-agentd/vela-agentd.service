@@ -1,0 +1,14 @@
+[Unit]
+Description=vela-agentd — vela-agentd HTTP face fork (F1 tee, F2 approval gate, F3 C2 events, F4 ledger proxy) (Lane 3.1)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/vela-agentd serve chat-completions --bind 0.0.0.0 --port 9099 --log-level info
+Restart=on-failure
+RestartSec=5s
+EnvironmentFile=-%h/.amplifier/vela-agentd/env
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target
