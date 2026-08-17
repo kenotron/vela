@@ -22,6 +22,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.vela.app.ui.activity.LiveActivityScreen
+import com.vela.app.ui.activity.LiveActivityUiState
 import com.vela.core.ui.AttentionCard
 import com.vela.core.ui.CardDeck
 import com.vela.core.ui.CardDecision
@@ -59,7 +61,7 @@ private val mockMessages = listOf(
 @Composable
 fun VelaScaffoldRoot() {
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Queue", "Chat")
+    val tabs = listOf("Queue", "Chat", "Activity")
 
     Column(modifier = Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = selectedTab, modifier = Modifier.testTag("main_tab_row")) {
@@ -80,8 +82,20 @@ fun VelaScaffoldRoot() {
                     cards = cards,
                     onDecision = { card, _ -> cards = cards.filterNot { it.id == card.id } },
                 )
-            } else {
+            } else if (selectedTab == 1) {
                 ChatTranscript(messages = mockMessages)
+            } else {
+                // Residual (see goal Task 2): a real `LiveActivityViewModel`
+                // needs a `baseUrl`/bearer token from app-level config/DI
+                // that doesn't exist yet in this lane's scope. Render an
+                // empty state wired to no-op callbacks so the tab and
+                // composable are exercised end-to-end; real server wiring
+                // is out of scope here.
+                LiveActivityScreen(
+                    state = LiveActivityUiState(),
+                    onApprove = {},
+                    onDecline = {},
+                )
             }
         }
     }
