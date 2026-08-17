@@ -1,0 +1,14 @@
+[Unit]
+Description=vela-agent-serve — amplifier-agent chat-completions wire face (Lane 1.4)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/amplifier-agent serve chat-completions --bind 0.0.0.0 --port 9099 --log-level info
+Restart=on-failure
+RestartSec=5s
+EnvironmentFile=-%h/.amplifier/vela-agent-serve/env
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target
