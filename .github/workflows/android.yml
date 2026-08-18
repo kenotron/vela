@@ -90,10 +90,14 @@ jobs:
           # every debug + androidTest package before running, per design doc
           # §13.3. Without this, CalendarToolsInstrumentedTest fails with
           # SecurityException: Permission Denial opening CalendarProvider2.
-          script: |
-            for pkg in com.vela.app com.vela.app.test com.vela.hosttools.test; do
-              adb shell pm grant "$pkg" android.permission.READ_CALENDAR || true
-              adb shell pm grant "$pkg" android.permission.WRITE_CALENDAR || true
-              adb shell pm grant "$pkg" android.permission.POST_NOTIFICATIONS || true
-            done
+          script: >
+            adb shell pm grant com.vela.app android.permission.READ_CALENDAR;
+            adb shell pm grant com.vela.app android.permission.WRITE_CALENDAR;
+            adb shell pm grant com.vela.app android.permission.POST_NOTIFICATIONS;
+            adb shell pm grant com.vela.app.test android.permission.READ_CALENDAR;
+            adb shell pm grant com.vela.app.test android.permission.WRITE_CALENDAR;
+            adb shell pm grant com.vela.app.test android.permission.POST_NOTIFICATIONS;
+            adb shell pm grant com.vela.hosttools.test android.permission.READ_CALENDAR;
+            adb shell pm grant com.vela.hosttools.test android.permission.WRITE_CALENDAR;
+            adb shell pm grant com.vela.hosttools.test android.permission.POST_NOTIFICATIONS;
             ./gradlew connectedDebugAndroidTest --stacktrace

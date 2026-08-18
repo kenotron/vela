@@ -1,13 +1,16 @@
 package com.vela.app.service
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import com.vela.app.MainActivity
 import com.vela.core.domain.VoiceTransport
@@ -87,7 +90,12 @@ public class VoiceForegroundService : Service() {
 
     private fun applyReducerOutput(output: VoiceServiceUiOutput) {
         val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, buildNotification(output.notification))
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
+        ) {
+            manager.notify(NOTIFICATION_ID, buildNotification(output.notification))
+        }
         output.earcon?.let { earconPlayer?.play(it) }
     }
 
