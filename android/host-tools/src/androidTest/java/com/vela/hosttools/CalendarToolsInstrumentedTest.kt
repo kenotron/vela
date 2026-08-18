@@ -1,11 +1,14 @@
 package com.vela.hosttools
 
+import android.Manifest
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.rule.GrantPermissionRule
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -38,6 +41,17 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class CalendarToolsInstrumentedTest {
+
+    // Grants happen from inside the test process itself, after the test APK
+    // is installed but before the test body runs. An external `adb shell pm
+    // grant` in the CI script races the Gradle-managed APK install and has
+    // nothing to attach to yet — this rule is the correct, install-order-
+    // independent mechanism.
+    @get:Rule
+    val grantCalendarPermissions: GrantPermissionRule = GrantPermissionRule.grant(
+        Manifest.permission.READ_CALENDAR,
+        Manifest.permission.WRITE_CALENDAR,
+    )
 
     @Test
     fun writesUuidStampedEventAndReadsItBackViaContentResolver() = runBlocking {
