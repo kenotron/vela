@@ -165,24 +165,39 @@ supervision.)
 
 Multi-path fallback, evaluated in this order:
 
-1. **Tailscale (preferred, primary path).** Once the host is joined to a
-   tailnet, the service is reachable at `http://<tailscale-ip-or-magicdns-name>:9099/v1/...`
-   from any device on the same tailnet (e.g. a phone running the Tailscale
-   app), with no port-forwarding or public exposure required. **Status on
-   this host: BLOCKED — Tailscale is not installed in this sandboxed
-   environment** (`tailscale: command not found`, no `/usr/bin/tailscale` or
-   `/usr/sbin/tailscale`). Item 2 of this lane's success criteria is
-   terminated as `BLOCKED-named` for that specific reason; everything else in
-   this lane does not depend on it and was fully exercised over
-   `127.0.0.1`. To complete this path on a real target host:
+1. **Tailscale (preferred, primary path). VERIFIED WORKING.** This host
+   (`vela0`) is joined to the `kenotron-ms` tailnet at `100.84.25.57`. Because
+   `vela0` runs inside an Incus container behind NAT with no macvlan bridge,
+   it has no other routable path onto the tailnet — running Tailscale
+   directly on this host (rather than relying on a subnet-router elsewhere on
+   the LAN) is the correct and necessary configuration here, not merely a
+   convenience.
+
+   Verified live, from the tailnet address itself (not `127.0.0.1`):
    ```bash
-   curl -fsSL https://tailscale.com/install.sh | sh
-   sudo tailscale up
-   tailscale ip -4   # note this address for the phone client
+   curl -s -o /dev/null -w "%{http_code}\n" http://100.84.25.57:9099/v1/models
+   # => 401 (unauthenticated, correctly rejected)
+
+   curl -s -o /dev/null -w "%{http_code}\n" \
+     -H "Authorization: Bearer $(grep AMPLIFIER_AGENT_HTTP_API_KEY ~/.amplifier/vela-agent-serve/env | cut -d= -f2)" \
+     http://100.84.25.57:9099/v1/models
+   # => 200 (authenticated, succeeds)
    ```
-   Then update firewall rules if needed (Tailscale's own encrypted overlay
-   means no additional firewall opening is normally required beyond what
-   `tailscale up` configures).
+   `ops/agent-serve/health-check.sh` was re-run and passes end-to-end
+   (`== HEALTHY ==`). Item 2 of this lane's success criteria is now `PASS`,
+   closing out the residual left open at initial lane completion. Any device
+   on the `kenotron-ms` tailnet can reach the service at
+   `http://100.84.25.57:9099/v1/...` (or the MagicDNS name `vela0`, if
+   MagicDNS is enabled on the tailnet) with no port-forwarding or public
+   exposure required.
+
+   To reproduce this setup on a new host:
+   ```bash
+   curl -fsSL https://tailscale.com/install.sh | sudo sh
+   sudo tailscale up --hostname=<name>
+   # visit the printed login URL, authenticate under the target tailnet account
+   tailscale ip -4   # note this address for clients
+   ```
 
 2. **LAN (fallback if Tailscale is down or not yet configured).** Since the
    unit binds `0.0.0.0:9099`, any device on the same local network can reach
@@ -208,13 +223,10 @@ first; widen only on failure).
 
 ## Residuals
 
-- **Tailscale not installed on this sandboxed host** — item 2 (remote
-  reachability) is verified as BLOCKED for this specific host/session, not as
-  a design gap. The reachability model (§ above) is fully documented and the
-  unit already binds `0.0.0.0` so it will work the moment Tailscale (or any
-  other network path) is available. Installing Tailscale requires
-  `sudo tailscale up`, which needs interactive/privileged access not available
-  in this environment's strict safety profile.
+- ~~Tailscale not installed on this sandboxed host~~ — **RESOLVED.** Tailscale
+  is installed and authenticated on `vela0` (`100.84.25.57`, `kenotron-ms`
+  tailnet); reachability verified live per the Reachability model section
+  above. Item 2 is now `PASS`.
 - **`loginctl enable-linger`** (to make the `systemd --user` session — and
   therefore this service — start automatically at boot before any interactive
   login) also requires privileges not available in this environment. On a
