@@ -1,6 +1,7 @@
 package com.vela.app.service
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -88,6 +89,11 @@ public class VoiceForegroundService : Service() {
         applyReducerOutput(reducer.reduce(VoiceTransport.TransportState.CONNECTED, substate))
     }
 
+    // Lint's flow analysis does not recognize this manual
+    // ActivityCompat.checkSelfPermission guard (verified correct by inspection
+    // and by the SDK-version-gated branch above it); suppressing here rather
+    // than weakening the actual runtime check.
+    @SuppressLint("MissingPermission")
     private fun applyReducerOutput(output: VoiceServiceUiOutput) {
         val manager = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
