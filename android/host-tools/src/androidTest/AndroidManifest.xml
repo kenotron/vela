@@ -1,0 +1,17 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      host-tools is a library module; its instrumented tests run as a
+      self-instrumenting test APK that does NOT inherit permissions declared
+      in android/app/src/main/AndroidManifest.xml. GrantPermissionRule (used
+      by CalendarToolsInstrumentedTest) can only grant a permission actually
+      requested by the manifest of the APK under test, which for a library
+      module's connectedAndroidTest is this androidTest manifest, not the
+      app module's. Without this, GrantPermissionRule fails with "Failed to
+      grant permissions, see logcat for details" even though the app
+      manifest correctly declares the same permissions.
+    -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+
+</manifest>
