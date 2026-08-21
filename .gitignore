@@ -4,3 +4,5 @@ __pycache__/
 services/vela-agentd/.venv/
 services/vela-agentd/.pytest_cache/
 **/__pycache__/
+.mission/
+.amplifier/goals/manifest.tsv

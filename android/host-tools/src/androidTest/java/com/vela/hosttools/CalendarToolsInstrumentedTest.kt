@@ -1,6 +1,9 @@
 package com.vela.hosttools
 
 import android.Manifest
+import android.content.ContentUris
+import android.content.ContentValues
+import android.provider.CalendarContract
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
@@ -8,6 +11,7 @@ import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -53,6 +57,59 @@ class CalendarToolsInstrumentedTest {
         Manifest.permission.WRITE_CALENDAR,
     )
 
+    private var localCalendarId: Long = -1
+
+    // A fresh emulator/AVD has NO rows in the Calendars table at all — there
+    // is no "default primary calendar id 1" to rely on (that was a false
+    // assumption in the original test; nothing in this repo's CI workflow
+    // ever provisioned one). Inserting Events against a non-existent
+    // CALENDAR_ID silently succeeds (SQLite does not enforce the foreign
+    // key) but the row is then excluded from query results tied to calendar
+    // visibility/sync-state defaults, which is exactly the
+    // "calendar_create succeeds, calendar_read finds nothing" failure this
+    // fixes. Provision a real local (ACCOUNT_TYPE_LOCAL) calendar ourselves,
+    // once per test run, so the test has no external environment
+    // dependency.
+    @Before
+    fun ensureLocalCalendarExists() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val accountName = "vela-instrumented-test"
+        val accountType = CalendarContract.ACCOUNT_TYPE_LOCAL
+
+        val existing = context.contentResolver.query(
+            CalendarContract.Calendars.CONTENT_URI,
+            arrayOf(CalendarContract.Calendars._ID),
+            "${CalendarContract.Calendars.ACCOUNT_NAME} = ? AND ${CalendarContract.Calendars.ACCOUNT_TYPE} = ?",
+            arrayOf(accountName, accountType),
+            null,
+        )?.use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else null }
+
+        localCalendarId = existing ?: run {
+            val values = ContentValues().apply {
+                put(CalendarContract.Calendars.ACCOUNT_NAME, accountName)
+                put(CalendarContract.Calendars.ACCOUNT_TYPE, accountType)
+                put(CalendarContract.Calendars.NAME, accountName)
+                put(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME, "Vela Instrumented Test Calendar")
+                put(CalendarContract.Calendars.CALENDAR_COLOR, 0xFF00AAFF.toInt())
+                put(CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL, CalendarContract.Calendars.CAL_ACCESS_OWNER)
+                put(CalendarContract.Calendars.OWNER_ACCOUNT, accountName)
+                put(CalendarContract.Calendars.VISIBLE, 1)
+                put(CalendarContract.Calendars.SYNC_EVENTS, 1)
+                put(CalendarContract.Calendars.CALENDAR_TIME_ZONE, "UTC")
+            }
+            val uri = context.contentResolver.insert(
+                CalendarContract.Calendars.CONTENT_URI
+                    .buildUpon()
+                    .appendQueryParameter(CalendarContract.CALLER_IS_SYNCADAPTER, "true")
+                    .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_NAME, accountName)
+                    .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_TYPE, accountType)
+                    .build(),
+                values,
+            ) ?: error("failed to provision local test calendar: insert returned null uri")
+            ContentUris.parseId(uri)
+        }
+    }
+
     @Test
     fun writesUuidStampedEventAndReadsItBackViaContentResolver() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
@@ -60,10 +117,8 @@ class CalendarToolsInstrumentedTest {
         val readTool = CalendarReadTool(context)
 
         val marker = "vela-test-${UUID.randomUUID()}"
-        // Calendar id 1 is the default primary calendar on most test images;
-        // in CI this is provisioned by the instrumented-tests job setup.
         val createArgs = JSONObject()
-            .put("calendarId", 1)
+            .put("calendarId", localCalendarId)
             .put("title", marker)
             .put("startEpochMs", System.currentTimeMillis())
             .put("endEpochMs", System.currentTimeMillis() + 3_600_000)
