@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/vela-agentd serve chat-completions --bind 0.0.0.0 --port 9099 --log-level info
+ExecStart=%h/.local/bin/vela-agentd serve chat-completions --bind 0.0.0.0 --port 9098 --config %h/.amplifier/vela-agentd/host-config.json --log-level info
 Restart=on-failure
 RestartSec=5s
 EnvironmentFile=-%h/.amplifier/vela-agentd/env
