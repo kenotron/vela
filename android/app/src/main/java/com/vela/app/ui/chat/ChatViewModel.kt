@@ -21,6 +21,17 @@ class ChatViewModel(private val toolLoopClient: AmplifierToolLoopClient) {
 
     fun sendMessage(scope: CoroutineScope, text: String) {
         if (text.isBlank()) return
+
+        // Snapshot the conversation-so-far as role/content pairs BEFORE adding this new
+        // user message, so it becomes the history sent alongside this turn. Without this,
+        // AmplifierToolLoopClient.runTurn() (which is stateless per call by design) sends
+        // only the newest message each time -- messages sit together in the UI list but the
+        // server genuinely never sees earlier turns, a real bug this fixes.
+        val historyForThisTurn = _messages.value.map { msg ->
+            val role = if (msg.speaker == TranscriptMessage.Speaker.USER) "user" else "assistant"
+            role to msg.text
+        }
+
         val userMessage = TranscriptMessage(
             id = UUID.randomUUID().toString(),
             speaker = TranscriptMessage.Speaker.USER,
@@ -30,7 +41,7 @@ class ChatViewModel(private val toolLoopClient: AmplifierToolLoopClient) {
 
         scope.launch {
             val responseText = try {
-                toolLoopClient.runTurn(text).finalContent
+                toolLoopClient.runTurn(text, history = historyForThisTurn).finalContent
             } catch (e: Exception) {
                 "Error contacting server: ${e.message}"
             }

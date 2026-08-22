@@ -51,10 +51,22 @@ class AmplifierToolLoopClient(
      * the model requests, until a normal (non-tool-call) assistant message is
      * returned. Returns the final assistant message content.
      *
+     * @param history prior conversation turns (role/content pairs, oldest first) to send
+     *   ahead of [userMessage] so the server sees the real conversation, not just this one
+     *   message in isolation. Each entry must have "role" (user|assistant) and "content".
+     *   Callers own retaining/trimming this list across calls -- this client is stateless
+     *   per call by design; it does not persist history itself.
      * @param maxRounds safety bound on tool-call round-trips to avoid infinite loops.
      */
-    suspend fun runTurn(userMessage: String, maxRounds: Int = 5): TurnResult = withContext(Dispatchers.IO) {
+    suspend fun runTurn(
+        userMessage: String,
+        history: List<Pair<String, String>> = emptyList(),
+        maxRounds: Int = 5,
+    ): TurnResult = withContext(Dispatchers.IO) {
         val messages = JSONArray()
+        for ((role, content) in history) {
+            messages.put(JSONObject().put("role", role).put("content", content))
+        }
         messages.put(JSONObject().put("role", "user").put("content", userMessage))
 
         val toolCallLog = mutableListOf<String>()
