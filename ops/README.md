@@ -248,3 +248,141 @@ patches, wrappers, or forks. When Stage 3 (lane 3.1) introduces `vela-agentd`,
 swapping the deployment target is a one-line change to `ExecStart` — the
 supervision, auth, health-check, and redeploy tooling in this directory
 require no changes.
+
+## vela-agentd (production) — Lane MVP-B
+
+`vela-agentd` (the lane 3.1 fork — event tee F1, real approval gate F2, C2
+event/control route F3, C3 ledger proxy F4) is now running for real on `vela0`,
+**alongside** the stock `vela-agent-serve` from lane 1.4 rather than replacing
+it, on a **different port**.
+
+**Why alongside, not replacing:** lane 1.4's stock service is a known-good,
+currently verified path that other consumers (and lane 3.1's own item 7,
+previously `PARTIAL`) may still reference. Running side-by-side on a
+different port resolves that `PARTIAL` for real (a live competing systemd
+service, exercised end-to-end) with zero risk to the already-working stock
+deployment. A future lane can flip `vela-agent-serve.service` off and move
+`vela-agentd` onto 9099 once the Android app (lane MVP-A) has cut over.
+
+### Connection details for the Android app (lane MVP-A)
+
+| | |
+|---|---|
+| **Base URL (Tailscale, preferred)** | `http://100.84.25.57:9098` |
+| **Base URL (localhost, same host only)** | `http://127.0.0.1:9098` |
+| **Auth header** | `Authorization: Bearer <token>` |
+| **Auth token location** | `~/.amplifier/vela-agentd/env`, key `AMPLIFIER_AGENT_HTTP_API_KEY` |
+| **Chat completions** | `POST /v1/chat/completions` (OpenAI-compatible; use a real model id from `GET /v1/models`, e.g. `claude-haiku-4-5-20251001` — the literal string `"amplifier"` is **not** a served model id on this fork) |
+| **Models list** | `GET /v1/models` |
+| **C2 event/control stream** | `GET /v1/events` (SSE; bearer-authenticated; emits tee'd kernel events — `thinking/delta`, `usage`, `tool/started`, `tool/completed`, etc.) |
+| **C3 ledger proxy** | `GET/POST /ledger/*`, `GET /healthz/ledger` (proxies to the real `services/ledger` instance at `http://localhost:9199` on this host) |
+
+To read the token programmatically:
+```bash
+grep AMPLIFIER_AGENT_HTTP_API_KEY ~/.amplifier/vela-agentd/env | cut -d= -f2
+```
+
+### Layout
+
+```
+ops/vela-agentd/
+  vela-agentd.service   — systemd --user unit (port 9098, --config host-config.json)
+  install.sh            — idempotent installer (unit + env file)
+  redeploy.sh           — resync unit, restart, health-check
+  health-check.sh       — active / 401 / 200 / C2-route checks (--port 9098)
+```
+
+Runtime state lives outside the repo:
+- `~/.amplifier/vela-agentd/env` — shared-secret API key, workspace slug,
+  ledger base URL, provider credential (`ANTHROPIC_API_KEY`, reused from the
+  same credential already working for stock `vela-agent-serve` on this host).
+- `~/.amplifier/vela-agentd/host-config.json` — **required** by this fork.
+  Unlike stock `amplifier-agent`, `vela-agentd` does **not** auto-enable
+  providers from resolvable credentials — `host_config.providers` must be
+  declared explicitly or the server exits(2) at startup. Contents used here:
+  ```json
+  {
+    "providers": {
+      "anthropic": { "module": "anthropic" }
+    }
+  }
+  ```
+  (Note: the module id is the bare provider name — `anthropic`, not
+  `provider-anthropic` — per this fork's config schema validator.)
+
+### Verification performed (this lane)
+
+1. **Service running under systemd --user**, alongside stock `agent-serve`:
+   ```bash
+   systemctl --user is-active vela-agentd.service   # => active
+   systemctl --user is-active vela-agent-serve.service   # => active (both up)
+   ```
+2. **Real LLM provider credential** — reused `ANTHROPIC_API_KEY` already
+   present in `~/.amplifier/vela-agent-serve/env`; the same key is present in
+   `~/.amplifier/vela-agentd/env`. `GET /v1/models` returns 3 real Anthropic
+   models loaded live from `api.anthropic.com`.
+3. **`ops/vela-agentd/health-check.sh --port 9098`** passes locally
+   (`127.0.0.1`) and was independently re-verified against the Tailscale
+   address:
+   ```bash
+   curl -s -o /dev/null -w "%{http_code}\n" http://100.84.25.57:9098/v1/models
+   # => 401 (unauthenticated, correctly rejected)
+   curl -s -o /dev/null -w "%{http_code}\n" \
+     -H "Authorization: Bearer $(grep AMPLIFIER_AGENT_HTTP_API_KEY ~/.amplifier/vela-agentd/env | cut -d= -f2)" \
+     http://100.84.25.57:9098/v1/models
+   # => 200
+   ```
+   The tailnet address (`100.84.25.57`, `kenotron-ms`) was re-confirmed
+   unchanged from the value already documented above for stock `agent-serve`.
+4. **C2 route smoke test** — connected a real SSE client to `/v1/events` on
+   the running instance, concurrently issued a real
+   `POST /v1/chat/completions` turn (model `claude-haiku-4-5-20251001`,
+   prompt "Say the word PONG and nothing else"), and confirmed the SSE stream
+   received real tee'd events during the turn: `thinking/delta` (x3) and
+   `usage` (x2), correlated by a real `sessionId`/`turnId`. The chat
+   completion itself returned `"PONG"` with real token usage and cost.
+5. **C3 ledger proxy smoke test** — started `services/ledger` for real via
+   `ops/ledger/install.sh` (systemd unit `vela-ledger-service.service`, port
+   9199, previously not running on this host). Ran
+   `services/vela-agentd/tests/test_ledger_proxy.py` (the fork's own harness,
+   which skips automatically if no live ledger is reachable — it ran, it did
+   not skip) against the real instance:
+   ```
+   tests/test_ledger_proxy.py::test_healthz_proxy_reaches_real_ledger PASSED
+   tests/test_ledger_proxy.py::test_list_jobs_proxy_reaches_real_ledger PASSED
+   tests/test_ledger_proxy.py::test_unauthenticated_ledger_proxy_rejected PASSED
+   ```
+   Confirms `vela-agentd`'s `/ledger/*` routes proxy to the real ledger
+   service rather than reimplementing it locally.
+
+### Residuals
+
+- **`vela-agentd`'s uv-tool install was initially stale** (a prior partial
+  install from Aug 17 was missing the `vela_agentd_cli` package entirely —
+  `ModuleNotFoundError`). Fixed by `uv tool install --force --reinstall` from
+  this worktree's `services/vela-agentd`. Unrelated to this lane's scope
+  (deployment/config only) but recorded since it required intervention.
+- **Stale `PreparedBundle` cache collision across worktrees.** The fork's
+  bundle cache key is `(aaa_version, sha256(bundle.md content))` — since the
+  vendored `bundle.md` content is identical across every checkout, a prepared
+  bundle built from *lane 3.1's* worktree path (`~/workspace/vela-lane-3.1/`)
+  was served from cache to this lane's install, baking in absolute agent
+  `.md` paths that don't exist here (`FileNotFoundError` on
+  `.../vela-lane-3.1/.../explorer.md`). Fixed by clearing
+  `~/.amplifier-agent/cache/prepared/` once. This is a real cross-worktree
+  cache-invalidation gap in the fork (the cache key doesn't account for the
+  *installed* package's on-disk location, only bundle.md content) — worth a
+  follow-up issue against lane 3.1's cache design, but out of this lane's
+  file-ownership scope (`services/vela-agentd/src/` unmodified).
+- **`host-config.json` was not part of lane 3.1's `install.sh` template.**
+  This fork requires `host_config.providers` to be declared explicitly (no
+  implicit registry, unlike stock `amplifier-agent`). Created
+  `~/.amplifier/vela-agentd/host-config.json` by hand and wired `--config`
+  into `ops/vela-agentd/vela-agentd.service`'s `ExecStart`. Recorded here
+  rather than silently patching `install.sh` beyond what the lane's file
+  ownership allows (`ops/vela-agentd/` config only — the service/install
+  script changes made are within that ownership and are reflected in this
+  repo).
+- **Long-term production hosting (multiple hosts, failover, migrating stock
+  `agent-serve` off port 9099 in favor of `vela-agentd`)** is out of scope —
+  roadmap item #42, a separate future decision, per this lane's SCOPE-OUTS.
