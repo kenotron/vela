@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Vela — App Direction Mockups</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #12151c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: #e6e8ee;
+    padding: 40px 24px 120px;
+  }
+  h1 { text-align: center; font-size: 28px; margin-bottom: 4px; }
+  .sub { text-align: center; color: #8b93a7; margin-bottom: 48px; font-size: 14px; }
+  .row {
+    display: flex;
+    gap: 32px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 72px;
+  }
+  .direction-label {
+    text-align: center;
+    max-width: 340px;
+    margin: 0 auto 20px;
+  }
+  .direction-label h2 { font-size: 20px; margin-bottom: 6px; }
+  .direction-label p { font-size: 13px; color: #9aa2b8; line-height: 1.5; }
+  .phone {
+    width: 340px;
+    height: 700px;
+    border-radius: 42px;
+    padding: 14px;
+    background: #1a1d26;
+    box-shadow: 0 20px 60px rgba(0,0,0,.5), inset 0 0 0 2px #2a2e3a;
+    position: relative;
+  }
+  .screen {
+    width: 100%;
+    height: 100%;
+    border-radius: 30px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+  .statusbar { height: 28px; display: flex; align-items: center; justify-content: center; font-size: 11px; opacity: .6; }
+  .content { flex: 1; overflow: hidden; position: relative; }
+  .tabbar {
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    border-top: 1px solid rgba(255,255,255,.08);
+  }
+  .tab { font-size: 10px; text-align: center; opacity: .55; }
+  .tab.active { opacity: 1; }
+  .tab .dot { width: 5px; height: 5px; border-radius: 50%; margin: 0 auto 4px; }
+
+  /* ============ DIRECTION 1 — Calm Ledger (minimal, editorial, light-touch voice) ============ */
+  .d1 .screen { background: #f6f4ef; color: #1c1b19; }
+  .d1 .statusbar { color: #1c1b19; }
+  .d1 .content { padding: 18px 18px 0; }
+  .d1 .greet { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+  .d1 .greet-sub { font-size: 13px; color: #6b6558; margin-bottom: 20px; }
+  .d1 .card {
+    background: #fff;
+    border-radius: 18px;
+    padding: 16px;
+    margin-bottom: 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.04);
+    border: 1px solid #ece8df;
+  }
+  .d1 .card .badge {
+    display: inline-block; font-size: 10px; text-transform: uppercase;
+    letter-spacing: .06em; color: #a15c2a; background: #fbe9d8; padding: 3px 8px; border-radius: 20px; margin-bottom: 8px;
+  }
+  .d1 .card h3 { font-size: 15px; margin: 0 0 4px; }
+  .d1 .card p { font-size: 12px; color: #7a7468; margin: 0; line-height: 1.4; }
+  .d1 .mic {
+    position: absolute; bottom: 84px; right: 20px;
+    width: 52px; height: 52px; border-radius: 50%;
+    background: #1c1b19; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 8px 20px rgba(0,0,0,.2);
+  }
+  .d1 .tabbar { background: #f6f4ef; border-color: #e6e1d6; }
+  .d1 .tab.active { color: #1c1b19; }
+  .d1 .tab .dot { background: #1c1b19; }
+
+  /* ============ DIRECTION 2 — Voice-First Console (dark, HUD-like, always listening) ============ */
+  .d2 .screen { background: radial-gradient(ellipse at 50% 20%, #1a2440 0%, #0a0d16 70%); color: #dfe7ff; }
+  .d2 .statusbar { color: #7f8db8; }
+  .d2 .content { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; }
+  .d2 .orb {
+    width: 130px; height: 130px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #6ea8ff, #2450c9 60%, #0a1a3d 100%);
+    box-shadow: 0 0 60px rgba(90,140,255,.45), inset 0 0 30px rgba(255,255,255,.15);
+    margin-bottom: 22px;
+    position: relative;
+  }
+  .d2 .orb::after {
+    content: ""; position: absolute; inset: -14px; border-radius: 50%;
+    border: 1px solid rgba(120,160,255,.3);
+  }
+  .d2 .state { font-size: 13px; color: #9db4f0; letter-spacing: .04em; margin-bottom: 6px; text-transform: uppercase; }
+  .d2 .transcript { font-size: 16px; text-align: center; line-height: 1.5; color: #eef2ff; max-width: 260px; }
+  .d2 .narration {
+    margin-top: 28px; font-size: 12px; color: #6d7ba8; text-align: center; max-width: 260px;
+    border-top: 1px solid rgba(120,140,200,.2); padding-top: 14px;
+  }
+  .d2 .tabbar { background: rgba(255,255,255,.03); border-color: rgba(120,140,200,.15); }
+  .d2 .tab.active { color: #dfe7ff; }
+  .d2 .tab .dot { background: #6ea8ff; }
+  .d2 .tab:not(.active) { color: #56628a; }
+
+  /* ============ DIRECTION 3 — Fleet Command (dense, operator/dashboard, data-forward) ============ */
+  .d3 .screen { background: #10131a; color: #d6dae4; font-family: "SF Mono", ui-monospace, monospace; }
+  .d3 .statusbar { color: #5c6478; }
+  .d3 .content { padding: 12px 14px 0; }
+  .d3 .section-title {
+    font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: #6d778f; margin: 14px 0 8px;
+  }
+  .d3 .row-item {
+    display: flex; align-items: center; justify-content: space-between;
+    background: #171b24; border: 1px solid #232838; border-radius: 8px;
+    padding: 10px 12px; margin-bottom: 8px; font-size: 12px;
+  }
+  .d3 .row-item .name { color: #eef1f7; }
+  .d3 .row-item .meta { color: #6d778f; font-size: 10px; margin-top: 2px; }
+  .d3 .status-pill {
+    font-size: 9px; padding: 2px 7px; border-radius: 4px; text-transform: uppercase; letter-spacing: .04em;
+  }
+  .d3 .status-pill.running { background: #1c3a2c; color: #4fd889; }
+  .d3 .status-pill.attn { background: #3a2a1c; color: #ffb454; }
+  .d3 .status-pill.done { background: #1c2a3a; color: #6fa8ff; }
+  .d3 .tabbar { background: #10131a; border-color: #232838; }
+  .d3 .tab.active { color: #eef1f7; }
+  .d3 .tab .dot { background: #4fd889; }
+  .d3 .tab:not(.active) { color: #4a5268; }
+
+  .caption {
+    text-align: center; margin-top: 16px; font-size: 11px; color: #6d778f;
+  }
+</style>
+</head>
+<body>
+
+<h1>Vela — Three Directions</h1>
+<div class="sub">Same product (voice · card deck · chat · fleet). Different bets on what the app should FEEL like.</div>
+
+<div class="row">
+
+  <div>
+    <div class="direction-label">
+      <h2>1 · Calm Ledger</h2>
+      <p>Light, editorial, paper-like. Voice is a quiet affordance, not the whole screen. Optimizes for "I glance at this between meetings." Closest to a well-made productivity app.</p>
+    </div>
+    <div class="phone d1">
+      <div class="screen">
+        <div class="statusbar">9:41</div>
+        <div class="content">
+          <div class="greet">Good afternoon</div>
+          <div class="greet-sub">2 things need you · 3 running quietly</div>
+          <div class="card">
+            <span class="badge">Needs a decision</span>
+            <h3>Approve calendar move?</h3>
+            <p>Agent wants to move your 3pm to Thursday to fit the Sam sync. Reply or swipe.</p>
+          </div>
+          <div class="card">
+            <span class="badge">Needs a decision</span>
+            <h3>Fleet job blocked</h3>
+            <p>resolve-teampulse deploy needs a credential you haven't granted yet.</p>
+          </div>
+          <div class="card">
+            <h3 style="opacity:.6">3 jobs running</h3>
+            <p>Nothing needs you yet — tap to see progress.</p>
+          </div>
+        </div>
+        <div class="mic">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 003-3V6a3 3 0 10-6 0v6a3 3 0 003 3z" stroke="#fff" stroke-width="1.6"/><path d="M19 11a7 7 0 01-14 0M12 18v3" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </div>
+        <div class="tabbar">
+          <div class="tab active"><div class="dot"></div>Queue</div>
+          <div class="tab"><div class="dot" style="background:#c9c2b3"></div>Chat</div>
+          <div class="tab"><div class="dot" style="background:#c9c2b3"></div>Activity</div>
+        </div>
+      </div>
+    </div>
+    <div class="caption">Best if: users mostly triage async, voice is occasional</div>
+  </div>
+
+  <div>
+    <div class="direction-label">
+      <h2>2 · Voice-First Console</h2>
+      <p>The orb <em>is</em> the app. Everything else (queue, chat) is one swipe away, not the default view. Optimizes for "I talk to it like a person," matches R1's stated priority directly.</p>
+    </div>
+    <div class="phone d2">
+      <div class="screen">
+        <div class="statusbar">9:41</div>
+        <div class="content">
+          <div class="orb"></div>
+          <div class="state">Listening</div>
+          <div class="transcript">"Checking your calendar and delegating the research to web-research…"</div>
+          <div class="narration">Delegated to <strong>web-research</strong> · 2nd tool call · ~8s elapsed</div>
+        </div>
+        <div class="tabbar">
+          <div class="tab active"><div class="dot"></div>Talk</div>
+          <div class="tab"><div class="dot"></div>Queue · 2</div>
+          <div class="tab"><div class="dot"></div>Chat</div>
+        </div>
+      </div>
+    </div>
+    <div class="caption">Best if: the differentiator IS the voice quality (per A7)</div>
+  </div>
+
+  <div>
+    <div class="direction-label">
+      <h2>3 · Fleet Command</h2>
+      <p>Dense, operator-grade, dashboard-first. Assumes the user runs many jobs across many machines and wants a control tower, not a chat companion. Voice becomes an input method, not the identity.</p>
+    </div>
+    <div class="phone d3">
+      <div class="screen">
+        <div class="statusbar">9:41</div>
+        <div class="content">
+          <div class="section-title">Needs attention</div>
+          <div class="row-item">
+            <div><div class="name">deploy-vm-app · sam</div><div class="meta">blocked 4m · credential</div></div>
+            <span class="status-pill attn">attn</span>
+          </div>
+          <div class="row-item">
+            <div><div class="name">calendar_move · turn-441</div><div class="meta">awaiting approval</div></div>
+            <span class="status-pill attn">attn</span>
+          </div>
+          <div class="section-title">Running</div>
+          <div class="row-item">
+            <div><div class="name">resolve-teampulse deploy</div><div class="meta">phase 3/5 · 00:41</div></div>
+            <span class="status-pill running">live</span>
+          </div>
+          <div class="row-item">
+            <div><div class="name">research: pricing sweep</div><div class="meta">delegated ×3 · 00:12</div></div>
+            <span class="status-pill running">live</span>
+          </div>
+          <div class="section-title">Done today</div>
+          <div class="row-item">
+            <div><div class="name">nightly backup verify</div><div class="meta">08:02 · 200 events</div></div>
+            <span class="status-pill done">done</span>
+          </div>
+        </div>
+        <div class="tabbar">
+          <div class="tab active"><div class="dot"></div>Fleet</div>
+          <div class="tab"><div class="dot"></div>Talk</div>
+          <div class="tab"><div class="dot"></div>Chat</div>
+        </div>
+      </div>
+    </div>
+    <div class="caption">Best if: power users, multi-machine, ops-heavy workload</div>
+  </div>
+
+</div>
+
+</body>
+</html>
