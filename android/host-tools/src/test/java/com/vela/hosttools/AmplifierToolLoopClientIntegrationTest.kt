@@ -42,6 +42,7 @@ class AmplifierToolLoopClientIntegrationTest {
             baseUrl = "http://127.0.0.1:9099",
             apiKey = apiKey!!,
             registry = registry,
+            clientSessionId = "test-${java.util.UUID.randomUUID()}",
         )
 
         val result = runBlocking {

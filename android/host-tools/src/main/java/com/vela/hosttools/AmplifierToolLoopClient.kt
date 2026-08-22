@@ -39,6 +39,19 @@ class AmplifierToolLoopClient(
     private val apiKey: String,
     private val registry: HostToolRegistry,
     private val model: String = "claude-haiku-4-5-20251001",
+    /**
+     * Stable per-conversation id sent as `X-Client-Session-Id` on every request. The
+     * server (vela-agentd's chat_completions route) derives a deterministic amplifier
+     * session id from this (`http-<clientSessionId>`), persists conversation state under
+     * it, and reconciles/repairs whatever full message history the client sends against
+     * that stored state -- "client wins" on content, but the session id is what makes this
+     * a continuous, resumable conversation server-side rather than anonymous per-turn
+     * requests. Without this header the server still works (sid=null, no resume), but
+     * loses session correlation, resumability, and ledger/context-intelligence linkage.
+     * Callers should generate this once per logical conversation and reuse it across
+     * turns -- a new value here starts a new server-side session bucket.
+     */
+    private val clientSessionId: String,
     private val client: OkHttpClient = OkHttpClient.Builder()
         .callTimeout(120, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
@@ -152,6 +165,7 @@ class AmplifierToolLoopClient(
             .url("$baseUrl/v1/chat/completions")
             .addHeader("Authorization", "Bearer $apiKey")
             .addHeader("Accept", "text/event-stream")
+            .addHeader("X-Client-Session-Id", clientSessionId)
             .post(body.toString().toRequestBody(jsonMediaType))
             .build()
 

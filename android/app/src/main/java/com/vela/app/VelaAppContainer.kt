@@ -57,17 +57,36 @@ class VelaAppContainer(private val appContext: Context) {
         )
     }
 
+    /**
+     * A stable id for this device's conversation with vela-agentd, persisted in
+     * SharedPreferences so it survives process death/app restart. Sent as
+     * `X-Client-Session-Id` on every chat-completions request -- the server derives a
+     * deterministic amplifier session id from it and persists/resumes conversation state
+     * server-side. Generating a NEW value here would start a brand-new server-side
+     * session bucket, losing continuity -- this must stay stable for the life of the
+     * install (or until an explicit "new conversation" action exists).
+     */
+    private val clientSessionId: String by lazy {
+        val prefs = appContext.getSharedPreferences("vela_app_container", Context.MODE_PRIVATE)
+        prefs.getString(KEY_CLIENT_SESSION_ID, null) ?: java.util.UUID.randomUUID().toString().also {
+            prefs.edit().putString(KEY_CLIENT_SESSION_ID, it).apply()
+        }
+    }
+
     val toolLoopClient: AmplifierToolLoopClient by lazy {
         AmplifierToolLoopClient(
             baseUrl = BuildConfig.VELA_SERVER_BASE_URL,
             apiKey = BuildConfig.VELA_SERVER_BEARER_TOKEN,
             registry = hostToolRegistry,
+            clientSessionId = clientSessionId,
         )
     }
 
     val c2EventClient: OkHttpC2EventClient by lazy { OkHttpC2EventClient() }
 
     companion object {
+        private const val KEY_CLIENT_SESSION_ID = "client_session_id"
+
         @Volatile
         private var instance: VelaAppContainer? = null
 
