@@ -1,0 +1,24 @@
+[project]
+name = "vela-fleetd-broker"
+version = "0.1.0"
+description = "Fleet execution plane broker (Stage F1, Lane F1.1): worker registry, admission, sole ledger writer, and decision relay for dispatch_to_fleet (design doc docs/designs/2026-08-24-vela-fleet-execution-plane.md, section 4.1)."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.29.0",
+    "pydantic>=2.6.0",
+    "httpx>=0.27.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["fleetd_broker*"]
