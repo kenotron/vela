@@ -56,6 +56,16 @@ class AmplifierToolLoopClient(
         .callTimeout(120, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .build(),
+    /**
+     * #44/#45/#57: every tool call the model requests is routed through this
+     * gate before [com.vela.core.domain.HostTool.execute] runs. Privileged
+     * tools (see [PrivilegedTools]) are blocked until a human approves, or
+     * denied on timeout -- fail closed. The default gate denies all
+     * privileged calls (see [ApprovalGate]'s default), so callers that want
+     * privileged tools (e.g. `dispatch_to_fleet`) usable at all MUST supply
+     * a gate wired to a real approval UI/voice channel.
+     */
+    private val approvalGate: ApprovalGate = ApprovalGate(),
 ) {
     private val jsonMediaType = "application/json".toMediaType()
 
@@ -115,7 +125,10 @@ class AmplifierToolLoopClient(
                 val resultJson = if (tool == null) {
                     JSONObject().put("error", "unknown tool: ${toolCall.name}").toString()
                 } else {
-                    when (val result = tool.execute(toolCall.argumentsJson)) {
+                    val gatedResult = approvalGate.guard(toolCall.name, toolCall.argumentsJson) {
+                        tool.execute(toolCall.argumentsJson)
+                    }
+                    when (val result = gatedResult) {
                         is ToolResult.Success -> result.resultJson
                         is ToolResult.Failure -> JSONObject().put("error", result.message).toString()
                         is ToolResult.NeedsConfirmation -> JSONObject()
