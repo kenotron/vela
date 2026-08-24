@@ -45,4 +45,7 @@ class InMemoryLedgerRepository : LedgerRepository {
 
     /** Test/debug helper: total entries recorded so far. */
     fun size(): Int = entries.size
+
+    /** Test/debug helper: snapshot of all entries recorded so far. */
+    fun allEntries(): List<LedgerEntry> = entries.values.toList()
 }
