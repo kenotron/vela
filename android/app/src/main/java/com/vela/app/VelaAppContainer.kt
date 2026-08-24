@@ -15,6 +15,8 @@ import com.vela.hosttools.NotesDbHelper
 import com.vela.hosttools.NotesReadTool
 import com.vela.hosttools.ReminderCancelTool
 import com.vela.hosttools.ReminderCreateTool
+import com.vela.hosttools.DispatchToFleetTool
+import com.vela.hosttools.SshFleetPlane
 import com.vela.ledger.LedgerDatabase
 
 /**
@@ -37,10 +39,11 @@ class VelaAppContainer(private val appContext: Context) {
     /**
      * Real [HostToolRegistry] wired to the concrete [HostTool] implementations
      * that exist in android/host-tools/ (read-only from this lane's
-     * perspective -- no changes made to that module). [DispatchToFleetTool] is
-     * deliberately excluded: the goal file's SCOPE-OUTS section states
-     * `dispatch_to_fleet` stays against its existing stub and is out of scope
-     * for this lane's real-server wiring.
+     * perspective -- no changes made to that module). [DispatchToFleetTool]
+     * is wired against [SshFleetPlane] (F0.2, design doc \u00a78.4/\u00a79.1) rather
+     * than `StubFleetPlane` -- the one-line swap called for by the design
+     * doc's rollback table ("F0 | Re-point VelaAppContainer at
+     * StubFleetPlane. One line.").
      */
     val hostToolRegistry: HostToolRegistry by lazy {
         val notesDbHelper = NotesDbHelper(appContext)
@@ -53,6 +56,10 @@ class VelaAppContainer(private val appContext: Context) {
                 NotesReadTool(notesDbHelper),
                 ReminderCreateTool(appContext),
                 ReminderCancelTool(appContext),
+                DispatchToFleetTool(
+                    ledgerRepository,
+                    SshFleetPlane(baseUrl = BuildConfig.VELA_SERVER_BASE_URL, apiKey = BuildConfig.VELA_SERVER_BEARER_TOKEN),
+                ),
             ),
         )
     }

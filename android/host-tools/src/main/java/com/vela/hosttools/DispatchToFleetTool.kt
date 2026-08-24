@@ -4,10 +4,16 @@ import com.vela.core.domain.HostTool.ToolResult
 import com.vela.core.domain.LedgerRepository
 import com.vela.core.domain.LedgerRepository.LedgerEntry
 import com.vela.core.domain.LedgerRepository.Status
+import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 
 /**
@@ -165,6 +171,119 @@ class StubFleetPlane(
     companion object {
         const val DEFAULT_MACHINE = "default"
     }
+}
+
+/**
+ * Real [FleetPlane] behind `vela-agentd`'s `POST /fleet/dispatch` (F0.2,
+ * design doc \u00a79.1 Stage F0 Lane F0.2). Replaces [StubFleetPlane] in
+ * production wiring ([StubFleetPlane] stays in the tree as the test double
+ * per \u00a78.4).
+ *
+ * `dispatch()` is a single synchronous HTTP round trip: the server launches
+ * `velafleet-run` over SSH and starts tailing its events in a background
+ * task server-side, so this call returns as soon as the SSH launch itself
+ * completes -- it never blocks on the dispatched job (D2/#40).
+ *
+ * Reachability (D3) here is *not* an in-memory heartbeat-registry lookup
+ * (that is Stage F1's broker) -- it is the honest F0 approximation: did the
+ * SSH launch round trip succeed. A non-2xx response, a network error, or a
+ * client-side timeout are all reported as `reachable = false` with detail,
+ * exactly mirroring the design doc's \u00a79.1 statement that F0 does not claim
+ * reliable D3.
+ */
+class SshFleetPlane(
+    private val baseUrl: String,
+    private val apiKey: String,
+    private val client: OkHttpClient = OkHttpClient.Builder()
+        .callTimeout(2, TimeUnit.SECONDS)
+        .connectTimeout(1, TimeUnit.SECONDS)
+        .readTimeout(2, TimeUnit.SECONDS)
+        .build(),
+) : FleetPlane {
+    private val jsonMediaType = "application/json".toMediaType()
+
+    override fun dispatch(jobSpec: String): FleetPlane.DispatchOutcome {
+        val (jobId, runtime, argv) = parseDispatchArgs(jobSpec)
+
+        val requestBody = JSONObject()
+            .put("job_id", jobId)
+            .put("runtime", runtime)
+            .apply {
+                val argvArray = org.json.JSONArray()
+                argv.forEach { argvArray.put(it) }
+                put("argv", argvArray)
+            }
+            .toString()
+
+        val request = Request.Builder()
+            .url("$baseUrl/fleet/dispatch")
+            .addHeader("Authorization", "Bearer $apiKey")
+            .post(requestBody.toRequestBody(jsonMediaType))
+            .build()
+
+        return try {
+            client.newCall(request).execute().use { response ->
+                val bodyString = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    val reason = extractErrorMessage(bodyString) ?: "HTTP ${response.code}"
+                    return FleetPlane.DispatchOutcome(
+                        reachable = false,
+                        detail = "dispatch failed: $reason",
+                        machineId = null,
+                        lastHeartbeatAgeMs = null,
+                    )
+                }
+                val json = JSONObject(bodyString)
+                FleetPlane.DispatchOutcome(
+                    reachable = json.optBoolean("reachable", false),
+                    detail = json.optString("detail", "accepted"),
+                    machineId = json.optString("machine_id", null),
+                    // F0 has no heartbeat registry (Stage F1 concern) -- always
+                    // null here, an honest statement of what this milestone does
+                    // NOT provide, rather than a fabricated value.
+                    lastHeartbeatAgeMs = null,
+                )
+            }
+        } catch (e: IOException) {
+            FleetPlane.DispatchOutcome(
+                reachable = false,
+                detail = "UNREACHABLE: ${e.javaClass.simpleName}: ${e.message}",
+                machineId = null,
+                lastHeartbeatAgeMs = null,
+            )
+        }
+    }
+
+    private data class ParsedDispatchArgs(val jobId: String, val runtime: String, val argv: List<String>)
+
+    private fun parseDispatchArgs(jobSpec: String): ParsedDispatchArgs {
+        val obj = try {
+            JSONObject(jobSpec)
+        } catch (e: Exception) {
+            JSONObject()
+        }
+        val jobId = obj.optString("job_id", UUID.randomUUID().toString())
+        val runtime = obj.optString("runtime", "shell")
+        val argv = mutableListOf<String>()
+        obj.optJSONArray("argv")?.let { arr ->
+            for (i in 0 until arr.length()) argv.add(arr.getString(i))
+        }
+        if (argv.isEmpty()) {
+            // Fall back to a trivial no-op shell command so a bare
+            // {title, summary} jobSpec (the shape DispatchToFleetTool.run()
+            // actually sends today) still produces a launchable job.
+            argv.add("true")
+        }
+        return ParsedDispatchArgs(jobId, runtime, argv)
+    }
+
+    private fun extractErrorMessage(body: String): String? =
+        try {
+            JSONObject(body).optJSONObject("error")?.optString("message")
+                ?: JSONObject(body).optJSONObject("detail")?.optJSONObject("error")?.optString("message")
+        } catch (e: Exception) {
+            null
+        }
 }
 
 class DispatchToFleetTool(

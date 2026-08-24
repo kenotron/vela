@@ -40,7 +40,14 @@ from vela_agentd_http._c2_broadcaster import EventBroadcaster
 from vela_agentd_http._config import load_config
 from vela_agentd_http._ledger_proxy import LedgerProxyClient
 from vela_agentd_http._session_runner import hydrate_agent_configs
-from vela_agentd_http.routes import approvals, chat_completions, events, ledger, models
+from vela_agentd_http.routes import (
+    approvals,
+    chat_completions,
+    events,
+    fleet,
+    ledger,
+    models,
+)
 
 logger = logging.getLogger("vela_agentd_http")
 
@@ -176,7 +183,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # for the serve path: it is always idempotent, never re-installs on warm cache.
     for _cat_name, _cat_entry in PROVIDER_CATALOG.items():
         try:
-            await prepared.resolver.async_resolve(_cat_entry["module"], _cat_entry["source"])
+            await prepared.resolver.async_resolve(
+                _cat_entry["module"], _cat_entry["source"]
+            )
             logger.info("Provider module ready: %s", _cat_entry["module"])
         except Exception as exc:  # broad: activation failure is non-fatal here
             # Log and continue.  A provider whose module can't be activated will
@@ -230,10 +239,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             errors.append(f"provider {provider_id!r}: credentials missing — {exc}")
             continue
         except ProviderModuleNotInstalledError as exc:
-            errors.append(f"provider {provider_id!r}: module {module_id!r} not installed — {exc}")
+            errors.append(
+                f"provider {provider_id!r}: module {module_id!r} not installed — {exc}"
+            )
             continue
         except Exception as exc:
-            errors.append(f"provider {provider_id!r}: failed to enumerate models — {type(exc).__name__}: {exc}")
+            errors.append(
+                f"provider {provider_id!r}: failed to enumerate models — {type(exc).__name__}: {exc}"
+            )
             continue
         if not provider_models:
             errors.append(f"provider {provider_id!r}: list_models() returned 0 models")
@@ -243,7 +256,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             d["_provider"] = provider_id
             app.state.available_models.append(d)
             app.state.served_models_registry[d["id"]] = provider_id
-        logger.info("Loaded %d models from provider %r", len(provider_models), provider_id)
+        logger.info(
+            "Loaded %d models from provider %r", len(provider_models), provider_id
+        )
 
     if errors:
         logger.error(
@@ -284,7 +299,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "providers_summary": providers_summary,
         }
     )
-    logger.info("State file written; server is discoverable via 'amplifier-agent serve status'.")
+    logger.info(
+        "State file written; server is discoverable via 'amplifier-agent serve status'."
+    )
 
     try:
         yield
@@ -313,6 +330,8 @@ def build_app() -> FastAPI:
     app.include_router(events.router)
     app.include_router(approvals.router)
     app.include_router(ledger.router)
+    # F0.2: SSH-out fleet dispatch (design doc §9.1, Stage F0 Lane F0.2).
+    app.include_router(fleet.router)
     return app
 
 
