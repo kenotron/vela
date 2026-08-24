@@ -46,14 +46,38 @@ class ApprovalGate(
         argsJson: String,
         runner: suspend () -> ToolResult,
     ): ToolResult {
-        if (!isPrivileged(toolName)) return runner()
+        val blocked = denyIfPrivileged(toolName, argsJson)
+        return blocked ?: runner()
+    }
+
+    /**
+     * True single-line integration point for callers that CANNOT restructure their
+     * function body into a [guard] lambda -- e.g. a genuine one-line residual inside a
+     * file owned by another lane. Returns a blocking [ToolResult.Failure] if [toolName]
+     * is privileged and was not approved (denied or timed out); returns `null` if the
+     * caller should proceed normally (either the tool is not privileged, or it was
+     * approved). Usage as a single inserted line at the top of an existing tool body,
+     * with NO other changes (no constructor param, no restructuring):
+     *
+     * ```kotlin
+     * override suspend fun run(argsJson: String): ToolResult {
+     *     ApprovalGate.default.denyIfPrivileged(name, argsJson)?.let { return it }
+     *     // ... existing body, completely unchanged ...
+     * }
+     * ```
+     *
+     * [guard] is implemented in terms of this method, so both entry points share
+     * identical fail-closed/timeout semantics.
+     */
+    suspend fun denyIfPrivileged(toolName: String, argsJson: String): ToolResult? {
+        if (!isPrivileged(toolName)) return null
 
         val approved = withTimeoutOrNull(timeoutMs) {
             requestApproval(ApprovalRequest(toolName, argsJson))
         } ?: false // timed out -- fail closed: treat exactly like an explicit decline
 
         return if (approved) {
-            runner()
+            null
         } else {
             ToolResult.Failure(
                 "privileged tool '$toolName' was not approved (denied or timed out after " +
@@ -65,5 +89,22 @@ class ApprovalGate(
     companion object {
         /** Matches the server-side `ApprovalGate`'s spirit of a bounded, short wait, not a hang. */
         const val DEFAULT_TIMEOUT_MS: Long = 30_000L
+
+        /**
+         * Process-wide default gate instance, wired to [PrivilegedTools] classification
+         * with the fail-closed (deny-everything) [requestApproval] until reconfigured via
+         * [configureDefault]. Exists specifically so a tool in a file this lane cannot
+         * edit (e.g. `DispatchToFleetTool.kt`, owned by the fleet-plane lane) can gate
+         * itself with the one-line [denyIfPrivileged] call shown in its KDoc, without
+         * requiring a constructor change to accept an injected gate.
+         */
+        @Volatile
+        var default: ApprovalGate = ApprovalGate()
+            private set
+
+        /** Reconfigure [default] -- e.g. once a real approval UI/voice channel exists. */
+        fun configureDefault(gate: ApprovalGate) {
+            default = gate
+        }
     }
 }

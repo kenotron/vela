@@ -76,6 +76,36 @@ class ApprovalGateTest {
     }
 
     @Test
+    fun `denyIfPrivileged returns null (proceed) for a non-privileged tool without consulting requestApproval`() =
+        runBlocking {
+            val consulted = AtomicBoolean(false)
+            val gate = ApprovalGate(requestApproval = { consulted.set(true); false })
+
+            val blocked = gate.denyIfPrivileged("calendar_read", "{}")
+
+            assertTrue("expected null (proceed) for a non-privileged tool", blocked == null)
+            assertFalse(consulted.get())
+        }
+
+    @Test
+    fun `denyIfPrivileged returns null (proceed) once a privileged tool is approved`() = runBlocking {
+        val gate = ApprovalGate(requestApproval = { true })
+
+        val blocked = gate.denyIfPrivileged("dispatch_to_fleet", "{}")
+
+        assertTrue("expected null (proceed) once approved", blocked == null)
+    }
+
+    @Test
+    fun `denyIfPrivileged returns a blocking Failure for a privileged tool that is denied`() = runBlocking {
+        val gate = ApprovalGate(requestApproval = { false })
+
+        val blocked = gate.denyIfPrivileged("dispatch_to_fleet", "{}")
+
+        assertTrue("expected a Failure to block the caller", blocked is ToolResult.Failure)
+    }
+
+    @Test
     fun `no approval response within timeout denies (fail closed), never hangs`() = runBlocking {
         // A deferred that is never completed simulates "no human ever answers".
         val neverResolves = CompletableDeferred<Boolean>()
