@@ -26,7 +26,7 @@ from vela_agentd_lib.fleet.events import (
     ledger_patch_for_event,
     parse_event_line,
 )
-from vela_agentd_lib.fleet.ssh_transport import SshCommandResult, SshTransport
+from vela_agentd_lib.fleet.ssh_transport import SshCommandResult, SshTransport, _quote_remote_path
 
 # ---------------------------------------------------------------------------
 # Event parsing / ledger mapping (pure, no SSH)
@@ -270,6 +270,33 @@ async def test_attention_events_are_never_coalesced_with_progress():
     assert len(attention_calls) == 2
     assert attention_calls[0][2]["attention"]["reason"] == "first"
     assert attention_calls[1][2]["attention"]["reason"] == "second"
+
+
+# ---------------------------------------------------------------------------
+# Tilde-quoting regression (found via a real end-to-end SSH run, not theorized)
+# ---------------------------------------------------------------------------
+
+
+def test_quote_remote_path_preserves_tilde_expansion():
+    """`shlex.quote()` on a path like "~/.vela/jobs/x" defeats tilde expansion,
+    because tilde-expansion only applies to an UNQUOTED leading `~`. A real
+    end-to-end SSH run against localhost surfaced this the hard way: it left
+    a literal directory named `~` under the remote $HOME because the launch
+    command's `mkdir -p` received the whole quoted string. `_quote_remote_path`
+    must leave a leading `~/` unquoted while still quoting the remainder.
+    """
+    # Leading ~/ stays unquoted (so the remote shell still expands it);
+    # shlex.quote() only wraps the remainder in quotes if it actually needs
+    # escaping -- a plain path segment like this one doesn't, so it comes
+    # back byte-identical, just with the tilde preserved un-mangled.
+    assert _quote_remote_path("~/.vela/jobs/job-1/events.jsonl") == "~/.vela/jobs/job-1/events.jsonl"
+    # No leading tilde: shlex.quote() still leaves an already-safe path alone.
+    assert _quote_remote_path("/abs/path") == "/abs/path"
+    # A single quote inside the remainder forces shlex.quote() to escape it,
+    # but the leading ~/ must still come through unquoted either way.
+    quoted = _quote_remote_path("~/weird'name/events.jsonl")
+    assert quoted.startswith("~/")
+    assert "'\\''" in quoted or "weird" in quoted
 
 
 # ---------------------------------------------------------------------------

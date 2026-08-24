@@ -28,6 +28,23 @@ class SshCommandResult:
     stderr: str
 
 
+def _quote_remote_path(path: str) -> str:
+    """Shell-quote a path for the remote command line, WITHOUT defeating `~` expansion.
+
+    `shlex.quote()` on a path like ``~/.vela/jobs/x`` wraps the whole thing in
+    single quotes, which makes the leading ``~`` LITERAL to the remote shell
+    (tilde expansion only happens for an unquoted/unescaped leading `~`) --
+    confirmed the hard way: a real end-to-end run against a real SSH target
+    left a literal directory named ``~`` under the remote $HOME, because
+    `mkdir -p '~/.vela/jobs/...'` created exactly that. This helper splits a
+    leading ``~/`` off (left unquoted, so the shell still expands it) and
+    quotes only the remainder.
+    """
+    if path.startswith("~/"):
+        return "~/" + shlex.quote(path[2:])
+    return shlex.quote(path)
+
+
 class SshTransport:
     """Thin wrapper over the `ssh` CLI: run-and-wait, and run-and-stream."""
 
@@ -117,11 +134,23 @@ class SshTransport:
         # mkdir -p first: velafleet-run itself creates the events dir, but we
         # need it to exist before redirecting the nohup log into it.
         return (
-            f"mkdir -p {shlex.quote(events_dir)} && "
+            f"mkdir -p {_quote_remote_path(events_dir)} && "
             f"nohup {run_bin} --job {job_id_q} --runtime {runtime_q} -- {argv_q} "
-            f">> {shlex.quote(log_path)} 2>&1 < /dev/null & disown; echo LAUNCHED"
+            f">> {_quote_remote_path(log_path)} 2>&1 < /dev/null & disown; echo LAUNCHED"
         )
 
     def build_tail_command(self, job_id: str) -> str:
-        """Build the remote shell command that tails `events.jsonl` from its start."""
-        return f"tail -f -n +1 {shlex.quote(self._config.events_path(job_id))}"
+        """Build the remote shell command that tails `events.jsonl` from its start.
+
+        Uses `--retry` alongside `-f`: plain `tail -f` on a file that does not
+        exist YET exits immediately with "no files remaining" (verified: GNU
+        coreutils tail on a nonexistent path returns exit 1 without waiting).
+        Since the launch command backgrounds `velafleet-run` via `nohup ... &
+        disown` and returns as soon as the SSH round trip completes, there is
+        a real window where the tail session can start before
+        `velafleet-run` has actually opened `events.jsonl` -- `--retry` makes
+        `tail` poll for the file's appearance instead of giving up. Found via
+        a genuine end-to-end run against a real SSH target (not a fake), not
+        theorized in advance.
+        """
+        return f"tail --retry -f -n +1 {_quote_remote_path(self._config.events_path(job_id))}"
