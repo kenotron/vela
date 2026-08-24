@@ -47,6 +47,19 @@ read that explains all three:
    PTY, not a pipe) with an 8s observation window: the job ran to
    completion on its own, again with no approval-shaped notification and no
    blocking prompt observed on screen.
+4. **`--config` pointing at `{"approval": {"mode": "prompt", "patterns":
+   ["rm -rf"]}}`**, with a bash command that literally contains `rm -rf`
+   (the exact configured pattern): still `tool/started`/`tool/completed`
+   fired directly, no approval notification, no prompt. `approval.patterns`
+   parses and validates (confirmed against `amplifier-agent`'s own test
+   suite, `tests/config/test_loader.py`) but is not wired to gate the
+   `bash` tool's execution in this installed engine -- the config is
+   accepted and silently has no effect on this path.
+
+Four independent real attempts, zero attention signals, one of them a
+config specifically engineered to match this engine's own documented
+approval-gating schema. This is not "we didn't try hard enough" -- it is a
+confirmed absence of any live trigger.
 
 **Root cause (read from `amplifier-agent` source,
 `~/workspace/claude-code/amplifier-agent`, this host):**
