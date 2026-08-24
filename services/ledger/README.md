@@ -1,5 +1,20 @@
 # vela-ledger-service
 
+> **Lane ledger-l1 terminal status (issue #36, Stage L1, design doc §12)** — committed
+> at this SHA so the classification travels with the code, not only in the gitignored
+> local `DONE.json`:
+>
+> | Item | State | Note |
+> |---|---|---|
+> | 1. `server_authoritative_version` on the wire (§4.3) | **PASS** | New work this lane: `Job.version`, sourced from `server_authoritative_version`. Tested. |
+> | 2. Cost accounting fields (§7.1/§7.2, #39) | **PASS** | Fields already existed; this lane resolved the §7.2 accumulation ambiguity explicitly (see "Cost accounting contract" below) and documented it — the open judgment call the spec required. |
+> | 3. Attention query backing the deck (§9, #30) | **BLOCKED-named** | `GET /ledger/attention` was already fully implemented and tested *before* this lane; no server-side gap found. The issue itself needs Android wiring (Stage L2, `ServerLedgerRepository`), which does not exist yet and is outside this lane's `services/ledger/**` ownership. Not resolvable from this lane. |
+> | 4. Zero-lost-events, server-side scope (§6, #38) | **BLOCKED-named** | This lane added the one server-side gap the design doc named as required (`record_decision` terminal-state guard, §5.3/RF-7 — new work, tested). The issue's actual acceptance test is a cross-layer test (§6.3) requiring a real Android client (Stage L2/L3), which doesn't exist yet. Not resolvable from this lane. |
+>
+> Verdict: **PARTIAL** — items 1-2 complete, items 3-4 blocked on Stage L2/L3
+> (Android), named above, not failures of this lane. Full pytest suite: 14 passed,
+> 0 failed, 0 skipped, as of this commit.
+
 Standalone, durable, server-side ledger implementing the C3 REST API and the
 `/ledger/events` SSE stream (design doc `docs/designs/2026-08-16-vela-chief-of-staff-rebuild.md`
 §4.2). Requires no fork of `amplifier-agent` (§10 Stage 2) — this service is deliberately
