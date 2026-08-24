@@ -32,6 +32,10 @@ ANDROID_JOB_RECORD_FIELDS = {
     "result",
     "cost.usd",
     "cost.tokens",
+    # Design doc §4.3: additive field, sourced from server_authoritative_version.
+    # Existing consumers ignoring it are unaffected; Android's JobRecord grows
+    # this field when the mirror's staleness check (§5.3) is implemented.
+    "version",
 }
 
 

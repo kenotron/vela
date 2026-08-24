@@ -20,7 +20,12 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Query
 from sse_starlette.sse import EventSourceResponse
 
-from ledger_service.db import DuplicateToolCallError, JobNotFoundError, LedgerDB
+from ledger_service.db import (
+    DuplicateToolCallError,
+    JobAlreadyTerminalError,
+    JobNotFoundError,
+    LedgerDB,
+)
 from ledger_service.events import EventBroadcaster
 from ledger_service.models import (
     DecisionRequest,
@@ -115,6 +120,8 @@ def create_app(db_path: Path | None = None) -> FastAPI:
             )
         except JobNotFoundError as exc:
             raise HTTPException(status_code=404, detail="job not found") from exc
+        except JobAlreadyTerminalError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         await app.state.broadcaster.publish("job.decided", record)
         return Job.from_record(record)
 

@@ -89,6 +89,43 @@ miss that check, the `UNIQUE` constraint's `IntegrityError` is caught and the ex
 row is fetched and returned instead of surfacing an error. Verified directly
 (`tests/test_idempotency.py`) and over HTTP (`tests/test_api_lifecycle.py`).
 
+## Decision terminal-state guard (design doc §5.3 / RF-7, Stage L1)
+
+`POST /ledger/jobs/{id}/decision` now rejects a decision against a job that is
+already in a terminal state (`done`, `failed`, `cancelled`) — **unless** the
+decision's `new_status` matches the job's current terminal status exactly, in
+which case it converges as a no-op (matching §4.1's "calling it twice with the
+same `new_status` converges to the same terminal state").
+
+This is the concrete mechanism behind the design doc's "server always wins"
+conflict rule (§5.3): if a phone queued a decision offline while the server
+concurrently timed the job out to `failed`, replaying that stale decision must
+not silently resurrect/overwrite the terminal state. `record_decision` raises
+`JobAlreadyTerminalError`; the HTTP layer maps it to `409 Conflict`, which
+clients should surface as "this job was already resolved" rather than retrying
+blindly.
+
+## Cost accounting contract (design doc §7.2, #39)
+
+`cost.usd` / `cost.tokens` (columns `cost_usd`, `cost_tokens`) are **overwrite-in-
+place** at this layer: `PATCH /ledger/jobs/{id}` with a `cost` field replaces the
+previously stored value, it does not sum with it. The ledger is a *recorder* of
+cost, never a *meter* (design doc SA6) — it stores and serves whatever figure
+it's handed.
+
+**The contract this service relies on:** the value each `PATCH`'s `cost` field
+carries must already be the **cumulative total for the job so far**. Because the
+fleet plane's `velafleet-run` shim emits periodic `cost` events over a job's
+lifetime rather than one final total (fleet plane doc §4.3), it is the
+**broker** (`vela-fleetd`, the sole ledger writer per that doc's §4.1/§5.2) that
+is responsible for summing before each `PATCH` — not this service. If the
+broker instead sends each period's incremental cost, `cost.usd` and
+`cost.tokens` will silently regress to a smaller figure on the next PATCH
+instead of growing, which is exactly the "looks-right-but-is-wrong" bug this
+contract exists to prevent. See design doc §7.2 for the full reasoning,
+including the still-open fan-out cost rollup question (parent-vs-children
+summation), which depends on fleet plane Stage F2 and is not addressed here.
+
 ## SSE stream
 
 `/ledger/events` is backed by an in-process pub/sub broadcaster
