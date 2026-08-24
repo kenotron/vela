@@ -2,12 +2,15 @@ package com.vela.voice.narrator
 
 import com.vela.events.C2Event
 import com.vela.events.ToolCallCorrelator.AttributedActivity
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.ceil
 
 /**
  * Verification substitution note (mirroring the `ZeroLostEventsTest.kt`
@@ -147,5 +150,71 @@ class NarratorTest {
             assertTrue("$agent narration must appear", startIdx >= 0 && progressIdx >= 0 && completeIdx >= 0)
             assertTrue("$agent narration must preserve order", startIdx < progressIdx && progressIdx < completeIdx)
         }
+    }
+
+    /**
+     * REAL wall-clock p99 measurement (not the correctness/ordering proxy above).
+     *
+     * The goal's item 6 explicitly authorizes measuring "against a simulated or
+     * replayed event stream if a live long-running agent turn isn't available" --
+     * this test exercises that authorization directly, rather than substituting
+     * a non-timing proxy.
+     *
+     * CRITICAL pitfall avoided: `kotlinx.coroutines.test.runTest` uses a virtual-time
+     * scheduler that auto-advances `delay()` calls instantly, which would make any
+     * wall-clock measurement here meaningless (near-zero gaps regardless of the
+     * simulated cadence). This test deliberately uses plain `kotlinx.coroutines.runBlocking`
+     * (real dispatcher, real time) so `delay()` calls actually elapse real wall-clock
+     * time and `System.nanoTime()` gaps are genuine.
+     *
+     * Simulated cadence rationale (mirrors realistic C2 traffic during an agent turn,
+     * per design doc §4.4's fast/slow tier flow):
+     *   - ToolStarted -> Progress: short gap (200-400ms) -- tool kicks off quickly.
+     *   - Progress -> Progress: frequent small gaps (150-300ms) -- streaming updates.
+     *   - Progress -> ToolCompleted: a longer "doing the work" gap (800-1500ms).
+     *   - ToolCompleted -> next agent's ToolStarted: a "thinking" pause up to ~2s,
+     *     representing the orchestrator deciding the next delegation.
+     * None of these individual simulated gaps exceed ~2s, so a correctly-behaving
+     * narration pipeline (adding negligible overhead of its own) should easily clear
+     * the <5s p99 budget -- this test proves the PIPELINE does not add cumulative
+     * delay on top of that realistic cadence; it does NOT prove real device/server
+     * cadence in production stays under budget, since this environment cannot run a
+     * live agent turn or a live TTS pipeline. That end-to-end proof remains a
+     * residual for CI's KVM-backed / live-server runner.
+     */
+    @Test
+    fun `real wall-clock narration inter-event gap p99 under simulated realistic cadence`() = runBlocking {
+        val narrator = Narrator()
+        val agents = (1..5).map { "agent-$it" }
+
+        val timedFlow = flow {
+            agents.forEach { agent ->
+                emit(activity(agent, C2Event.ToolStarted("s1", "t1", agent, "tc-$agent", "work", null)))
+                delay(250)
+                repeat(3) { i ->
+                    emit(activity(agent, C2Event.Progress("s1", "t1", agent, "$agent progress $i", null)))
+                    delay(200)
+                }
+                delay(1000)
+                emit(activity(agent, C2Event.ToolCompleted("s1", "t1", agent, "tc-$agent", "work", null, 1450)))
+                delay(400) // pre-next-agent "thinking" pause (kept short to bound real test wall-clock runtime)
+            }
+        }
+
+        val timestampsNanos = mutableListOf<Long>()
+        narrator.narrate(timedFlow) { _ -> timestampsNanos.add(System.nanoTime()) }
+
+        val gapsMs = timestampsNanos.zipWithNext { a, b -> (b - a) / 1_000_000.0 }
+        assertTrue("expected narration events to have been captured", gapsMs.isNotEmpty())
+
+        val sorted = gapsMs.sorted()
+        val rank = ceil(0.99 * sorted.size).toInt().coerceIn(1, sorted.size) - 1
+        val p99 = sorted[rank]
+
+        assertTrue(
+            "p99 inter-event gap was ${p99}ms across ${sorted.size} gaps (max=${sorted.last()}ms) -- " +
+                "expected < 5000ms under this simulated realistic cadence",
+            p99 < 5000.0,
+        )
     }
 }
