@@ -306,8 +306,17 @@ def _ssh_localhost_available() -> bool:
 )
 @pytest.mark.asyncio
 async def test_real_ssh_localhost_run_round_trip():
-    """When ssh localhost genuinely works, prove SshTransport.run() round-trips real output."""
-    config = FleetSshConfig(host="localhost", user="root")
+    """When ssh localhost genuinely works, prove SshTransport.run() round-trips real output.
+
+    Uses the *current* user (whoever has passwordless access into their own
+    localhost account trusted), not a hardcoded "root" -- the environment
+    this was verified against grants passwordless access to the invoking
+    user's own account (pubkey added to their own ~/.ssh/authorized_keys),
+    not to root.
+    """
+    import getpass
+
+    config = FleetSshConfig(host="localhost", user=getpass.getuser())
     transport = SshTransport(config)
     result = await transport.run("echo hello-from-remote", timeout_s=5)
     assert result.exit_code == 0
