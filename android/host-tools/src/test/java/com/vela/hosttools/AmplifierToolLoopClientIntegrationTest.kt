@@ -43,6 +43,12 @@ class AmplifierToolLoopClientIntegrationTest {
             apiKey = apiKey!!,
             registry = registry,
             clientSessionId = "test-${java.util.UUID.randomUUID()}",
+            // dispatch_to_fleet is a privileged tool (#45/#57) and is now gated
+            // by ApprovalGate (#44). This integration test targets the
+            // round-trip against a live agent-serve, not the approval gate
+            // itself (see ApprovalGateTest / PrivilegedToolAdversarialTest for
+            // that), so it simulates an already-approved human decision.
+            approvalGate = ApprovalGate(requestApproval = { true }),
         )
 
         val result = runBlocking {
