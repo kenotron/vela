@@ -1,27 +1,33 @@
 package com.vela.app.ui.chat
 
 import com.vela.core.domain.HostToolRegistry
+import com.vela.core.domain.LedgerRepository
+import com.vela.core.domain.LedgerRepository.Decision
+import com.vela.core.domain.LedgerRepository.LedgerEntry
+import com.vela.core.domain.LedgerRepository.Status
 import com.vela.core.ui.TranscriptMessage
 import com.vela.hosttools.AmplifierToolLoopClient
 import com.vela.voice.handoff.TierCoordinator.TierEvent
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
  * [AmplifierToolLoopClient] is a concrete class (real HTTP client), not an
- * interface, so it can't be faked the way `FakeLedgerRepository` fakes an
- * interface in `QueueViewModelTest`. These tests never invoke [sendMessage]
- * against it (which would make a real network call); instead, for tests that
- * need pre-existing chat-sourced messages in the stream, we seed
- * [ChatViewModel]'s private `_messages` StateFlow directly via reflection --
- * the same technique `QueueViewModelTest.seedCard` uses. [ingestVoiceTurn]
- * itself has no dependency on the tool loop client, so it is exercised
- * directly against a real [ChatViewModel] instance.
+ * interface, so it can't be faked the way `FakeLedgerRepository` (below,
+ * same pattern as `QueueViewModelTest`'s) fakes an interface. These tests
+ * never invoke [sendMessage] against it (which would make a real network
+ * call); instead, for tests that need pre-existing chat-sourced messages in
+ * the stream, we seed [ChatViewModel]'s private `_messages` StateFlow
+ * directly via reflection -- the same technique `QueueViewModelTest.seedCard`
+ * uses. [ingestVoiceTurn] itself has no dependency on the tool loop client,
+ * so it is exercised directly against a real [ChatViewModel] instance.
  */
 private val emptyRegistry = object : HostToolRegistry {
     override fun all() = emptyList<com.vela.core.domain.HostTool>()
@@ -44,6 +50,41 @@ private fun seedMessages(viewModel: ChatViewModel, vararg messages: TranscriptMe
     flow.value = messages.toList()
 }
 
+/** In-memory fake [LedgerRepository], same pattern as `QueueViewModelTest`'s. */
+private class FakeLedgerRepository : LedgerRepository {
+    private val entriesFlow = MutableStateFlow<List<LedgerEntry>>(emptyList())
+    val recordedDecisions = mutableListOf<Pair<String, Decision>>()
+
+    override fun observeEntries(): Flow<List<LedgerEntry>> = entriesFlow
+
+    override suspend fun get(id: String): LedgerEntry? = entriesFlow.value.firstOrNull { it.id == id }
+
+    override suspend fun append(entry: LedgerEntry) {
+        entriesFlow.value = entriesFlow.value + entry
+    }
+
+    override suspend fun recordDecision(entryId: String, decision: Decision) {
+        recordedDecisions.add(entryId to decision)
+        entriesFlow.value = entriesFlow.value.map {
+            if (it.id == entryId) it.copy(status = decision.status) else it
+        }
+    }
+
+    fun seed(entry: LedgerEntry) {
+        entriesFlow.value = entriesFlow.value + entry
+    }
+}
+
+private fun attentionEntry(id: String = "e1", summary: String = "Delete file foo.txt?") = LedgerEntry(
+    id = id,
+    title = "Title $id",
+    summary = summary,
+    createdAtEpochMs = 0L,
+    source = "test",
+    status = Status.PENDING,
+    requiresAttention = true,
+)
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatViewModelTest {
 
@@ -60,7 +101,7 @@ class ChatViewModelTest {
         viewModel.ingestVoiceTurn(this, "what's the weather", events)
         advanceUntilIdle()
 
-        val messages = viewModel.messages.value
+        val messages = viewModel.messages.value.filterIsInstance<TranscriptMessage.Chat>()
         assertEquals(4, messages.size)
         assertEquals(TranscriptMessage.Speaker.USER, messages[0].speaker)
         assertEquals("what's the weather", messages[0].text)
@@ -81,7 +122,7 @@ class ChatViewModelTest {
         viewModel.ingestVoiceTurn(this, "what time is it", events)
         advanceUntilIdle()
 
-        val messages = viewModel.messages.value
+        val messages = viewModel.messages.value.filterIsInstance<TranscriptMessage.Chat>()
         assertEquals(1, messages.size)
         assertEquals(TranscriptMessage.Speaker.USER, messages[0].speaker)
         assertEquals("what time is it", messages[0].text)
@@ -95,7 +136,7 @@ class ChatViewModelTest {
         viewModel.ingestVoiceTurn(this, "do the thing", events)
         advanceUntilIdle()
 
-        val messages = viewModel.messages.value
+        val messages = viewModel.messages.value.filterIsInstance<TranscriptMessage.Chat>()
         assertEquals(2, messages.size)
         assertEquals(TranscriptMessage.Speaker.ASSISTANT, messages[1].speaker)
         assertEquals("Error: slow tier timed out", messages[1].text)
@@ -110,17 +151,17 @@ class ChatViewModelTest {
         // network call.
         seedMessages(
             viewModel,
-            TranscriptMessage(id = "u1", speaker = TranscriptMessage.Speaker.USER, text = "typed message"),
-            TranscriptMessage(id = "a1", speaker = TranscriptMessage.Speaker.ASSISTANT, text = "typed reply"),
+            TranscriptMessage.Chat(id = "u1", speaker = TranscriptMessage.Speaker.USER, text = "typed message"),
+            TranscriptMessage.Chat(id = "a1", speaker = TranscriptMessage.Speaker.ASSISTANT, text = "typed reply"),
         )
 
         val events = flow { emit(TierEvent.Completed("spoken reply")) }
         viewModel.ingestVoiceTurn(this, "spoken utterance", events)
         advanceUntilIdle()
 
-        val messages = viewModel.messages.value
+        val messages = viewModel.messages.value.filterIsInstance<TranscriptMessage.Chat>()
         assertEquals(4, messages.size)
-        // Both message "kinds" are indistinguishable TranscriptMessage entries in one ordered stream.
+        // Both message "kinds" are indistinguishable TranscriptMessage.Chat entries in one ordered stream.
         assertEquals(TranscriptMessage.Speaker.USER, messages[0].speaker)
         assertEquals("typed message", messages[0].text)
         assertEquals(TranscriptMessage.Speaker.ASSISTANT, messages[1].speaker)
@@ -129,5 +170,281 @@ class ChatViewModelTest {
         assertEquals("spoken utterance", messages[2].text)
         assertEquals(TranscriptMessage.Speaker.ASSISTANT, messages[3].speaker)
         assertEquals("spoken reply", messages[3].text)
+    }
+
+    @Test
+    fun `postApprovalPrompt appends a distinct pending Approval entry`() = runTest {
+        val viewModel = ChatViewModel(dummyClient())
+
+        val messageId = viewModel.postApprovalPrompt(entryId = "entry-1", promptText = "Delete file foo.txt?")
+
+        val messages = viewModel.messages.value
+        assertEquals(1, messages.size)
+        val approval = messages[0] as TranscriptMessage.Approval
+        assertEquals(messageId, approval.id)
+        assertEquals("entry-1", approval.entryId)
+        assertEquals("Delete file foo.txt?", approval.promptText)
+        assertEquals(TranscriptMessage.Approval.Status.PENDING, approval.status)
+    }
+
+    @Test
+    fun `resolveApproval with approved=true updates the entry in place and appends a follow-up entry`() = runTest {
+        val viewModel = ChatViewModel(dummyClient())
+        val messageId = viewModel.postApprovalPrompt(entryId = "entry-1", promptText = "Delete file foo.txt?")
+
+        viewModel.resolveApproval(this, messageId, approved = true)
+
+        val messages = viewModel.messages.value
+        assertEquals(2, messages.size)
+        // Original entry is updated in place, not removed.
+        val approval = messages[0] as TranscriptMessage.Approval
+        assertEquals(messageId, approval.id)
+        assertEquals(TranscriptMessage.Approval.Status.APPROVED, approval.status)
+        // Follow-up entry records the resolution.
+        val followUp = messages[1] as TranscriptMessage.Chat
+        assertEquals(TranscriptMessage.Speaker.ASSISTANT, followUp.speaker)
+        assertEquals("Approved: Delete file foo.txt?", followUp.text)
+    }
+
+    @Test
+    fun `resolveApproval with approved=false updates the entry in place and appends a denial follow-up`() = runTest {
+        val viewModel = ChatViewModel(dummyClient())
+        val messageId = viewModel.postApprovalPrompt(entryId = "entry-2", promptText = "Send email to team?")
+
+        viewModel.resolveApproval(this, messageId, approved = false)
+
+        val messages = viewModel.messages.value
+        assertEquals(2, messages.size)
+        val approval = messages[0] as TranscriptMessage.Approval
+        assertEquals(TranscriptMessage.Approval.Status.DENIED, approval.status)
+        val followUp = messages[1] as TranscriptMessage.Chat
+        assertEquals("Denied: Send email to team?", followUp.text)
+    }
+
+    @Test
+    fun `resolveApproval is a no-op for an unknown or already-resolved message id`() = runTest {
+        val viewModel = ChatViewModel(dummyClient())
+        val messageId = viewModel.postApprovalPrompt(entryId = "entry-1", promptText = "Delete file foo.txt?")
+        viewModel.resolveApproval(this, messageId, approved = true)
+        val afterFirstResolution = viewModel.messages.value
+
+        viewModel.resolveApproval(this, messageId, approved = false)
+        viewModel.resolveApproval(this, "nonexistent-id", approved = true)
+
+        assertEquals(afterFirstResolution, viewModel.messages.value)
+    }
+
+    @Test
+    fun `an approval prompt interleaves in causal order with chat and voice entries`() = runTest {
+        val viewModel = ChatViewModel(dummyClient())
+
+        seedMessages(
+            viewModel,
+            TranscriptMessage.Chat(id = "u1", speaker = TranscriptMessage.Speaker.USER, text = "please back this up"),
+        )
+        val approvalId = viewModel.postApprovalPrompt(entryId = "entry-1", promptText = "Overwrite backup?")
+        viewModel.resolveApproval(this, approvalId, approved = true)
+
+        val messages = viewModel.messages.value
+        assertEquals(3, messages.size)
+        assertEquals("u1", (messages[0] as TranscriptMessage.Chat).id)
+        assertEquals(approvalId, (messages[1] as TranscriptMessage.Approval).id)
+        assertEquals(TranscriptMessage.Approval.Status.APPROVED, (messages[1] as TranscriptMessage.Approval).status)
+        assertEquals("Approved: Overwrite backup?", (messages[2] as TranscriptMessage.Chat).text)
+    }
+
+    @Test
+    fun `observeLedgerApprovals posts a chat approval prompt for a live AttentionCandidate entry`() = runTest {
+        val repo = FakeLedgerRepository()
+        val viewModel = ChatViewModel(dummyClient(), ledgerRepository = repo)
+
+        val ledgerJob = viewModel.observeLedgerApprovals(this)
+        repo.seed(attentionEntry(id = "e1", summary = "Delete file foo.txt?"))
+        advanceUntilIdle()
+
+        val messages = viewModel.messages.value
+        assertEquals(1, messages.size)
+        val approval = messages[0] as TranscriptMessage.Approval
+        assertEquals("e1", approval.entryId)
+        assertEquals("Delete file foo.txt?", approval.promptText)
+        assertEquals(TranscriptMessage.Approval.Status.PENDING, approval.status)
+        ledgerJob?.cancel()
+    }
+
+    @Test
+    fun `observeLedgerApprovals ignores an entry that does not require attention`() = runTest {
+        val repo = FakeLedgerRepository()
+        val viewModel = ChatViewModel(dummyClient(), ledgerRepository = repo)
+
+        val ledgerJob = viewModel.observeLedgerApprovals(this)
+        repo.seed(attentionEntry(id = "e1").copy(requiresAttention = false))
+        advanceUntilIdle()
+
+        assertTrue(viewModel.messages.value.isEmpty())
+        ledgerJob?.cancel()
+    }
+
+    @Test
+    fun `observeLedgerApprovals does not re-post the same entry on a later unrelated emission`() = runTest {
+        val repo = FakeLedgerRepository()
+        val viewModel = ChatViewModel(dummyClient(), ledgerRepository = repo)
+
+        val ledgerJob = viewModel.observeLedgerApprovals(this)
+        repo.seed(attentionEntry(id = "e1"))
+        advanceUntilIdle()
+        // A later, unrelated entry appears in the same observeEntries() emission.
+        repo.seed(attentionEntry(id = "e1", summary = "different text should not matter").copy())
+        repo.seed(attentionEntry(id = "e2", summary = "a genuinely new entry"))
+        advanceUntilIdle()
+
+        val approvals = viewModel.messages.value.filterIsInstance<TranscriptMessage.Approval>()
+        assertEquals(2, approvals.size)
+        assertEquals(setOf("e1", "e2"), approvals.map { it.entryId }.toSet())
+        // Only one prompt was ever posted per entry id.
+        assertEquals(1, approvals.count { it.entryId == "e1" })
+        ledgerJob?.cancel()
+    }
+
+    @Test
+    fun `resolveApproval with a configured ledgerRepository records ACCEPTED for an approval`() = runTest {
+        val repo = FakeLedgerRepository()
+        val viewModel = ChatViewModel(dummyClient(), ledgerRepository = repo)
+        val ledgerJob = viewModel.observeLedgerApprovals(this)
+        repo.seed(attentionEntry(id = "e1", summary = "Delete file foo.txt?"))
+        advanceUntilIdle()
+        val approvalId = (viewModel.messages.value[0] as TranscriptMessage.Approval).id
+
+        viewModel.resolveApproval(this, approvalId, approved = true)
+        advanceUntilIdle()
+
+        assertEquals(1, repo.recordedDecisions.size)
+        val (entryId, decision) = repo.recordedDecisions.first()
+        assertEquals("e1", entryId)
+        assertEquals(Status.ACCEPTED, decision.status)
+        ledgerJob?.cancel()
+    }
+
+    @Test
+    fun `resolveApproval with a configured ledgerRepository records DISMISSED for a denial`() = runTest {
+        val repo = FakeLedgerRepository()
+        val viewModel = ChatViewModel(dummyClient(), ledgerRepository = repo)
+        val ledgerJob = viewModel.observeLedgerApprovals(this)
+        repo.seed(attentionEntry(id = "e1", summary = "Delete file foo.txt?"))
+        advanceUntilIdle()
+        val approvalId = (viewModel.messages.value[0] as TranscriptMessage.Approval).id
+
+        viewModel.resolveApproval(this, approvalId, approved = false)
+        advanceUntilIdle()
+
+        assertEquals(1, repo.recordedDecisions.size)
+        assertEquals(Status.DISMISSED, repo.recordedDecisions.first().second.status)
+        ledgerJob?.cancel()
+    }
+
+    @Test
+    fun `resolveApproval without a configured ledgerRepository does not throw and still updates the transcript`() = runTest {
+        val viewModel = ChatViewModel(dummyClient())
+        val messageId = viewModel.postApprovalPrompt(entryId = "entry-1", promptText = "Delete file foo.txt?")
+
+        viewModel.resolveApproval(this, messageId, approved = true)
+        advanceUntilIdle()
+
+        val approval = viewModel.messages.value[0] as TranscriptMessage.Approval
+        assertEquals(TranscriptMessage.Approval.Status.APPROVED, approval.status)
+    }
+
+    @Test
+    fun `ingestVoiceTurn with an accept word resolves a pending approval by voice instead of the tier pipeline`() = runTest {
+        val viewModel = ChatViewModel(dummyClient())
+        val messageId = viewModel.postApprovalPrompt(entryId = "entry-1", promptText = "Delete file foo.txt?")
+
+        // If this were routed to the tier pipeline instead, this event would append an
+        // extra assistant message -- asserting its absence proves the short-circuit happened.
+        val events = flow { emit(TierEvent.Completed("this should never be collected")) }
+        viewModel.ingestVoiceTurn(this, "yes, go ahead", events)
+        advanceUntilIdle()
+
+        // postApprovalPrompt appended the Approval before ingestVoiceTurn appended the
+        // user's utterance, so the Approval (updated in place) remains at index 0; the
+        // utterance and the resolution follow-up are appended after it, in that order.
+        val messages = viewModel.messages.value
+        assertEquals(3, messages.size)
+        val approval = messages[0] as TranscriptMessage.Approval
+        assertEquals(messageId, approval.id)
+        assertEquals(TranscriptMessage.Approval.Status.APPROVED, approval.status)
+        assertEquals(TranscriptMessage.Speaker.USER, (messages[1] as TranscriptMessage.Chat).speaker)
+        assertEquals("yes, go ahead", (messages[1] as TranscriptMessage.Chat).text)
+        assertEquals("Approved: Delete file foo.txt?", (messages[2] as TranscriptMessage.Chat).text)
+    }
+
+    @Test
+    fun `ingestVoiceTurn with a decline word resolves a pending approval as denied`() = runTest {
+        val viewModel = ChatViewModel(dummyClient())
+        val messageId = viewModel.postApprovalPrompt(entryId = "entry-1", promptText = "Delete file foo.txt?")
+
+        val events = flow { emit(TierEvent.Completed("this should never be collected")) }
+        viewModel.ingestVoiceTurn(this, "no, don't do that", events)
+        advanceUntilIdle()
+
+        val messages = viewModel.messages.value
+        assertEquals(3, messages.size)
+        val approval = messages[0] as TranscriptMessage.Approval
+        assertEquals(messageId, approval.id)
+        assertEquals(TranscriptMessage.Approval.Status.DENIED, approval.status)
+        assertEquals("Denied: Delete file foo.txt?", (messages[2] as TranscriptMessage.Chat).text)
+    }
+
+    @Test
+    fun `ingestVoiceTurn with a configured ledgerRepository records the ledger decision when resolving by voice`() = runTest {
+        val repo = FakeLedgerRepository()
+        val viewModel = ChatViewModel(dummyClient(), ledgerRepository = repo)
+        val ledgerJob = viewModel.observeLedgerApprovals(this)
+        repo.seed(attentionEntry(id = "e1", summary = "Delete file foo.txt?"))
+        advanceUntilIdle()
+
+        val events = flow { emit(TierEvent.Completed("this should never be collected")) }
+        viewModel.ingestVoiceTurn(this, "yes approve it", events)
+        advanceUntilIdle()
+
+        assertEquals(1, repo.recordedDecisions.size)
+        val (entryId, decision) = repo.recordedDecisions.first()
+        assertEquals("e1", entryId)
+        assertEquals(Status.ACCEPTED, decision.status)
+        ledgerJob?.cancel()
+    }
+
+    @Test
+    fun `ingestVoiceTurn with no pending approval falls through to the normal tier pipeline`() = runTest {
+        val viewModel = ChatViewModel(dummyClient())
+
+        // "yes" would match the accept-word heuristic, but there is no pending approval
+        // to resolve, so this must be treated as an ordinary utterance.
+        val events = flow { emit(TierEvent.Completed("Sure, done.")) }
+        viewModel.ingestVoiceTurn(this, "yes", events)
+        advanceUntilIdle()
+
+        val messages = viewModel.messages.value
+        assertEquals(2, messages.size)
+        assertEquals(TranscriptMessage.Speaker.USER, (messages[0] as TranscriptMessage.Chat).speaker)
+        assertEquals(TranscriptMessage.Speaker.ASSISTANT, (messages[1] as TranscriptMessage.Chat).speaker)
+        assertEquals("Sure, done.", (messages[1] as TranscriptMessage.Chat).text)
+    }
+
+    @Test
+    fun `ingestVoiceTurn with a pending approval but non-matching words falls through to the normal tier pipeline`() = runTest {
+        val viewModel = ChatViewModel(dummyClient())
+        viewModel.postApprovalPrompt(entryId = "entry-1", promptText = "Delete file foo.txt?")
+
+        val events = flow { emit(TierEvent.Completed("What's the weather?")) }
+        viewModel.ingestVoiceTurn(this, "what's the weather today", events)
+        advanceUntilIdle()
+
+        val messages = viewModel.messages.value
+        // Approval(still pending, appended first by postApprovalPrompt) + Chat(user) +
+        // Chat(assistant) -- the approval is untouched.
+        assertEquals(3, messages.size)
+        val approval = messages[0] as TranscriptMessage.Approval
+        assertEquals(TranscriptMessage.Approval.Status.PENDING, approval.status)
+        assertEquals("What's the weather?", (messages[2] as TranscriptMessage.Chat).text)
     }
 }
