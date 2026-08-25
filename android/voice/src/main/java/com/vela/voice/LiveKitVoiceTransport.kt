@@ -2,6 +2,7 @@ package com.vela.voice
 
 import com.vela.core.domain.VoiceTransport
 import com.vela.voice.internal.LiveKitRoomClient
+import com.vela.voice.turndetection.TurnDetector
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.map
@@ -32,11 +33,48 @@ public class LiveKitVoiceTransport internal constructor(
 
     private val outgoingErrors = MutableSharedFlow<VoiceTransport.VoiceEvent.Error>(extraBufferCapacity = 8)
 
+    // Issue #24 (V2): client-local hybrid turn-detection heuristic, layered on
+    // top of transcript deltas observed over this transport. This is
+    // additive/advisory only - it does NOT drive `send(AudioChunk)` gating or
+    // any server-side behavior; the authoritative turn-completion decision
+    // remains the LiveKit Agents semantic turn detector running server-side
+    // (see the AudioChunk branch of [send] below). See [TurnDetector]'s kdoc
+    // for the full rationale, including the named BLOCKED gap (no semantic
+    // end-of-turn event exists on the current [LiveKitRoomClient] seam) and
+    // why this class exists to approximate it client-side in the meantime.
+    private val turnDetector = TurnDetector()
+
     override val state: Flow<VoiceTransport.TransportState> =
         roomClient.connectionState.map { it.toTransportState() }
 
     override val incomingEvents: Flow<VoiceTransport.VoiceEvent> =
         roomClient.events.map { it.toVoiceEvent() }
+
+    /**
+     * Client-local turn-detection signal, updated as a side effect of mapping
+     * incoming [LiveKitRoomClient.RoomEvent.Transcript] events (via
+     * [incomingEvents]/[toVoiceEvent]). Reflects the state as of the most
+     * recent transcript delta or [checkSilenceTimeout] call.
+     *
+     * Naming: not part of the [VoiceTransport] contract (that interface lives
+     * in `core-domain`, outside this lane's file ownership of the
+     * `android/voice` module) - this is additive API on the concrete implementation.
+     */
+    public val turnSignal: TurnDetector.Signal
+        get() = turnDetector.onSilenceTick()
+
+    /**
+     * Must be invoked periodically (e.g. from an app-level timer, ~100-200ms
+     * cadence) so that pure elapsed-silence completion - i.e. no further
+     * transcript delta ever arrives - is actually detected. Without a caller
+     * driving this tick, [turnSignal] only updates when a new transcript
+     * delta arrives, which cannot by itself observe trailing silence.
+     *
+     * Wiring this into an actual app-level periodic ticker is outside this
+     * lane's ownership (this module, `android/voice`, only) and is recorded as a
+     * residual; this method is the seam that wiring would call.
+     */
+    public fun checkSilenceTimeout(): TurnDetector.Signal = turnDetector.onSilenceTick()
 
     override suspend fun connect() {
         roomClient.connect(url, token)
@@ -89,10 +127,20 @@ public class LiveKitVoiceTransport internal constructor(
         when (this) {
             is LiveKitRoomClient.RoomEvent.RemoteAudio ->
                 VoiceTransport.VoiceEvent.AudioChunk(pcm16, sampleRateHz)
-            is LiveKitRoomClient.RoomEvent.Transcript ->
+            is LiveKitRoomClient.RoomEvent.Transcript -> {
+                // Feed the client-local hybrid turn detector (issue #24 / V2) as a
+                // side effect of mapping each transcript delta. This is advisory
+                // only - it does not alter the event being surfaced to callers.
+                turnDetector.onTranscriptDelta(text, isFinal)
                 VoiceTransport.VoiceEvent.TranscriptDelta(text, isFinal)
-            is LiveKitRoomClient.RoomEvent.BargeInDetected ->
+            }
+            is LiveKitRoomClient.RoomEvent.BargeInDetected -> {
+                // A barge-in means the user has started a new turn; discard any
+                // turn-detection state accumulated for the previous turn so it
+                // cannot spuriously report completion against stale content.
+                turnDetector.reset()
                 VoiceTransport.VoiceEvent.BargeIn
+            }
             is LiveKitRoomClient.RoomEvent.RoomError ->
                 VoiceTransport.VoiceEvent.Error(message, cause)
         }
