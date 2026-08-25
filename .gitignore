@@ -6,3 +6,4 @@ services/vela-agentd/.pytest_cache/
 **/__pycache__/
 .mission/
 .amplifier/goals/manifest.tsv
+**/uv.lock
