@@ -210,6 +210,7 @@ private fun JobRecord.toLedgerEntry(): LedgerEntry = LedgerEntry(
     createdAtEpochMs = createdAt,
     source = origin.sessionId,
     status = status.toDomainStatus(),
+    requiresAttention = attention.required,
 )
 
 /**

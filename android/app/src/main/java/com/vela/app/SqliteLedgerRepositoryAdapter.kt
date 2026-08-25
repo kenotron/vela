@@ -95,6 +95,7 @@ private fun JobRecord.toLedgerEntry(): LedgerEntry = LedgerEntry(
     createdAtEpochMs = createdAt,
     source = origin.sessionId,
     status = status.toLedgerStatus(),
+    requiresAttention = attention.required,
 )
 
 private fun JobStatus.toLedgerStatus(): Status = when (this) {

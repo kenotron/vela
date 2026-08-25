@@ -332,6 +332,10 @@ class DispatchToFleetTool(
                 createdAtEpochMs = System.currentTimeMillis(),
                 source = "dispatch_to_fleet",
                 status = Status.PENDING,
+                // needs_cross_lane_review: minimal edit to keep host-tools compiling
+                // after LedgerEntry gained requiresAttention (#47). A freshly
+                // dispatched job is, by definition, awaiting a human decision.
+                requiresAttention = true,
             ),
         )
 
