@@ -28,6 +28,15 @@ interface LedgerRepository {
         val createdAtEpochMs: Long,
         val source: String,
         val status: Status,
+        /**
+         * Attention gate (#47, epic #19): true when this entry represents work that
+         * needs a human decision (accept/defer/dismiss), false for progress-only
+         * updates that require no action. Set at construction so it is part of the
+         * entry's identity, not inferred later from status/category. This is the
+         * sole basis on which [com.vela.core.domain.notification.AttentionNotifier]
+         * can ever be reached -- see that package for the enforced guarantee.
+         */
+        val requiresAttention: Boolean,
     )
 
     enum class Status {
