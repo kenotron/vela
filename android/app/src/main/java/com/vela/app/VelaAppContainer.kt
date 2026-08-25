@@ -18,6 +18,9 @@ import com.vela.hosttools.ReminderCreateTool
 import com.vela.hosttools.DispatchToFleetTool
 import com.vela.hosttools.SshFleetPlane
 import com.vela.ledger.LedgerDatabase
+import com.vela.ledger.SqliteLedgerRepository
+import com.vela.ledger.server.LedgerApiClient
+import com.vela.ledger.server.ServerLedgerRepository
 
 /**
  * Composition root (goal item 2/3): lazily constructs the real, server-backed
@@ -32,8 +35,27 @@ import com.vela.ledger.LedgerDatabase
  */
 class VelaAppContainer(private val appContext: Context) {
 
+    /**
+     * Goal ledger-l2-android (#30/#37/#38): server-backed when a base URL is configured
+     * (matching the same [BuildConfig.VELA_SERVER_BASE_URL] the tool-loop client already
+     * uses), local-only [SqliteLedgerRepositoryAdapter] otherwise -- e.g. a dev build with
+     * no `android/local.properties` configured yet. Minimal selection logic per the
+     * goal's own instruction not to redesign this container.
+     */
     val ledgerRepository: LedgerRepository by lazy {
-        SqliteLedgerRepositoryAdapter(LedgerDatabase.getInstance(appContext).jobDao())
+        val jobDao = LedgerDatabase.getInstance(appContext).jobDao()
+        if (BuildConfig.VELA_SERVER_BASE_URL.isNotBlank()) {
+            ServerLedgerRepository(
+                api = LedgerApiClient(
+                    baseUrl = BuildConfig.VELA_SERVER_BASE_URL,
+                    apiKey = BuildConfig.VELA_SERVER_BEARER_TOKEN.ifBlank { null },
+                ),
+                mirror = SqliteLedgerRepository(jobDao),
+                outbox = LedgerDatabase.getInstance(appContext).decisionOutboxDao(),
+            )
+        } else {
+            SqliteLedgerRepositoryAdapter(jobDao)
+        }
     }
 
     /**
