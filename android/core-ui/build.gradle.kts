@@ -12,6 +12,12 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
+
     buildFeatures {
         compose = true
     }
@@ -45,4 +51,14 @@ dependencies {
 
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    // Compose semantics assertions (chat_transcript / chat_approval_* testTags,
+    // approve/deny actions) run as JVM unit tests via Robolectric, matching the
+    // pattern already used in :ledger and :host-tools -- no physical device or
+    // emulator required, per this host's capability limits.
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.11.1")
+    testImplementation("androidx.test:core:1.5.0")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("androidx.compose.ui:ui-test-manifest")
 }

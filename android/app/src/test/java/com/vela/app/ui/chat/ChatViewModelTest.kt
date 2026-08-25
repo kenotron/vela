@@ -60,7 +60,7 @@ class ChatViewModelTest {
         viewModel.ingestVoiceTurn(this, "what's the weather", events)
         advanceUntilIdle()
 
-        val messages = viewModel.messages.value
+        val messages = viewModel.messages.value.filterIsInstance<TranscriptMessage.Chat>()
         assertEquals(4, messages.size)
         assertEquals(TranscriptMessage.Speaker.USER, messages[0].speaker)
         assertEquals("what's the weather", messages[0].text)
@@ -81,7 +81,7 @@ class ChatViewModelTest {
         viewModel.ingestVoiceTurn(this, "what time is it", events)
         advanceUntilIdle()
 
-        val messages = viewModel.messages.value
+        val messages = viewModel.messages.value.filterIsInstance<TranscriptMessage.Chat>()
         assertEquals(1, messages.size)
         assertEquals(TranscriptMessage.Speaker.USER, messages[0].speaker)
         assertEquals("what time is it", messages[0].text)
@@ -95,7 +95,7 @@ class ChatViewModelTest {
         viewModel.ingestVoiceTurn(this, "do the thing", events)
         advanceUntilIdle()
 
-        val messages = viewModel.messages.value
+        val messages = viewModel.messages.value.filterIsInstance<TranscriptMessage.Chat>()
         assertEquals(2, messages.size)
         assertEquals(TranscriptMessage.Speaker.ASSISTANT, messages[1].speaker)
         assertEquals("Error: slow tier timed out", messages[1].text)
@@ -110,17 +110,17 @@ class ChatViewModelTest {
         // network call.
         seedMessages(
             viewModel,
-            TranscriptMessage(id = "u1", speaker = TranscriptMessage.Speaker.USER, text = "typed message"),
-            TranscriptMessage(id = "a1", speaker = TranscriptMessage.Speaker.ASSISTANT, text = "typed reply"),
+            TranscriptMessage.Chat(id = "u1", speaker = TranscriptMessage.Speaker.USER, text = "typed message"),
+            TranscriptMessage.Chat(id = "a1", speaker = TranscriptMessage.Speaker.ASSISTANT, text = "typed reply"),
         )
 
         val events = flow { emit(TierEvent.Completed("spoken reply")) }
         viewModel.ingestVoiceTurn(this, "spoken utterance", events)
         advanceUntilIdle()
 
-        val messages = viewModel.messages.value
+        val messages = viewModel.messages.value.filterIsInstance<TranscriptMessage.Chat>()
         assertEquals(4, messages.size)
-        // Both message "kinds" are indistinguishable TranscriptMessage entries in one ordered stream.
+        // Both message "kinds" are indistinguishable TranscriptMessage.Chat entries in one ordered stream.
         assertEquals(TranscriptMessage.Speaker.USER, messages[0].speaker)
         assertEquals("typed message", messages[0].text)
         assertEquals(TranscriptMessage.Speaker.ASSISTANT, messages[1].speaker)
@@ -129,5 +129,86 @@ class ChatViewModelTest {
         assertEquals("spoken utterance", messages[2].text)
         assertEquals(TranscriptMessage.Speaker.ASSISTANT, messages[3].speaker)
         assertEquals("spoken reply", messages[3].text)
+    }
+
+    @Test
+    fun `postApprovalPrompt appends a distinct pending Approval entry`() = runTest {
+        val viewModel = ChatViewModel(dummyClient())
+
+        val messageId = viewModel.postApprovalPrompt(entryId = "entry-1", promptText = "Delete file foo.txt?")
+
+        val messages = viewModel.messages.value
+        assertEquals(1, messages.size)
+        val approval = messages[0] as TranscriptMessage.Approval
+        assertEquals(messageId, approval.id)
+        assertEquals("entry-1", approval.entryId)
+        assertEquals("Delete file foo.txt?", approval.promptText)
+        assertEquals(TranscriptMessage.Approval.Status.PENDING, approval.status)
+    }
+
+    @Test
+    fun `resolveApproval with approved=true updates the entry in place and appends a follow-up entry`() = runTest {
+        val viewModel = ChatViewModel(dummyClient())
+        val messageId = viewModel.postApprovalPrompt(entryId = "entry-1", promptText = "Delete file foo.txt?")
+
+        viewModel.resolveApproval(messageId, approved = true)
+
+        val messages = viewModel.messages.value
+        assertEquals(2, messages.size)
+        // Original entry is updated in place, not removed.
+        val approval = messages[0] as TranscriptMessage.Approval
+        assertEquals(messageId, approval.id)
+        assertEquals(TranscriptMessage.Approval.Status.APPROVED, approval.status)
+        // Follow-up entry records the resolution.
+        val followUp = messages[1] as TranscriptMessage.Chat
+        assertEquals(TranscriptMessage.Speaker.ASSISTANT, followUp.speaker)
+        assertEquals("Approved: Delete file foo.txt?", followUp.text)
+    }
+
+    @Test
+    fun `resolveApproval with approved=false updates the entry in place and appends a denial follow-up`() = runTest {
+        val viewModel = ChatViewModel(dummyClient())
+        val messageId = viewModel.postApprovalPrompt(entryId = "entry-2", promptText = "Send email to team?")
+
+        viewModel.resolveApproval(messageId, approved = false)
+
+        val messages = viewModel.messages.value
+        assertEquals(2, messages.size)
+        val approval = messages[0] as TranscriptMessage.Approval
+        assertEquals(TranscriptMessage.Approval.Status.DENIED, approval.status)
+        val followUp = messages[1] as TranscriptMessage.Chat
+        assertEquals("Denied: Send email to team?", followUp.text)
+    }
+
+    @Test
+    fun `resolveApproval is a no-op for an unknown or already-resolved message id`() = runTest {
+        val viewModel = ChatViewModel(dummyClient())
+        val messageId = viewModel.postApprovalPrompt(entryId = "entry-1", promptText = "Delete file foo.txt?")
+        viewModel.resolveApproval(messageId, approved = true)
+        val afterFirstResolution = viewModel.messages.value
+
+        viewModel.resolveApproval(messageId, approved = false)
+        viewModel.resolveApproval("nonexistent-id", approved = true)
+
+        assertEquals(afterFirstResolution, viewModel.messages.value)
+    }
+
+    @Test
+    fun `an approval prompt interleaves in causal order with chat and voice entries`() = runTest {
+        val viewModel = ChatViewModel(dummyClient())
+
+        seedMessages(
+            viewModel,
+            TranscriptMessage.Chat(id = "u1", speaker = TranscriptMessage.Speaker.USER, text = "please back this up"),
+        )
+        val approvalId = viewModel.postApprovalPrompt(entryId = "entry-1", promptText = "Overwrite backup?")
+        viewModel.resolveApproval(approvalId, approved = true)
+
+        val messages = viewModel.messages.value
+        assertEquals(3, messages.size)
+        assertEquals("u1", (messages[0] as TranscriptMessage.Chat).id)
+        assertEquals(approvalId, (messages[1] as TranscriptMessage.Approval).id)
+        assertEquals(TranscriptMessage.Approval.Status.APPROVED, (messages[1] as TranscriptMessage.Approval).status)
+        assertEquals("Approved: Overwrite backup?", (messages[2] as TranscriptMessage.Chat).text)
     }
 }
