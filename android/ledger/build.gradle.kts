@@ -36,6 +36,9 @@ kapt {
 }
 
 dependencies {
+    // Needed by com.vela.ledger.server.ServerLedgerRepository, which implements the
+    // domain LedgerRepository contract directly (design doc §4.4).
+    implementation(project(":core-domain"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
     implementation("androidx.sqlite:sqlite:2.4.0")
 
@@ -43,8 +46,14 @@ dependencies {
     implementation("androidx.room:room-ktx:2.6.1")
     kapt("androidx.room:room-compiler:2.6.1")
 
+    // Server-backed ledger client (goal: ledger-l2-android, #30/#37/#38).
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")
+    implementation("org.json:json:20240303")
+
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.11.1")
     testImplementation("androidx.test:core:1.5.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }
