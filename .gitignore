@@ -7,3 +7,4 @@ services/vela-agentd/.pytest_cache/
 .mission/
 .amplifier/goals/manifest.tsv
 **/uv.lock
+DONE.json
