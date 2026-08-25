@@ -16,6 +16,10 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from fleetd_broker.store import BrokerStore
 
 
 class NoLiveWorkerError(Exception):
@@ -45,10 +49,41 @@ class WorkerRegistry:
     it is kept behind this narrow interface for exactly that reason.
     """
 
-    def __init__(self, *, heartbeat_interval_s: float = 15.0) -> None:
+    def __init__(
+        self,
+        *,
+        heartbeat_interval_s: float = 15.0,
+        store: BrokerStore | None = None,
+    ) -> None:
         self._heartbeat_interval_s = heartbeat_interval_s
         self._lock = threading.Lock()
         self._workers: dict[str, WorkerRecord] = {}
+        self._store = store
+        if store is not None:
+            # Restore what a prior process saw (design doc 4.1's durable
+            # broker store residual). No session can still be open across a
+            # restart, so every restored record starts disconnected -- it
+            # only becomes live again once the worker actually reconnects
+            # and reconciliation (reconciliation.py) has a chance to run.
+            for row in store.load_workers():
+                self._workers[row["machine_id"]] = WorkerRecord(
+                    machine_id=row["machine_id"],
+                    labels=set(row["labels"]),
+                    runtimes=list(row["runtimes"]),
+                    last_heartbeat_ms=row["last_heartbeat_ms"],
+                    active_jobs=row["active_jobs"],
+                    connected=False,
+                )
+
+    def _persist(self, record: WorkerRecord) -> None:
+        if self._store is not None:
+            self._store.upsert_worker(
+                machine_id=record.machine_id,
+                labels=sorted(record.labels),
+                runtimes=record.runtimes,
+                last_heartbeat_ms=record.last_heartbeat_ms,
+                active_jobs=record.active_jobs,
+            )
 
     @property
     def heartbeat_interval_s(self) -> float:
@@ -72,6 +107,7 @@ class WorkerRegistry:
                 record.runtimes = list(runtimes)
                 record.last_heartbeat_ms = now_ms()
                 record.connected = True
+            self._persist(record)
             return record
 
     def heartbeat(self, machine_id: str) -> None:
@@ -80,6 +116,7 @@ class WorkerRegistry:
             if record is not None:
                 record.last_heartbeat_ms = now_ms()
                 record.connected = True
+                self._persist(record)
 
     def disconnect(self, machine_id: str) -> None:
         """Mark a worker's session as closed. The record (and its jobs) are
@@ -90,6 +127,7 @@ class WorkerRegistry:
             record = self._workers.get(machine_id)
             if record is not None:
                 record.connected = False
+                self._persist(record)
 
     def is_live(self, record: WorkerRecord) -> bool:
         if not record.connected:
@@ -117,6 +155,7 @@ class WorkerRegistry:
             record = self._workers.get(machine_id)
             if record is not None:
                 record.active_jobs = max(0, record.active_jobs + delta)
+                self._persist(record)
 
     def select_target(
         self, *, machine_id: str | None, labels: list[str]
