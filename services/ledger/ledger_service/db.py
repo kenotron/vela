@@ -71,6 +71,29 @@ class DuplicateToolCallError(Exception):
     """
 
 
+TERMINAL_STATUSES = {"done", "failed", "cancelled"}
+
+
+class JobAlreadyTerminalError(Exception):
+    """Raised when a decision is recorded against a job already in a terminal
+    state (done/failed/cancelled).
+
+    Design doc §5.3 / RF-7: "server always wins" conflict rule. A queued
+    offline decision that arrives after the server has already resolved the
+    job (e.g. it timed out to `failed` while awaiting the decision) must not
+    silently overwrite the terminal state. Callers should surface this as
+    "this job was already resolved" rather than applying the decision.
+    """
+
+    def __init__(self, job_id: str, current_status: str) -> None:
+        self.job_id = job_id
+        self.current_status = current_status
+        super().__init__(
+            f"job {job_id} is already terminal ({current_status}); "
+            "decision rejected"
+        )
+
+
 def now_ms() -> int:
     return int(time.time() * 1000)
 
@@ -276,12 +299,26 @@ class LedgerDB:
     def record_decision(
         self, job_id: str, *, new_status: str, decided_at: int | None = None
     ) -> dict[str, Any]:
-        """Record a human decision: updates status, clears attention.required."""
+        """Record a human decision: updates status, clears attention.required.
+
+        Design doc §5.3 / RF-7 (terminal-state guard): if the job is already
+        in a terminal state (done/failed/cancelled), the decision is
+        rejected rather than silently overwriting that terminal state --
+        unless the decision is a no-op that matches the current status
+        exactly, in which case it converges harmlessly (design doc §4.1's
+        "calling it twice with the same new_status converges to the same
+        terminal state").
+        """
         current = self.get_job(job_id)
         if current is None:
             raise JobNotFoundError(job_id)
         if new_status not in VALID_STATUSES:
             raise ValueError(f"invalid status: {new_status!r}")
+
+        if current["status"] in TERMINAL_STATUSES:
+            if current["status"] == new_status:
+                return current
+            raise JobAlreadyTerminalError(job_id, current["status"])
 
         ts = decided_at if decided_at is not None else now_ms()
         with self._write_lock, self._cursor() as cur:
@@ -375,5 +412,6 @@ class LedgerDB:
                 "usd": row["cost_usd"],
                 "tokens": row["cost_tokens"],
             },
+            "version": row["server_authoritative_version"],
             "_result_json": result_json,
         }

@@ -72,6 +72,11 @@ class Job(BaseModel):
     progress: list[ProgressEntry]
     result: dict[str, Any] | None
     cost: Cost
+    # Design doc §4.3: monotonic conflict token, sourced from
+    # server_authoritative_version. Cheap "is my cached copy stale by N
+    # writes" check for the Android mirror (§5.3) -- additive field, existing
+    # consumers ignoring it are unaffected.
+    version: int = 0
 
     @classmethod
     def from_record(cls, record: dict[str, Any]) -> Job:
