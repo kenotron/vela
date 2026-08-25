@@ -352,4 +352,99 @@ class ChatViewModelTest {
         val approval = viewModel.messages.value[0] as TranscriptMessage.Approval
         assertEquals(TranscriptMessage.Approval.Status.APPROVED, approval.status)
     }
+
+    @Test
+    fun `ingestVoiceTurn with an accept word resolves a pending approval by voice instead of the tier pipeline`() = runTest {
+        val viewModel = ChatViewModel(dummyClient())
+        val messageId = viewModel.postApprovalPrompt(entryId = "entry-1", promptText = "Delete file foo.txt?")
+
+        // If this were routed to the tier pipeline instead, this event would append an
+        // extra assistant message -- asserting its absence proves the short-circuit happened.
+        val events = flow { emit(TierEvent.Completed("this should never be collected")) }
+        viewModel.ingestVoiceTurn(this, "yes, go ahead", events)
+        advanceUntilIdle()
+
+        // postApprovalPrompt appended the Approval before ingestVoiceTurn appended the
+        // user's utterance, so the Approval (updated in place) remains at index 0; the
+        // utterance and the resolution follow-up are appended after it, in that order.
+        val messages = viewModel.messages.value
+        assertEquals(3, messages.size)
+        val approval = messages[0] as TranscriptMessage.Approval
+        assertEquals(messageId, approval.id)
+        assertEquals(TranscriptMessage.Approval.Status.APPROVED, approval.status)
+        assertEquals(TranscriptMessage.Speaker.USER, (messages[1] as TranscriptMessage.Chat).speaker)
+        assertEquals("yes, go ahead", (messages[1] as TranscriptMessage.Chat).text)
+        assertEquals("Approved: Delete file foo.txt?", (messages[2] as TranscriptMessage.Chat).text)
+    }
+
+    @Test
+    fun `ingestVoiceTurn with a decline word resolves a pending approval as denied`() = runTest {
+        val viewModel = ChatViewModel(dummyClient())
+        val messageId = viewModel.postApprovalPrompt(entryId = "entry-1", promptText = "Delete file foo.txt?")
+
+        val events = flow { emit(TierEvent.Completed("this should never be collected")) }
+        viewModel.ingestVoiceTurn(this, "no, don't do that", events)
+        advanceUntilIdle()
+
+        val messages = viewModel.messages.value
+        assertEquals(3, messages.size)
+        val approval = messages[0] as TranscriptMessage.Approval
+        assertEquals(messageId, approval.id)
+        assertEquals(TranscriptMessage.Approval.Status.DENIED, approval.status)
+        assertEquals("Denied: Delete file foo.txt?", (messages[2] as TranscriptMessage.Chat).text)
+    }
+
+    @Test
+    fun `ingestVoiceTurn with a configured ledgerRepository records the ledger decision when resolving by voice`() = runTest {
+        val repo = FakeLedgerRepository()
+        val viewModel = ChatViewModel(dummyClient(), ledgerRepository = repo)
+        val ledgerJob = viewModel.observeLedgerApprovals(this)
+        repo.seed(attentionEntry(id = "e1", summary = "Delete file foo.txt?"))
+        advanceUntilIdle()
+
+        val events = flow { emit(TierEvent.Completed("this should never be collected")) }
+        viewModel.ingestVoiceTurn(this, "yes approve it", events)
+        advanceUntilIdle()
+
+        assertEquals(1, repo.recordedDecisions.size)
+        val (entryId, decision) = repo.recordedDecisions.first()
+        assertEquals("e1", entryId)
+        assertEquals(Status.ACCEPTED, decision.status)
+        ledgerJob?.cancel()
+    }
+
+    @Test
+    fun `ingestVoiceTurn with no pending approval falls through to the normal tier pipeline`() = runTest {
+        val viewModel = ChatViewModel(dummyClient())
+
+        // "yes" would match the accept-word heuristic, but there is no pending approval
+        // to resolve, so this must be treated as an ordinary utterance.
+        val events = flow { emit(TierEvent.Completed("Sure, done.")) }
+        viewModel.ingestVoiceTurn(this, "yes", events)
+        advanceUntilIdle()
+
+        val messages = viewModel.messages.value
+        assertEquals(2, messages.size)
+        assertEquals(TranscriptMessage.Speaker.USER, (messages[0] as TranscriptMessage.Chat).speaker)
+        assertEquals(TranscriptMessage.Speaker.ASSISTANT, (messages[1] as TranscriptMessage.Chat).speaker)
+        assertEquals("Sure, done.", (messages[1] as TranscriptMessage.Chat).text)
+    }
+
+    @Test
+    fun `ingestVoiceTurn with a pending approval but non-matching words falls through to the normal tier pipeline`() = runTest {
+        val viewModel = ChatViewModel(dummyClient())
+        viewModel.postApprovalPrompt(entryId = "entry-1", promptText = "Delete file foo.txt?")
+
+        val events = flow { emit(TierEvent.Completed("What's the weather?")) }
+        viewModel.ingestVoiceTurn(this, "what's the weather today", events)
+        advanceUntilIdle()
+
+        val messages = viewModel.messages.value
+        // Approval(still pending, appended first by postApprovalPrompt) + Chat(user) +
+        // Chat(assistant) -- the approval is untouched.
+        assertEquals(3, messages.size)
+        val approval = messages[0] as TranscriptMessage.Approval
+        assertEquals(TranscriptMessage.Approval.Status.PENDING, approval.status)
+        assertEquals("What's the weather?", (messages[2] as TranscriptMessage.Chat).text)
+    }
 }

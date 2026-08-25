@@ -48,6 +48,19 @@ class ChatViewModel(
      * re-post a prompt already surfaced for the same entry. */
     private val postedApprovalsByEntryId = ConcurrentHashMap<String, String>()
 
+    /**
+     * Word heuristic for resolving a pending [TranscriptMessage.Approval] by voice
+     * (issue #35's "if a voice path already exists" branch -- see [ingestVoiceTurn]).
+     * The codebase's only other voice-approval mechanism, `events.ApprovalVoiceBridge`,
+     * targets an entirely different id space (an HTTP `ApprovalClient`'s approval ids,
+     * unrelated to [LedgerRepository] entry ids) and is unwired/dead code, so it is not
+     * a drop-in path for [TranscriptMessage.Approval] -- this is a small, self-contained
+     * equivalent scoped to this feature's own entries, using the same non-NLU
+     * substring-containment heuristic (deliberately simple, matching that precedent).
+     */
+    private val voiceAcceptWords = listOf("yes", "approve", "confirm", "accept")
+    private val voiceDeclineWords = listOf("no", "deny", "decline", "reject")
+
     fun sendMessage(scope: CoroutineScope, text: String) {
         if (text.isBlank()) return
 
@@ -93,10 +106,24 @@ class ChatViewModel(
      * Folds a real voice turn into the same transcript [messages] stream
      * [sendMessage] appends to (issue #33). The caller has already spoken
      * [utterance] into [com.vela.voice.handoff.TierCoordinator.handle] and
-     * passes the resulting [events] flow here; this appends the user's
-     * utterance immediately (so it's visible the moment the turn starts,
-     * matching how [sendMessage] appends the user message before the
-     * response arrives), then appends one assistant message per relevant
+     * passes the resulting [events] flow here.
+     *
+     * Issue #35's spoken-resolution path: if there is a pending
+     * [TranscriptMessage.Approval] when [utterance] arrives and [utterance]
+     * is recognized as an accept/decline word (see [voiceAcceptWords] /
+     * [voiceDeclineWords]), this resolves that approval via [resolveApproval]
+     * instead of routing the utterance through the tier pipeline -- a spoken
+     * "yes" while a prompt is outstanding answers the prompt, it is not a new
+     * query. [events] is not collected in that case (the caller's
+     * `TierCoordinator.handle(utterance)` call itself has no side effect
+     * until collected, so this is safe to skip). The spoken utterance is
+     * still appended as a user [TranscriptMessage.Chat] entry either way, so
+     * what was said remains visible in the transcript.
+     *
+     * Otherwise, behavior is unchanged from before this branch existed: the
+     * utterance is appended immediately (so it's visible the moment the turn
+     * starts, matching how [sendMessage] appends the user message before the
+     * response arrives), then one assistant message is appended per relevant
      * [TierEvent] as they stream in, preserving causal order.
      *
      * [TierEvent.RespondDirectly] carries no answer text of its own (the
@@ -112,6 +139,8 @@ class ChatViewModel(
                 text = utterance,
             )
         }
+
+        if (tryResolvePendingApprovalByVoice(scope, utterance)) return
 
         scope.launch {
             events.collect { event ->
@@ -133,6 +162,28 @@ class ChatViewModel(
                 }
             }
         }
+    }
+
+    /**
+     * If a [TranscriptMessage.Approval] is currently [TranscriptMessage.Approval.Status.PENDING]
+     * and [utterance] contains a recognized accept/decline word, resolves that approval via
+     * [resolveApproval] and returns `true`. Returns `false` (no-op) if there is no pending
+     * approval, or [utterance] doesn't match either word list -- in which case the caller
+     * proceeds with normal tier-pipeline handling. The oldest pending approval is chosen when
+     * more than one is outstanding, matching first-in-first-out expectations.
+     */
+    private fun tryResolvePendingApprovalByVoice(scope: CoroutineScope, utterance: String): Boolean {
+        val pending = _messages.value.firstOrNull {
+            it is TranscriptMessage.Approval && it.status == TranscriptMessage.Approval.Status.PENDING
+        } as? TranscriptMessage.Approval ?: return false
+
+        val text = utterance.lowercase()
+        val accept = voiceAcceptWords.any { text.contains(it) }
+        val decline = !accept && voiceDeclineWords.any { text.contains(it) }
+        if (!accept && !decline) return false
+
+        resolveApproval(scope, pending.id, approved = accept)
+        return true
     }
 
     /**
