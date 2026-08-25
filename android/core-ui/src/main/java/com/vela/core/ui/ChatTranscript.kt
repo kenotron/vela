@@ -15,7 +15,13 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
-/** A single mock chat/transcript message. */
+/**
+ * A single chat/transcript message. Source-agnostic: may originate from a
+ * typed chat message or from a voice turn (see `ChatViewModel` in
+ * `android/app`, which is the real backing source for issue #33). Once a
+ * message becomes a [TranscriptMessage], its origin (typed vs. spoken) is
+ * indistinguishable -- both render identically here.
+ */
 data class TranscriptMessage(
     val id: String,
     val speaker: Speaker,
@@ -25,7 +31,11 @@ data class TranscriptMessage(
 }
 
 /**
- * Mock chat/transcript surface. Renders a scrollable list of [TranscriptMessage].
+ * Chat/transcript surface. Pure and stateless: renders whatever [messages]
+ * list it is given. The caller (see `MainActivity`'s `VelaScaffoldRoot`) is
+ * responsible for supplying a real, injectable source -- e.g.
+ * `ChatViewModel.messages.collectAsState()` -- rather than a hardcoded list.
+ * A mock list may still be used for `@Preview` fixtures.
  */
 @Composable
 fun ChatTranscript(
