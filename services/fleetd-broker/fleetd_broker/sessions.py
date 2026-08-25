@@ -13,7 +13,10 @@ or ledger-writing code.
 from __future__ import annotations
 
 import threading
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from fleetd_broker.store import BrokerStore
 
 
 class WorkerUnavailableError(Exception):
@@ -32,22 +35,42 @@ class SessionTable:
     async because it awaits the transport-specific send.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, store: BrokerStore | None = None) -> None:
         self._lock = threading.Lock()
-        self._job_machine: dict[str, str] = {}
+        self._store = store
+        self._job_machine: dict[str, str] = (
+            dict(store.load_job_bindings()) if store is not None else {}
+        )
         self._senders: dict[str, DecisionSender] = {}
 
     def bind_job(self, job_id: str, machine_id: str) -> None:
         with self._lock:
             self._job_machine[job_id] = machine_id
+        if self._store is not None:
+            self._store.bind_job(job_id, machine_id)
 
     def unbind_job(self, job_id: str) -> None:
         with self._lock:
             self._job_machine.pop(job_id, None)
+        if self._store is not None:
+            self._store.unbind_job(job_id)
 
     def machine_for_job(self, job_id: str) -> str | None:
         with self._lock:
             return self._job_machine.get(job_id)
+
+    def jobs_for_machine(self, machine_id: str) -> set[str]:
+        """Job ids the broker currently believes are bound to this worker.
+
+        Used by reconciliation.py to diff against what a reconnecting
+        worker actually reports.
+        """
+        with self._lock:
+            return {
+                job_id
+                for job_id, m_id in self._job_machine.items()
+                if m_id == machine_id
+            }
 
     def attach_sender(self, machine_id: str, sender: DecisionSender) -> None:
         with self._lock:

@@ -128,28 +128,40 @@ the decision text down the worker session currently bound to that job.
    reconnecting worker does not need to re-dispatch in-flight jobs -- only
    Lane F1.2 needs to decide how it resumes tailing its own JSONL offset.
 
-## Residuals / explicitly not done in this lane
+## Residuals closed in lane fleet-f1.2-residuals
 
-- **Fan-out (`strategy: "all"`, design doc 5.3) resolution and rollup** --
-  `WorkerRegistry.select_targets_all` resolves the target set, but parent/
-  child ledger job creation and rollup policy is not wired into
-  `/fleet/dispatch` (which only implements the single-target
-  `least_loaded`/`any` path). Named here as a residual, not implemented as a
-  stub.
-- **Reconciliation on worker reconnect** (design doc 4.1: diff a
-  reconnecting worker's reported job set against the broker's, correct the
-  ledger for anything that died while disconnected) -- the registry retains
-  bindings across a disconnect so the *data* needed for this exists, but the
-  diff-and-correct logic itself is not implemented.
-- **A local durable broker store** (design doc 4.1's `job_id -> (machine_id,
-  spec, last_known_state)` cache) -- this lane's `SessionTable`/
-  `WorkerRegistry` are in-memory only. A broker restart currently loses
-  job/worker bindings; workers would need to re-register and the broker
-  would need reconciliation logic (above) to recover state, which does not
-  exist yet.
+- **Fan-out (`strategy: "all"`, design doc 5.3)** -- `POST /fleet/dispatch`
+  now wires `WorkerRegistry.select_targets_all` end-to-end: every live
+  worker matching the label set gets its own ledger job (idempotency key
+  suffixed per-target so retrying the same fan-out dispatch converges,
+  same as the single-target path's G2 guarantee). Response carries
+  `strategy: "all"` and a `jobs: [{job_id, machine_id, ...}]` list instead
+  of a single `job_id`. See `tests/test_fanout.py`.
+- **Reconciliation on worker reconnect** -- `reconciliation.py`'s
+  `Reconciler` diffs a reconnecting worker's reported job set (the
+  `register` message's optional `job_ids` field) against
+  `SessionTable.jobs_for_machine`: jobs the broker still tracked but the
+  worker no longer reports are marked `failed` in the ledger and unbound;
+  jobs the worker reports that the broker had no binding for are resumed
+  (rebound). See `tests/test_reconciliation.py`.
+- **A local durable broker store** -- `store.py`'s `BrokerStore` persists
+  worker records and job/machine bindings to SQLite with the same
+  durability posture as `services/ledger` (WAL + `synchronous=FULL`).
+  `WorkerRegistry` and `SessionTable` both accept an optional `store=`
+  and restore state from it on construction (restored worker records start
+  `connected=False` -- no session can still be open across a restart; a
+  reconnect plus reconciliation, above, is what fully catches them up).
+  Wired into `create_app(store_path=...)` / `FLEETD_STORE_PATH` env var.
+  Proven with a real close-and-reopen test, same pattern as
+  `services/ledger/tests/test_durability_restart.py` --
+  see `tests/test_store_durability.py`.
+
+## Residuals still explicitly not done in this lane
+
 - **Real fleet-scale verification (Gates FG-1, FG-2)** -- no real hardware,
   no real Tailscale network, no `velafleet-worker` to dispatch to in this
   environment. In-process unit/integration tests exercise the broker's own
-  logic (registry, coalescing, event mapping, relay) with a fake worker
-  transport; they do not and cannot exercise real fleet conditions. See
-  `DONE.json` for this named as `BLOCKED`, not silently skipped.
+  logic (registry, coalescing, event mapping, relay, fan-out,
+  reconciliation, durable store) with a fake worker transport; they do not
+  and cannot exercise real fleet conditions. See `DONE.json` for this named
+  as `BLOCKED`, not silently skipped.

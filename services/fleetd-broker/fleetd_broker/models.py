@@ -57,11 +57,22 @@ class DispatchRequest(BaseModel):
     spec: JobSpec
 
 
-class DispatchResponse(BaseModel):
+class FanoutJobHandle(BaseModel):
     job_id: str
+    machine_id: str
+    last_heartbeat_age_ms: int | None = None
+
+
+class DispatchResponse(BaseModel):
+    job_id: str | None = None
     status: str
     machine_id: str | None = None
     last_heartbeat_age_ms: int | None = None
+    strategy: Literal["least_loaded", "all", "any"] = "least_loaded"
+    jobs: list[FanoutJobHandle] | None = None
+    """Populated only for `strategy: "all"` fan-out dispatch (design doc 5.3):
+    one entry per target the spec fanned out to. `job_id`/`machine_id` above
+    are left unset in that case -- there is no single target to report."""
 
 
 class RegisterRequest(BaseModel):
