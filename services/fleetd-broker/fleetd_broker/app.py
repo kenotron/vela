@@ -30,6 +30,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 
 from fleetd_broker.ledger_client import LedgerClient, ProgressCoalescer
+from fleetd_broker.ledger_events import LedgerEventSubscriber
 from fleetd_broker.models import (
     DecisionRelay,
     DispatchRequest,
@@ -81,6 +82,14 @@ def create_app(
         registry=app.state.registry,
         sessions=app.state.sessions,
         ledger=app.state.ledger,
+    )
+    # Closes #32: consumes the ledger's /ledger/events SSE stream and relays
+    # job.decided events for jobs this broker owns down to the live worker
+    # session, so a posted decision actually resumes the fleet job rather
+    # than only updating the ledger's record of it.
+    app.state.ledger_events = LedgerEventSubscriber(
+        ledger=app.state.ledger,
+        sessions=app.state.sessions,
     )
 
     @app.post("/fleet/dispatch", response_model=DispatchResponse, status_code=202)
@@ -273,8 +282,13 @@ def create_app(
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.on_event("startup")
+    async def startup() -> None:
+        app.state.ledger_events.start()
+
     @app.on_event("shutdown")
     async def shutdown() -> None:
+        await app.state.ledger_events.stop()
         await app.state.ledger.aclose()
         if app.state.store is not None:
             app.state.store.close()
