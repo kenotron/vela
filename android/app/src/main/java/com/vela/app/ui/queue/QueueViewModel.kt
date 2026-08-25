@@ -31,16 +31,40 @@ class QueueViewModel(private val ledgerRepository: LedgerRepository) {
         }
     }
 
+    /**
+     * Records a swipe decision against the ledger.
+     *
+     * Optimistically removes [card] from [cards] immediately so the UI reflects
+     * the decision without waiting on the network/repository round trip. If the
+     * repository call fails, the card is restored to [cards] (rollback) -- but
+     * only if it hasn't already been superseded by a newer emission (e.g. a
+     * fresh `observeEntries()` collection that no longer contains it).
+     */
     fun onDecision(scope: CoroutineScope, card: AttentionCard, decision: CardDecision) {
         val status = when (decision) {
             CardDecision.ACCEPT -> Status.ACCEPTED
             CardDecision.DISMISS -> Status.DISMISSED
+            CardDecision.DEFER -> Status.DEFERRED
         }
+
+        val originalCards = _cards.value
+        _cards.value = originalCards.filterNot { it.id == card.id }
+
         scope.launch {
-            ledgerRepository.recordDecision(
-                card.id,
-                Decision(status = status, decidedAtEpochMs = System.currentTimeMillis()),
-            )
+            try {
+                ledgerRepository.recordDecision(
+                    card.id,
+                    Decision(status = status, decidedAtEpochMs = System.currentTimeMillis()),
+                )
+            } catch (e: Exception) {
+                // Rollback: only restore if the current state still reflects our
+                // optimistic removal (i.e. hasn't been superseded by a newer
+                // observeEntries() emission).
+                val current = _cards.value
+                if (current.none { it.id == card.id } && current == originalCards.filterNot { it.id == card.id }) {
+                    _cards.value = originalCards
+                }
+            }
         }
     }
 }
