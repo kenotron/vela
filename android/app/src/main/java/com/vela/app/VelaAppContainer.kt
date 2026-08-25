@@ -21,6 +21,10 @@ import com.vela.ledger.LedgerDatabase
 import com.vela.ledger.SqliteLedgerRepository
 import com.vela.ledger.server.LedgerApiClient
 import com.vela.ledger.server.ServerLedgerRepository
+import com.vela.voice.classifier.RuleBasedUtteranceClassifier
+import com.vela.voice.classifier.UtteranceClassifier
+import com.vela.voice.handoff.SlowTierGateway
+import com.vela.voice.handoff.TierCoordinator
 
 /**
  * Composition root (goal item 2/3): lazily constructs the real, server-backed
@@ -112,6 +116,21 @@ class VelaAppContainer(private val appContext: Context) {
     }
 
     val c2EventClient: OkHttpC2EventClient by lazy { OkHttpC2EventClient() }
+
+    /**
+     * Live fast-tier / slow-tier hand-off (issue #61): [RuleBasedUtteranceClassifier] is the
+     * deterministic MVP classifier (see its kdoc for the named simplification -- no real
+     * fast-tier model call in this environment). [AmplifierToolLoopSlowTierGateway] bridges
+     * to the real slow tier via [toolLoopClient] -- see that class's kdoc for the named
+     * residual (no true progress narration; only terminal Completed/Failed events).
+     */
+    val utteranceClassifier: UtteranceClassifier by lazy { RuleBasedUtteranceClassifier() }
+
+    val slowTierGateway: SlowTierGateway by lazy { AmplifierToolLoopSlowTierGateway(toolLoopClient) }
+
+    val tierCoordinator: TierCoordinator by lazy {
+        TierCoordinator(utteranceClassifier, slowTierGateway)
+    }
 
     companion object {
         private const val KEY_CLIENT_SESSION_ID = "client_session_id"

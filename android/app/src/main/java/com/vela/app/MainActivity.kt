@@ -139,6 +139,25 @@ fun VelaScaffoldRoot() {
                         ) {
                             Text("Send")
                         }
+                        // Issue #61: real TierCoordinator.handle() -> ChatViewModel.ingestVoiceTurn
+                        // wiring, gated behind a distinct action since there is no mic-capture
+                        // pipeline in this app yet (out of scope -- see goal SCOPE-OUTS). This is
+                        // a genuine, working utterance-string -> ChatViewModel code path; it just
+                        // simulates the utterance source (this text field) instead of real audio.
+                        Button(
+                            onClick = {
+                                val utterance = chatInput
+                                chatInput = ""
+                                chatViewModel.ingestVoiceTurn(
+                                    coroutineScope,
+                                    utterance,
+                                    container.tierCoordinator.handle(utterance),
+                                )
+                            },
+                            modifier = Modifier.testTag("voice_turn_test"),
+                        ) {
+                            Text("Voice Turn (test)")
+                        }
                     }
                 }
             } else {
