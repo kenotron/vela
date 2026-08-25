@@ -67,11 +67,15 @@ fun VelaScaffoldRoot() {
     val coroutineScope = rememberCoroutineScope()
 
     val queueViewModel = remember { QueueViewModel(container.ledgerRepository) }
-    val chatViewModel = remember { ChatViewModel(container.toolLoopClient) }
+    val chatViewModel = remember { ChatViewModel(container.toolLoopClient, container.ledgerRepository) }
     val liveActivityViewModel = remember { LiveActivityViewModel(container.c2EventClient) }
 
     LaunchedEffect(Unit) {
         queueViewModel.start(coroutineScope)
+        // Issue #35: the wiring point from the ledger's pending approvals to the chat
+        // surface -- every live AttentionCandidate the ledger produces is surfaced as a
+        // distinct, flagged entry in chatViewModel.messages automatically.
+        chatViewModel.observeLedgerApprovals(coroutineScope)
         liveActivityViewModel.start(
             coroutineScope,
             baseUrl = BuildConfig.VELA_SERVER_BASE_URL,
@@ -108,7 +112,11 @@ fun VelaScaffoldRoot() {
 
                 Column(modifier = Modifier.fillMaxSize()) {
                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        ChatTranscript(messages = messages)
+                        ChatTranscript(
+                            messages = messages,
+                            onApprove = { messageId -> chatViewModel.resolveApproval(coroutineScope, messageId, approved = true) },
+                            onDeny = { messageId -> chatViewModel.resolveApproval(coroutineScope, messageId, approved = false) },
+                        )
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
