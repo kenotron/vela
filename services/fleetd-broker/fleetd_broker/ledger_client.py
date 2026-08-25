@@ -29,6 +29,18 @@ class LedgerClient:
     async def aclose(self) -> None:
         await self._client.aclose()
 
+    def events_client(self) -> httpx.AsyncClient:
+        """Expose the underlying HTTP client for streaming ``GET
+        /ledger/events`` (SSE).
+
+        Returns the *same* client instance used for the rest of the ledger
+        calls (base_url and transport included) so callers -- notably
+        ``LedgerEventSubscriber`` -- talk to whatever ledger endpoint (real
+        or in-process ``ASGITransport``, as in tests) this client was built
+        with, without duplicating connection setup.
+        """
+        return self._client
+
     async def create_job(
         self, *, origin: dict[str, str], spec: dict[str, Any], status: str = "accepted"
     ) -> dict[str, Any]:
