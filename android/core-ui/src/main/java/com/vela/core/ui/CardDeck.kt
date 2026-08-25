@@ -1,7 +1,7 @@
 package com.vela.core.ui
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -36,11 +36,13 @@ data class AttentionCard(
 enum class CardDecision {
     ACCEPT,
     DISMISS,
+    DEFER,
 }
 
 /**
  * Mock card-deck (attention queue) surface. Renders the top card of [cards] and
- * supports swipe-to-decide: swipe right accepts, swipe left dismisses.
+ * supports swipe-to-decide: swipe right accepts, swipe left dismisses, swipe up
+ * defers.
  *
  * This is intentionally the simplest possible gesture implementation so that a
  * deterministic Compose semantics test (`performTouchInput { swipeLeft() }`) can
@@ -66,40 +68,44 @@ fun CardDeck(
                 text = "No pending items",
                 modifier = Modifier.testTag("card_deck_empty"),
             )
-            return@Box
-        }
+        } else {
+            val offsetX = remember(topCard.id) { Animatable(0f) }
+            val coroutineScope = rememberCoroutineScope()
+            var dragTotalX by remember(topCard.id) { mutableStateOf(0f) }
+            var dragTotalY by remember(topCard.id) { mutableStateOf(0f) }
 
-        val offsetX = remember { Animatable(0f) }
-        val coroutineScope = rememberCoroutineScope()
-        var dragTotal by remember(topCard.id) { mutableStateOf(0f) }
-
-        Card(
-            modifier = Modifier
-                .padding(24.dp)
-                .testTag("card_deck_top_card")
-                .semantics { contentDescription = "Card: ${topCard.title}" }
-                .pointerInput(topCard.id) {
-                    detectHorizontalDragGestures(
-                        onDragEnd = {
-                            val threshold = 120f
-                            when {
-                                dragTotal <= -threshold -> onDecision(topCard, CardDecision.DISMISS)
-                                dragTotal >= threshold -> onDecision(topCard, CardDecision.ACCEPT)
-                            }
-                            dragTotal = 0f
-                            coroutineScope.launch { offsetX.snapTo(0f) }
-                        },
-                        onHorizontalDrag = { change, dragAmount ->
-                            change.consume()
-                            dragTotal += dragAmount
-                        },
-                    )
-                },
-            shape = RoundedCornerShape(16.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        ) {
-            Box(modifier = Modifier.padding(24.dp)) {
-                Text(text = topCard.title, style = MaterialTheme.typography.titleLarge)
+            Card(
+                modifier = Modifier
+                    .padding(24.dp)
+                    .testTag("card_deck_top_card")
+                    .semantics { contentDescription = "Card: ${topCard.title}" }
+                    .pointerInput(topCard.id) {
+                        detectDragGestures(
+                            onDragEnd = {
+                                val threshold = 120f
+                                when {
+                                    dragTotalY <= -threshold && kotlin.math.abs(dragTotalY) >= kotlin.math.abs(dragTotalX) ->
+                                        onDecision(topCard, CardDecision.DEFER)
+                                    dragTotalX <= -threshold -> onDecision(topCard, CardDecision.DISMISS)
+                                    dragTotalX >= threshold -> onDecision(topCard, CardDecision.ACCEPT)
+                                }
+                                dragTotalX = 0f
+                                dragTotalY = 0f
+                                coroutineScope.launch { offsetX.snapTo(0f) }
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                dragTotalX += dragAmount.x
+                                dragTotalY += dragAmount.y
+                            },
+                        )
+                    },
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+            ) {
+                Box(modifier = Modifier.padding(24.dp)) {
+                    Text(text = topCard.title, style = MaterialTheme.typography.titleLarge)
+                }
             }
         }
     }

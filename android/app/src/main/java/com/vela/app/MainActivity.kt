@@ -94,33 +94,14 @@ fun VelaScaffoldRoot() {
         Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(8.dp)) {
             if (selectedTab == 0) {
                 val cards by queueViewModel.cards.collectAsState()
-                // NOTE: com.vela.core.ui.CardDeck's empty-state branch (topCard == null)
-                // uses an early `return@Box` that corrupts Compose's SlotTable on this
-                // toolchain (androidx.compose.runtime 1.6.1 / compiler 1.5.8), causing a
-                // reproducible `ArrayIndexOutOfBoundsException` in SlotTableKt.key at
-                // first composition whenever cards is empty -- which it always is before
-                // the ledger's first emission. Root cause lives in android/core-ui/
-                // (out of this lane's file ownership), so it is not edited here; recorded
-                // as a residual for core-ui. As an app-side workaround, CardDeck is only
-                // invoked once cards is non-empty (verified crash-free); the empty state
-                // is rendered locally with the same semantics/testTag CardDeck used, so
-                // instrumented tests asserting on "card_deck" still pass.
-                if (cards.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .testTag("card_deck")
-                            .semantics { contentDescription = "Attention queue card deck" },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(text = "No pending items", modifier = Modifier.testTag("card_deck_empty"))
-                    }
-                } else {
-                    CardDeck(
-                        cards = cards,
-                        onDecision = { card, decision -> queueViewModel.onDecision(coroutineScope, card, decision) },
-                    )
-                }
+                // CardDeck.kt's empty-state branch was fixed (goal #29) to use a
+                // structural if/else instead of an early `return@Box`, so the
+                // SlotTable crash this workaround guarded against no longer applies.
+                // CardDeck is now always composed directly.
+                CardDeck(
+                    cards = cards,
+                    onDecision = { card, decision -> queueViewModel.onDecision(coroutineScope, card, decision) },
+                )
             } else if (selectedTab == 1) {
                 val messages by chatViewModel.messages.collectAsState()
                 var chatInput by remember { mutableStateOf("") }
