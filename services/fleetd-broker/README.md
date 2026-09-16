@@ -7,8 +7,9 @@ admission, sole ledger writing for fleet jobs, and decision relay.
 
 **Out of scope for this lane:** `velafleet-worker` (Lane F1.2) and
 `velafleet-run` (the per-job JSONL-emitting shim, design doc section 4.3).
-Neither exists yet. This service defines the protocol they must speak; it
-does not implement them or fake their presence.
+Neither is implemented by this service. `velafleet-run` is implemented in
+`fleet/run/`; `velafleet-worker` remains a future Lane F1.2 consumer. This
+service defines the protocol they must speak; it does not fake their presence.
 
 ## What this service owns
 
